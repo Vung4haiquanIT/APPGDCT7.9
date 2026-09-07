@@ -271,6 +271,70 @@ data class NotificationItem(
     }
 }
 
+data class BannerItem(
+    val id: String = "",
+    val title: String = "",
+    val subtitle: String = "",
+    val imageUrl: String = "",
+    val linkUrl: String = "",
+    val targetLessonId: String? = null,
+    val order: Int = 0,
+    val active: Boolean = true,
+    val createdAt: Long = System.currentTimeMillis()
+) {
+    companion object {
+        fun fromDoc(doc: DocumentSnapshot): BannerItem {
+            return BannerItem(
+                id = doc.id,
+                title = cleanHtml(doc.getString("title") ?: doc.getString("tieuDe") ?: ""),
+                subtitle = cleanHtml(doc.getString("subtitle") ?: doc.getString("subTitle") ?: doc.getString("moTa") ?: doc.getString("content") ?: ""),
+                imageUrl = doc.getString("imageUrl") ?: doc.getString("image") ?: doc.getString("hinhAnh") ?: doc.getString("url") ?: "",
+                linkUrl = doc.getString("linkUrl") ?: doc.getString("link") ?: "",
+                targetLessonId = doc.getString("targetLessonId") ?: doc.getString("lessonId"),
+                order = (doc.getLong("order") ?: doc.getLong("thuTu") ?: 0L).toInt(),
+                active = doc.getBoolean("active") ?: doc.getBoolean("isActive") ?: true,
+                createdAt = parseTime(doc.get("createdAt") ?: doc.get("timestamp"))
+            )
+        }
+
+        fun getDefaultMilitaryBanners(): List<BannerItem> {
+            return listOf(
+                BannerItem(
+                    id = "default_banner_1",
+                    title = "HỌC TẬP, RÈN LUYỆN\nVÌ LÝ TƯỞNG CỘNG SẢN",
+                    subtitle = "Kiên định mục tiêu độc lập dân tộc\nvà chủ nghĩa xã hội",
+                    order = 1
+                ),
+                BannerItem(
+                    id = "default_banner_2",
+                    title = "PHÁT HUY TRUYỀN THỐNG\nĐOÀN KẾT, KỶ CƯƠNG",
+                    subtitle = "Chiến sĩ Hải quân Vùng 4 tinh nhuệ,\nchính quy, hiện đại, sẵn sàng chiến đấu",
+                    order = 2
+                ),
+                BannerItem(
+                    id = "default_banner_3",
+                    title = "QUYẾT TÂM BẢO VỆ\nVỮNG CHẮC BIỂN ĐẢO",
+                    subtitle = "Mỗi con tàu, hòn đảo là một cột mốc\nchủ quyền thiêng liêng của Tổ quốc",
+                    order = 3
+                ),
+                BannerItem(
+                    id = "default_banner_4",
+                    title = "HỌC TẬP VÀ LÀM THEO\nTƯ TƯỞNG, ĐẠO ĐỨC BÁC HỒ",
+                    subtitle = "Cần, kiệm, liêm, chính, chí công vô tư\ntrong mọi nhiệm vụ công tác huấn luyện",
+                    order = 4
+                ),
+                BannerItem(
+                    id = "default_banner_5",
+                    title = "CHỦ ĐỘNG, SÁNG TẠO\nHUẤN LUYỆN CHIẾN ĐẤU GIỎI",
+                    subtitle = "Kỷ luật nghiêm minh, sẵn sàng nhận\nvà hoàn thành xuất sắc mọi nhiệm vụ",
+                    order = 5
+                )
+            )
+        }
+    }
+}
+
+
 private fun parseLong(value: Any?): Long {
     return when (value) {
         is Number -> value.toLong()

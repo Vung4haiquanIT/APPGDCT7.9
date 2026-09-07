@@ -5,6 +5,7 @@ import android.graphics.Color as AndroidColor
 import android.net.Uri
 import android.widget.TextView
 import androidx.core.text.HtmlCompat
+import androidx.compose.animation.*
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -16,11 +17,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -28,11 +31,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import com.example.model.Lesson
+import com.example.ui.components.LoginDialog
 import com.example.ui.components.Vung4LogoBadge
 import com.example.ui.theme.GoldPrimary
 import com.example.ui.theme.RedPrimary
@@ -68,6 +73,20 @@ fun LessonPlayerScreen(
     var selectedTab by remember { mutableStateOf(0) }
     val tabs = listOf("Slide", "Nội dung & Tài liệu", "Video", "Audio")
 
+    // Auth & Progress Tracking State
+    val userDoc by viewModel.userDoc.collectAsState()
+    val currentUser by viewModel.currentUser.collectAsState()
+    val progressList by viewModel.progressList.collectAsState()
+    val authActionLoading by viewModel.authActionLoading.collectAsState()
+    val isCompleted = progressList.any { it.lessonId == lesson.id && it.completed }
+    val isLoggedIn = userDoc != null || currentUser != null
+
+    var showLoginDialog by remember { mutableStateOf(false) }
+    var syncSuccessMessage by remember { mutableStateOf<String?>(null) }
+    var syncErrorMessage by remember { mutableStateOf<String?>(null) }
+    var isSubmittingProgress by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
+
     var selectedVideoUrl by remember { mutableStateOf(lessonVideos.firstOrNull()?.videoUrl) }
     val exoPlayer = remember {
         ExoPlayer.Builder(context).build().apply {
@@ -91,6 +110,54 @@ fun LessonPlayerScreen(
     var selectedQuizAnswers by remember { mutableStateOf<Map<Int, Int>>(emptyMap()) }
     var quizSubmitted by remember { mutableStateOf(false) }
     var viewingFile by remember { mutableStateOf<com.example.model.StorageFileItem?>(null) }
+
+    // Video completion listener
+    DisposableEffect(exoPlayer) {
+        val listener = object : Player.Listener {
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_ENDED) {
+                    viewModel.updateLessonProgress(
+                        lessonId = lesson.id,
+                        completed = true,
+                        onSuccess = {
+                            syncSuccessMessage = "Đã xem hết video bài học! Tiến độ học tập đã được lưu và gửi về Web Quản trị."
+                        },
+                        onError = { err ->
+                            syncErrorMessage = err
+                        }
+                    )
+                }
+            }
+        }
+        exoPlayer.addListener(listener)
+        onDispose {
+            exoPlayer.removeListener(listener)
+        }
+    }
+
+    // Audio completion listener
+    DisposableEffect(audioPlayer) {
+        val listener = object : Player.Listener {
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_ENDED) {
+                    viewModel.updateLessonProgress(
+                        lessonId = lesson.id,
+                        completed = true,
+                        onSuccess = {
+                            syncSuccessMessage = "Đã nghe xong audio bài học! Kết quả học tập đã được gửi về Web Quản trị."
+                        },
+                        onError = { err ->
+                            syncErrorMessage = err
+                        }
+                    )
+                }
+            }
+        }
+        audioPlayer.addListener(listener)
+        onDispose {
+            audioPlayer.removeListener(listener)
+        }
+    }
 
     DisposableEffect(selectedVideoUrl) {
         if (!selectedVideoUrl.isNullOrBlank()) {
@@ -131,6 +198,106 @@ fun LessonPlayerScreen(
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        bottomBar = {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 8.dp,
+                shadowElevation = 8.dp
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Trạng thái tiến độ hiện tại
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (isCompleted) Icons.Default.CheckCircle else Icons.Default.HourglassTop,
+                                contentDescription = null,
+                                tint = if (isCompleted) Color(0xFF2E7D32) else Color(0xFFE65100),
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Text(
+                                text = if (isCompleted) "Trạng thái: Đã hoàn thành (Đã gửi Web Admin)" else "Trạng thái: Đang học",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp,
+                                color = if (isCompleted) Color(0xFF2E7D32) else Color(0xFFE65100)
+                            )
+                        }
+
+                        if (!isLoggedIn) {
+                            TextButton(
+                                onClick = { showLoginDialog = true },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                            ) {
+                                Icon(Icons.Default.Login, contentDescription = null, modifier = Modifier.size(14.dp), tint = RedPrimary)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Đăng nhập", fontSize = 11.sp, color = RedPrimary, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+
+                    // Nút bấm hoàn thành và đồng bộ
+                    Button(
+                        onClick = {
+                            isSubmittingProgress = true
+                            viewModel.updateLessonProgress(
+                                lessonId = lesson.id,
+                                completed = true,
+                                onSuccess = {
+                                    isSubmittingProgress = false
+                                    syncSuccessMessage = "✓ Tiến độ bài học đã được đồng bộ thành công về Web Quản trị!"
+                                },
+                                onError = { err ->
+                                    isSubmittingProgress = false
+                                    syncErrorMessage = err
+                                    if (!isLoggedIn) {
+                                        showLoginDialog = true
+                                    }
+                                }
+                            )
+                        },
+                        enabled = !isSubmittingProgress,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(46.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isCompleted) Color(0xFF2E7D32) else RedPrimary
+                        ),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        if (isSubmittingProgress) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Đang đồng bộ về máy chủ...", color = Color.White, fontSize = 13.sp)
+                        } else {
+                            Icon(
+                                imageVector = if (isCompleted) Icons.Default.CloudDone else Icons.Default.CloudUpload,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = if (isCompleted) "CẬP NHẬT TIẾN ĐỘ VỀ WEB QUẢN TRỊ" else "HOÀN THÀNH BÀI HỌC & LƯU VỀ QUẢN TRỊ",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
+                        }
+                    }
+                }
+            }
+        },
         topBar = {
             TopAppBar(
                 title = {
@@ -139,7 +306,7 @@ fun LessonPlayerScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         IconButton(onClick = onBack) {
-                            Icon(Icons.Default.ArrowBack, contentDescription = "Quay lại", tint = MaterialTheme.colorScheme.onPrimary)
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Quay lại", tint = MaterialTheme.colorScheme.onPrimary)
                         }
                         Column {
                             Text(
@@ -168,25 +335,80 @@ fun LessonPlayerScreen(
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp),
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
             ) {
-                Row(
-                    modifier = Modifier.padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Vung4LogoBadge(size = 40.dp)
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = lesson.title,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp,
-                            color = RedPrimary,
-                            maxLines = 2,
-                            lineHeight = 21.sp
-                        )
+                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Vung4LogoBadge(size = 38.dp)
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = lesson.title,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                color = RedPrimary,
+                                maxLines = 2,
+                                lineHeight = 20.sp
+                            )
+                        }
+                    }
+
+                    // Thông tin tài khoản & Kết nối Web Quản trị
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (isLoggedIn) Color(0xFFE8F5E9) else Color(0xFFFFF3E0),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(if (isLoggedIn) Color(0xFF2E7D32) else Color(0xFFE65100))
+                                )
+                                Text(
+                                    text = if (isLoggedIn) {
+                                        "Tài khoản: ${userDoc?.name ?: currentUser?.email} (${userDoc?.unit ?: "Vùng 4 Hải Quân"})"
+                                    } else {
+                                        "Chế độ Khách (Chưa đăng nhập)"
+                                    },
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = if (isLoggedIn) Color(0xFF1B5E20) else Color(0xFFBF360C),
+                                    maxLines = 1
+                                )
+                            }
+
+                            if (!isLoggedIn) {
+                                Text(
+                                    text = "Đăng nhập ngay",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = RedPrimary,
+                                    modifier = Modifier.clickable { showLoginDialog = true }
+                                )
+                            } else {
+                                Text(
+                                    text = if (isCompleted) "✓ Đã hoàn thành" else "● Đang học",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isCompleted) Color(0xFF2E7D32) else Color(0xFFE65100)
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -320,6 +542,33 @@ fun LessonPlayerScreen(
                                         Text("Slide sau")
                                         Spacer(modifier = Modifier.width(4.dp))
                                         Icon(Icons.Default.ChevronRight, contentDescription = null)
+                                    }
+                                }
+
+                                if (pagerState.currentPage == lessonSlides.size - 1) {
+                                    Button(
+                                        onClick = {
+                                            isSubmittingProgress = true
+                                            viewModel.updateLessonProgress(
+                                                lessonId = lesson.id,
+                                                completed = true,
+                                                onSuccess = {
+                                                    isSubmittingProgress = false
+                                                    syncSuccessMessage = "Đã hoàn thành học toàn bộ Slide! Tiến độ đã được lưu và gửi về Web Quản trị."
+                                                },
+                                                onError = { err ->
+                                                    isSubmittingProgress = false
+                                                    syncErrorMessage = err
+                                                }
+                                            )
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
+                                        shape = RoundedCornerShape(10.dp)
+                                    ) {
+                                        Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Xác nhận đã học xong slide - Lưu về Web Quản trị", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                                     }
                                 }
                             } else {
@@ -615,7 +864,28 @@ fun LessonPlayerScreen(
                             }
 
                             Button(
-                                onClick = { quizSubmitted = true },
+                                onClick = {
+                                    val correctCount = sampleQuestions.indices.count { qIndex ->
+                                        val correctIndex = sampleQuestions[qIndex].third
+                                        selectedQuizAnswers[qIndex] == correctIndex
+                                    }
+                                    quizSubmitted = true
+                                    isSubmittingProgress = true
+                                    viewModel.updateLessonProgress(
+                                        lessonId = lesson.id,
+                                        completed = true,
+                                        score = correctCount,
+                                        totalQuestions = sampleQuestions.size,
+                                        onSuccess = {
+                                            isSubmittingProgress = false
+                                            syncSuccessMessage = "Hoàn thành kiểm tra: $correctCount/${sampleQuestions.size} câu đúng! Kết quả đã được đồng bộ về Web Quản trị."
+                                        },
+                                        onError = { err ->
+                                            isSubmittingProgress = false
+                                            syncErrorMessage = err
+                                        }
+                                    )
+                                },
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(48.dp),
@@ -624,7 +894,7 @@ fun LessonPlayerScreen(
                             ) {
                                 Icon(Icons.Default.CheckCircle, contentDescription = null)
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text("Nộp bài & Kiểm tra kết quả", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                                Text("Nộp bài & Lưu kết quả về Quản trị", fontWeight = FontWeight.Bold, fontSize = 15.sp)
                             }
 
                             if (quizSubmitted) {
@@ -857,6 +1127,115 @@ fun LessonPlayerScreen(
                 }
             }
         }
+    }
+
+    // THÔNG BÁO KẾT QUẢ ĐỒNG BỘ TIẾN ĐỘ THÀNH CÔNG
+    if (syncSuccessMessage != null) {
+        AlertDialog(
+            onDismissRequest = { syncSuccessMessage = null },
+            icon = {
+                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF2E7D32), modifier = Modifier.size(40.dp))
+            },
+            title = {
+                Text("ĐỒNG BỘ THÀNH CÔNG", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color(0xFF1B5E20))
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(syncSuccessMessage ?: "", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
+                    Text(
+                        "Dữ liệu tiến độ học tập của tài khoản đã được đẩy lên Web Quản trị để theo dõi quá trình học tập.",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { syncSuccessMessage = null },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))
+                ) {
+                    Text("Đã hiểu", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            shape = RoundedCornerShape(16.dp)
+        )
+    }
+
+    // THÔNG BÁO LỖI HOẶC YÊU CẦU ĐĂNG NHẬP
+    if (syncErrorMessage != null) {
+        AlertDialog(
+            onDismissRequest = { syncErrorMessage = null },
+            icon = {
+                Icon(Icons.Default.Info, contentDescription = null, tint = Color(0xFFE65100), modifier = Modifier.size(36.dp))
+            },
+            title = {
+                Text("TIẾN ĐỘ ĐÃ LƯU TRÊN MÁY", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color(0xFFE65100))
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(syncErrorMessage ?: "", fontSize = 13.sp)
+                    if (!isLoggedIn) {
+                        Text(
+                            "Đăng nhập tài khoản được cấp để hệ thống gửi tiến độ về máy chủ Web Quản trị.",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = RedPrimary
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                if (!isLoggedIn) {
+                    Button(
+                        onClick = {
+                            syncErrorMessage = null
+                            showLoginDialog = true
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = RedPrimary)
+                    ) {
+                        Text("Đăng nhập ngay", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                } else {
+                    Button(onClick = { syncErrorMessage = null }) {
+                        Text("Đóng")
+                    }
+                }
+            },
+            dismissButton = {
+                if (!isLoggedIn) {
+                    TextButton(onClick = { syncErrorMessage = null }) {
+                        Text("Để sau")
+                    }
+                }
+            },
+            shape = RoundedCornerShape(16.dp)
+        )
+    }
+
+    // HỘP THOẠI ĐĂNG NHẬP
+    if (showLoginDialog) {
+        LoginDialog(
+            isLoading = authActionLoading,
+            onDismiss = { showLoginDialog = false },
+            onLogin = { usernameOrEmail, password, onError ->
+                viewModel.loginWithAdminAccount(
+                    emailOrUsername = usernameOrEmail,
+                    pass = password,
+                    onSuccess = {
+                        showLoginDialog = false
+                        // Tự động đẩy tiến độ bài học này ngay sau khi đăng nhập thành công
+                        viewModel.updateLessonProgress(
+                            lessonId = lesson.id,
+                            completed = true,
+                            onSuccess = {
+                                syncSuccessMessage = "Đăng nhập thành công! Tiến độ bài học đã được tự động lưu về Web Quản trị."
+                            }
+                        )
+                    },
+                    onError = onError
+                )
+            }
+        )
     }
 }
 

@@ -1,8 +1,11 @@
 package com.example.ui.screens
 
 import android.Manifest
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -30,7 +33,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.model.Lesson
 import com.example.model.NotificationItem
 import com.example.ui.components.Vung4LogoBadge
@@ -39,6 +46,19 @@ import com.example.ui.theme.RedPrimary
 import com.example.viewmodel.AppViewModel
 import java.text.SimpleDateFormat
 import java.util.*
+
+fun isNotificationPermissionGranted(context: Context): Boolean {
+    val areNotifsEnabled = NotificationManagerCompat.from(context).areNotificationsEnabled()
+    if (!areNotifsEnabled) return false
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.POST_NOTIFICATIONS
+        ) == PackageManager.PERMISSION_GRANTED
+    } else {
+        true
+    }
+}
 
 enum class NotificationFilter(val label: String) {
     ALL("Tất cả"),
@@ -63,6 +83,21 @@ fun ThongBaoScreen(
     var selectedFilter by remember { mutableStateOf(NotificationFilter.ALL) }
     var activeLessonForPlayer by remember { mutableStateOf<Lesson?>(null) }
 
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var isPermissionGranted by remember { mutableStateOf(isNotificationPermissionGranted(context)) }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                isPermissionGranted = isNotificationPermissionGranted(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
     // If player is open, render LessonPlayerScreen
     if (activeLessonForPlayer != null) {
         LessonPlayerScreen(
@@ -77,9 +112,10 @@ fun ThongBaoScreen(
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
+        isPermissionGranted = isGranted || isNotificationPermissionGranted(context)
         if (isGranted) {
             viewModel.pushReminderToDevice()
-            Toast.makeText(context, "Đã gửi thông báo nhắc nhở đến điện thoại!", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Đã cấp quyền thông báo thành công!", Toast.LENGTH_SHORT).show()
         } else {
             Toast.makeText(context, "Chưa cấp quyền nhận thông báo trên điện thoại", Toast.LENGTH_SHORT).show()
         }
@@ -92,14 +128,27 @@ fun ThongBaoScreen(
                     Manifest.permission.POST_NOTIFICATIONS
                 ) == PackageManager.PERMISSION_GRANTED
             ) {
+                isPermissionGranted = true
                 viewModel.pushReminderToDevice()
-                Toast.makeText(context, "Đã gửi thông báo nhắc nhở đến điện thoại!", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Đã cấp quyền thông báo trên điện thoại!", Toast.LENGTH_SHORT).show()
             } else {
                 permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
         } else {
-            viewModel.pushReminderToDevice()
-            Toast.makeText(context, "Đã gửi thông báo nhắc nhở đến điện thoại!", Toast.LENGTH_SHORT).show()
+            if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) {
+                try {
+                    val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                        putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                    }
+                    context.startActivity(intent)
+                } catch (e: Exception) {
+                    Toast.makeText(context, "Vui lòng bật thông báo trong Cài đặt của máy", Toast.LENGTH_SHORT).show()
+                }
+            } else {
+                isPermissionGranted = true
+                viewModel.pushReminderToDevice()
+                Toast.makeText(context, "Đã bật thông báo trên điện thoại!", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
@@ -181,75 +230,79 @@ fun ThongBaoScreen(
                 .background(MaterialTheme.colorScheme.background),
             contentPadding = PaddingValues(bottom = 24.dp)
         ) {
-            // BANNER NHẮC NHỞ VỀ ĐIỆN THOẠI
-            item {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = NavyPrimary.copy(alpha = 0.08f)
-                    )
-                ) {
-                    Row(
-                        modifier = Modifier.padding(14.dp),
-                        verticalAlignment = Alignment.CenterVertically
+            // BANNER NHẮC NHỞ / CẤP QUYỀN VỀ ĐIỆN THOẠI (Chỉ hiển thị khi CHƯA cấp quyền trên máy, cấp xong lập tức ẩn đi)
+            if (!isPermissionGranted) {
+                item {
+                    AnimatedVisibility(
+                        visible = !isPermissionGranted,
+                        enter = fadeIn() + expandVertically(),
+                        exit = fadeOut() + shrinkVertically()
                     ) {
-                        Box(
+                        Card(
                             modifier = Modifier
-                                .size(44.dp)
-                                .clip(CircleShape)
-                                .background(NavyPrimary.copy(alpha = 0.15f)),
-                            contentAlignment = Alignment.Center
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = NavyPrimary.copy(alpha = 0.08f)
+                            )
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.NotificationsActive,
-                                contentDescription = null,
-                                tint = NavyPrimary,
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
+                            Row(
+                                modifier = Modifier.padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(44.dp)
+                                        .clip(CircleShape)
+                                        .background(NavyPrimary.copy(alpha = 0.15f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.NotificationsActive,
+                                        contentDescription = null,
+                                        tint = NavyPrimary,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
 
-                        Spacer(modifier = Modifier.width(12.dp))
+                                Spacer(modifier = Modifier.width(12.dp))
 
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Thông báo đẩy về điện thoại",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp,
-                                color = NavyPrimary
-                            )
-                            Text(
-                                text = if (incompleteLessons.isNotEmpty()) {
-                                    "Đang có ${incompleteLessons.size} bài học chưa hoàn thành tiến độ."
-                                } else {
-                                    "Đồng chí đã hoàn thành đầy đủ các bài học."
-                                },
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Bật thông báo đẩy về điện thoại",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp,
+                                        color = NavyPrimary
+                                    )
+                                    Text(
+                                        text = "Cấp quyền để nhận nhắc nhở bài học thiếu tiến độ và chỉ đạo từ Web Quản trị kịp thời.",
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
 
-                        Spacer(modifier = Modifier.width(8.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
 
-                        FilledTonalButton(
-                            onClick = { requestNotificationPermission() },
-                            shape = RoundedCornerShape(10.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                            modifier = Modifier.testTag("push_notification_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Send,
-                                contentDescription = null,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "Nhắc ngay",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+                                FilledTonalButton(
+                                    onClick = { requestNotificationPermission() },
+                                    shape = RoundedCornerShape(10.dp),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                    modifier = Modifier.testTag("push_notification_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.CheckCircle,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "Cấp quyền",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
                         }
                     }
                 }

@@ -12,6 +12,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -78,6 +79,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _notifications = MutableStateFlow<List<NotificationItem>>(emptyList())
     val notifications: StateFlow<List<NotificationItem>> = _notifications.asStateFlow()
 
+    private val _banners = MutableStateFlow<List<BannerItem>>(BannerItem.getDefaultMilitaryBanners())
+    val banners: StateFlow<List<BannerItem>> = _banners.asStateFlow()
+
     private val _unreadCount = MutableStateFlow(0)
     val unreadCount: StateFlow<Int> = _unreadCount.asStateFlow()
 
@@ -102,6 +106,22 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private var storageFilesListener: ListenerRegistration? = null
     private var progressListener: ListenerRegistration? = null
     private var notificationsListener: ListenerRegistration? = null
+    private var bannersListener: ListenerRegistration? = null
+    private var postersListener: ListenerRegistration? = null
+    private var bannersFromBannersColl: List<BannerItem> = emptyList()
+    private var bannersFromPostersColl: List<BannerItem> = emptyList()
+
+    private fun updateEffectiveBanners() {
+        val combined = if (bannersFromBannersColl.isNotEmpty()) {
+            bannersFromBannersColl
+        } else if (bannersFromPostersColl.isNotEmpty()) {
+            bannersFromPostersColl
+        } else {
+            BannerItem.getDefaultMilitaryBanners()
+        }
+        val sortedList = combined.filter { it.active }.sortedBy { it.order }.take(5)
+        _banners.value = if (sortedList.isNotEmpty()) sortedList else BannerItem.getDefaultMilitaryBanners()
+    }
 
     init {
         restoreLocalUserSession()
@@ -155,6 +175,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 _userDoc.value = restored
                 _userDocStatus.value = "CONNECTED (${restored.name})"
                 fetchProgress(restored.id)
+                syncPendingGuestProgressToFirestore(restored.id)
                 Log.i(TAG, "[SESSION] Restored login session for ${restored.name}")
                 restored
             } else {
@@ -390,6 +411,43 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         } catch (e: Exception) {
             Log.w(TAG, "[NOTIFICATIONS EXCEPTION] ${e.localizedMessage}")
         }
+
+        // 9. banners & posters từ Web Quản Trị (Tự động cập nhật tức thời theo thời gian thực)
+        try {
+            bannersListener?.remove()
+            bannersListener = db.collection("banners")
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        Log.w(TAG, "[BANNERS ERROR] ${error.code}: ${error.message}")
+                        return@addSnapshotListener
+                    }
+                    bannersFromBannersColl = snapshot?.documents?.mapNotNull { 
+                        try { BannerItem.fromDoc(it) } catch (e: Exception) { null }
+                    } ?: emptyList()
+                    updateEffectiveBanners()
+                    Log.i(TAG, "[BANNERS] Realtime sync: ${bannersFromBannersColl.size} banners from Web Quản trị")
+                }
+        } catch (e: Exception) {
+            Log.w(TAG, "[BANNERS EXCEPTION] ${e.localizedMessage}")
+        }
+
+        try {
+            postersListener?.remove()
+            postersListener = db.collection("posters")
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        Log.w(TAG, "[POSTERS ERROR] ${error.code}: ${error.message}")
+                        return@addSnapshotListener
+                    }
+                    bannersFromPostersColl = snapshot?.documents?.mapNotNull { 
+                        try { BannerItem.fromDoc(it) } catch (e: Exception) { null }
+                    } ?: emptyList()
+                    updateEffectiveBanners()
+                    Log.i(TAG, "[POSTERS] Realtime sync: ${bannersFromPostersColl.size} posters from Web Quản trị")
+                }
+        } catch (e: Exception) {
+            Log.w(TAG, "[POSTERS EXCEPTION] ${e.localizedMessage}")
+        }
     }
 
     private fun fetchUserDoc(uid: String) {
@@ -414,12 +472,87 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun fetchProgress(uid: String) {
-        if (db == null) return
+    fun getGuestProgressList(): List<ProgressDoc> {
+        return try {
+            val prefs = getApplication<Application>().getSharedPreferences("vung4_guest_progress", Context.MODE_PRIVATE)
+            val set = prefs.getStringSet("guest_items", emptySet()) ?: emptySet()
+            set.mapNotNull { entry ->
+                val parts = entry.split("###")
+                if (parts.size >= 2) {
+                    ProgressDoc(
+                        id = "guest_${parts[0]}",
+                        userId = "guest",
+                        lessonId = parts[0],
+                        completed = parts[1].toBoolean(),
+                        updatedAt = if (parts.size >= 3) parts[2].toLongOrNull() ?: System.currentTimeMillis() else System.currentTimeMillis()
+                    )
+                } else null
+            }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    fun saveGuestProgressItem(lessonId: String, completed: Boolean, score: Int? = null) {
+        try {
+            val prefs = getApplication<Application>().getSharedPreferences("vung4_guest_progress", Context.MODE_PRIVATE)
+            val current = prefs.getStringSet("guest_items", emptySet())?.toMutableSet() ?: mutableSetOf()
+            current.removeAll { it.startsWith("$lessonId###") }
+            current.add("$lessonId###$completed###${System.currentTimeMillis()}###${score ?: -1}")
+            prefs.edit().putStringSet("guest_items", current).apply()
+
+            if (_currentUser.value == null && _userDoc.value == null) {
+                val updated = _progressList.value.filter { it.lessonId != lessonId }.toMutableList()
+                updated.add(
+                    ProgressDoc(
+                        id = "guest_$lessonId",
+                        userId = "guest",
+                        lessonId = lessonId,
+                        completed = completed,
+                        updatedAt = System.currentTimeMillis()
+                    )
+                )
+                _progressList.value = updated
+                updateCombinedNotifications()
+            }
+            Log.i(TAG, "[GUEST PROGRESS] Saved offline progress for lesson $lessonId, completed=$completed")
+        } catch (e: Exception) {
+            Log.e(TAG, "[GUEST PROGRESS SAVE ERROR] ${e.localizedMessage}")
+        }
+    }
+
+    fun syncPendingGuestProgressToFirestore(uid: String) {
+        viewModelScope.launch {
+            try {
+                val prefs = getApplication<Application>().getSharedPreferences("vung4_guest_progress", Context.MODE_PRIVATE)
+                val set = prefs.getStringSet("guest_items", emptySet()) ?: emptySet()
+                if (set.isNotEmpty()) {
+                    for (entry in set) {
+                        val parts = entry.split("###")
+                        if (parts.size >= 2) {
+                            val lessonId = parts[0]
+                            val completed = parts[1].toBoolean()
+                            val score = if (parts.size >= 4) parts[3].toIntOrNull()?.takeIf { it >= 0 } else null
+                            updateLessonProgress(lessonId = lessonId, completed = completed, score = score)
+                        }
+                    }
+                    prefs.edit().clear().apply()
+                    Log.i(TAG, "[SYNC] Synced pending guest progress (${set.size} items) to user $uid")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "[SYNC GUEST ERROR] ${e.localizedMessage}")
+            }
+        }
+    }
+
+    fun fetchProgress(uid: String) {
+        if (db == null) {
+            _progressList.value = getGuestProgressList()
+            return
+        }
         try {
             progressListener?.remove()
             progressListener = db.collection("progress")
-                .whereEqualTo("userId", uid)
                 .addSnapshotListener { snapshot, error ->
                     if (error != null) {
                         Log.e(TAG, "[PROGRESS ERROR] ${error.code}: ${error.message}", error)
@@ -427,12 +560,28 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         return@addSnapshotListener
                     }
                     if (snapshot != null) {
-                        val list = snapshot.documents.mapNotNull { 
-                            try { ProgressDoc.fromDoc(it) } catch (e: Exception) { null }
+                        val userEmail = _userDoc.value?.email ?: _currentUser.value?.email ?: ""
+                        val list = snapshot.documents.mapNotNull { doc ->
+                            try {
+                                val item = ProgressDoc.fromDoc(doc)
+                                val docUserId = doc.getString("userId") ?: doc.getString("user_id") ?: doc.getString("nguoiDungId") ?: ""
+                                val docEmail = doc.getString("userEmail") ?: ""
+                                if (docUserId == uid || (userEmail.isNotBlank() && docEmail.equals(userEmail, ignoreCase = true)) || doc.id.startsWith("${uid}_")) {
+                                    item
+                                } else null
+                            } catch (e: Exception) { null }
                         }
-                        _progressList.value = list
-                        _progressStatus.value = "CONNECTED (${list.size} docs)"
-                        Log.i(TAG, "[PROGRESS] Documents for user $uid: ${list.size}")
+                        // Gộp thêm tiến độ tạm thời của khách nếu chưa đồng bộ
+                        val guestList = getGuestProgressList()
+                        val combined = list.toMutableList()
+                        for (g in guestList) {
+                            if (combined.none { it.lessonId == g.lessonId }) {
+                                combined.add(g)
+                            }
+                        }
+                        _progressList.value = combined
+                        _progressStatus.value = "CONNECTED (${combined.size} docs)"
+                        Log.i(TAG, "[PROGRESS] Documents for user $uid: ${combined.size}")
                         updateCombinedNotifications()
                     }
                 }
@@ -442,32 +591,146 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun updateLessonProgress(lessonId: String, completed: Boolean) {
-        val uid = _currentUser.value?.uid ?: _userDoc.value?.id ?: return
-        if (db == null) return
+    fun updateLessonProgress(
+        lessonId: String,
+        completed: Boolean,
+        score: Int? = null,
+        totalQuestions: Int? = null,
+        onSuccess: (() -> Unit)? = null,
+        onError: ((String) -> Unit)? = null
+    ) {
+        val user = _userDoc.value
+        val currentFbUser = _currentUser.value
+        val uid = user?.id ?: currentFbUser?.uid ?: user?.email
+
+        if (uid.isNullOrBlank()) {
+            saveGuestProgressItem(lessonId, completed, score)
+            onError?.invoke("Chưa đăng nhập. Kết quả đã lưu trên thiết bị. Vui lòng đăng nhập để gửi về Web Quản trị!")
+            return
+        }
+
         viewModelScope.launch {
             try {
-                val data = mapOf(
-                    "userId" to uid,
-                    "lessonId" to lessonId,
-                    "completed" to completed,
-                    "updatedAt" to System.currentTimeMillis()
-                )
-                val query = db.collection("progress")
-                    .whereEqualTo("userId", uid)
-                    .whereEqualTo("lessonId", lessonId)
-                    .get()
-                    .await()
+                val lessonObj = _lessons.value.find { it.id == lessonId }
+                val lessonTitle = lessonObj?.title ?: "Bài học chính trị"
+                val userName = user?.name?.ifEmpty { currentFbUser?.displayName ?: currentFbUser?.email ?: "Học viên Vùng 4" } ?: "Học viên Vùng 4"
+                val userEmail = user?.email?.ifEmpty { currentFbUser?.email ?: "" } ?: ""
+                val userUnit = user?.unit?.ifEmpty { "Vùng 4 Hải Quân" } ?: "Vùng 4 Hải Quân"
+                val userRank = user?.rank ?: ""
+                val userRole = user?.role ?: "Học viên"
 
-                if (!query.isEmpty) {
-                    val docId = query.documents[0].id
-                    db.collection("progress").document(docId).set(data).await()
-                } else {
-                    db.collection("progress").add(data).await()
+                val currentTime = System.currentTimeMillis()
+                val data = mutableMapOf<String, Any>(
+                    "userId" to uid,
+                    "user_id" to uid,
+                    "nguoiDungId" to uid,
+                    "userName" to userName,
+                    "userEmail" to userEmail,
+                    "unit" to userUnit,
+                    "donVi" to userUnit,
+                    "rank" to userRank,
+                    "role" to userRole,
+                    "lessonId" to lessonId,
+                    "lesson_id" to lessonId,
+                    "baiHocId" to lessonId,
+                    "lessonTitle" to lessonTitle,
+                    "tenBaiHoc" to lessonTitle,
+                    "completed" to completed,
+                    "hoanThanh" to completed,
+                    "isCompleted" to completed,
+                    "status" to if (completed) "completed" else "in_progress",
+                    "trangThai" to if (completed) "Đã hoàn thành" else "Đang học",
+                    "updatedAt" to currentTime,
+                    "device" to "Android App Vùng 4",
+                    "source" to "mobile_app"
+                )
+
+                if (completed) {
+                    data["completedAt"] = currentTime
+                    data["thoiGianHoanThanh"] = currentTime
                 }
-                Log.i(TAG, "[PROGRESS] Successfully updated progress for lesson $lessonId to completed=$completed")
+
+                if (score != null) {
+                    data["score"] = score
+                    data["diem"] = score
+                    data["correctAnswers"] = score
+                    data["totalQuestions"] = totalQuestions ?: 0
+                    data["tongSoCau"] = totalQuestions ?: 0
+                    data["passed"] = (score.toFloat() / (totalQuestions ?: 1).coerceAtLeast(1)) >= 0.5f
+                }
+
+                if (db != null) {
+                    // 1. Lưu vào collection 'progress' với document ID định danh {userId}_{lessonId}
+                    val docKey = "${uid}_${lessonId}"
+                    db.collection("progress").document(docKey).set(data, SetOptions.merge()).await()
+
+                    // Kiểm tra và cập nhật thêm nếu trước đó tài liệu có document ID khác
+                    try {
+                        val query = db.collection("progress")
+                            .whereEqualTo("userId", uid)
+                            .whereEqualTo("lessonId", lessonId)
+                            .get()
+                            .await()
+                        for (doc in query.documents) {
+                            if (doc.id != docKey) {
+                                db.collection("progress").document(doc.id).set(data, SetOptions.merge()).await()
+                            }
+                        }
+                    } catch (ignored: Exception) {}
+
+                    // 2. Đồng bộ sang collection 'tienDoHocTap' để tương thích với Web Quản Trị
+                    try {
+                        db.collection("tienDoHocTap").document(docKey).set(data, SetOptions.merge()).await()
+                    } catch (ignored: Exception) {}
+
+                    // 3. Cập nhật bài học gần nhất vào tài liệu người dùng (collection 'users')
+                    try {
+                        val userUpdate = mapOf(
+                            "lastLessonId" to lessonId,
+                            "lastLessonTitle" to lessonTitle,
+                            "lastStudiedAt" to currentTime,
+                            "updatedAt" to currentTime
+                        )
+                        db.collection("users").document(uid).set(userUpdate, SetOptions.merge()).await()
+                    } catch (ignored: Exception) {}
+
+                    // 4. Ghi nhật ký học tập (study_logs) cho bảng điều khiển Web Admin
+                    try {
+                        val logEntry = mapOf(
+                            "userId" to uid,
+                            "userName" to userName,
+                            "userEmail" to userEmail,
+                            "unit" to userUnit,
+                            "lessonId" to lessonId,
+                            "lessonTitle" to lessonTitle,
+                            "action" to if (completed) "COMPLETED_LESSON" else "STUDYING",
+                            "score" to (score ?: 0),
+                            "timestamp" to currentTime,
+                            "createdAt" to currentTime
+                        )
+                        db.collection("study_logs").add(logEntry).await()
+                    } catch (ignored: Exception) {}
+                }
+
+                // Cập nhật StateFlow nội bộ ngay lập tức
+                val existing = _progressList.value.filter { it.lessonId != lessonId }.toMutableList()
+                existing.add(
+                    ProgressDoc(
+                        id = "${uid}_${lessonId}",
+                        userId = uid,
+                        lessonId = lessonId,
+                        completed = completed,
+                        updatedAt = currentTime
+                    )
+                )
+                _progressList.value = existing
+                updateCombinedNotifications()
+
+                Log.i(TAG, "[PROGRESS] Successfully pushed progress to Web Admin for lesson $lessonId, completed=$completed, score=$score")
+                onSuccess?.invoke()
             } catch (e: Exception) {
                 Log.e(TAG, "[PROGRESS UPDATE ERROR] ${e.localizedMessage}", e)
+                onError?.invoke("Lỗi kết nối máy chủ: ${e.localizedMessage}")
             }
         }
     }
@@ -532,6 +795,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                             _currentUser.value = user
                             fetchUserDoc(user.uid)
                             fetchProgress(user.uid)
+                            syncPendingGuestProgressToFirestore(user.uid)
                             _authActionLoading.value = false
                             onSuccess()
                             return@launch
@@ -608,6 +872,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                             _userDocStatus.value = "CONNECTED (${userDocObj.name})"
                             saveUserSession(userDocObj)
                             fetchProgress(matchedDoc.id)
+                            syncPendingGuestProgressToFirestore(matchedDoc.id)
                             _authActionLoading.value = false
                             onSuccess()
                             return@launch
@@ -635,6 +900,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                                 _userDocStatus.value = "CONNECTED (${autoUserDoc.name})"
                                 saveUserSession(autoUserDoc)
                                 fetchProgress(autoUserDoc.id)
+                                syncPendingGuestProgressToFirestore(autoUserDoc.id)
                                 _authActionLoading.value = false
                                 onSuccess()
                                 return@launch
@@ -805,6 +1071,81 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         _unreadCount.value = combined.count { !it.isRead }
     }
 
+    fun addOrUpdateBanner(banner: BannerItem, onResult: (Boolean, String) -> Unit) {
+        if (db == null) {
+            onResult(false, "Chưa kết nối cơ sở dữ liệu")
+            return
+        }
+        val currentCount = _banners.value.filter { it.id != banner.id }.size
+        if (currentCount >= 5) {
+            onResult(false, "Đã đạt số lượng tối đa 5 poster/banner. Vui lòng xóa bớt trước khi thêm mới!")
+            return
+        }
+        viewModelScope.launch {
+            try {
+                val bannerId = banner.id.ifBlank { "banner_${System.currentTimeMillis()}" }
+                val data = hashMapOf(
+                    "title" to banner.title,
+                    "subtitle" to banner.subtitle,
+                    "imageUrl" to banner.imageUrl,
+                    "linkUrl" to banner.linkUrl,
+                    "targetLessonId" to (banner.targetLessonId ?: ""),
+                    "order" to banner.order,
+                    "active" to banner.active,
+                    "createdAt" to System.currentTimeMillis()
+                )
+                db.collection("banners").document(bannerId).set(data).await()
+                onResult(true, "Đã lưu banner lên hệ thống quản trị thành công!")
+            } catch (e: Exception) {
+                Log.e(TAG, "[BANNER SAVE ERROR] ${e.localizedMessage}", e)
+                onResult(false, "Lỗi khi lưu banner: ${e.localizedMessage}")
+            }
+        }
+    }
+
+    fun deleteBanner(bannerId: String, onResult: (Boolean, String) -> Unit) {
+        if (db == null) {
+            onResult(false, "Chưa kết nối cơ sở dữ liệu")
+            return
+        }
+        viewModelScope.launch {
+            try {
+                db.collection("banners").document(bannerId).delete().await()
+                onResult(true, "Đã xóa banner thành công!")
+            } catch (e: Exception) {
+                Log.e(TAG, "[BANNER DELETE ERROR] ${e.localizedMessage}", e)
+                onResult(false, "Lỗi khi xóa banner: ${e.localizedMessage}")
+            }
+        }
+    }
+
+    fun seedDefaultBanners(onResult: (Boolean, String) -> Unit) {
+        if (db == null) {
+            onResult(false, "Chưa kết nối cơ sở dữ liệu")
+            return
+        }
+        viewModelScope.launch {
+            try {
+                val defaults = BannerItem.getDefaultMilitaryBanners()
+                defaults.forEach { item ->
+                    val data = hashMapOf(
+                        "title" to item.title,
+                        "subtitle" to item.subtitle,
+                        "imageUrl" to item.imageUrl,
+                        "order" to item.order,
+                        "active" to true,
+                        "createdAt" to System.currentTimeMillis()
+                    )
+                    db.collection("banners").document(item.id).set(data).await()
+                }
+                onResult(true, "Đã khởi tạo 5 banner mẫu Vùng 4 lên cơ sở dữ liệu quản trị!")
+            } catch (e: Exception) {
+                Log.e(TAG, "[BANNER SEED ERROR] ${e.localizedMessage}", e)
+                onResult(false, "Lỗi khi khởi tạo banner: ${e.localizedMessage}")
+            }
+        }
+    }
+
     override fun onCleared() {
         super.onCleared()
         coursesListener?.remove()
@@ -816,5 +1157,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         storageFilesListener?.remove()
         progressListener?.remove()
         notificationsListener?.remove()
+        bannersListener?.remove()
+        postersListener?.remove()
     }
 }

@@ -1,11 +1,16 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -18,16 +23,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.model.Lesson
+import coil.compose.AsyncImage
+import com.example.model.BannerItem
 import com.example.model.Course
+import com.example.model.Lesson
 import com.example.ui.components.Vung4LogoBadge
 import com.example.ui.theme.GoldPrimary
 import com.example.ui.theme.RedPrimary
 import com.example.viewmodel.AppViewModel
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -44,6 +53,24 @@ fun TrangChuScreen(
     val currentUser by viewModel.currentUser.collectAsState()
     val unreadCount by viewModel.unreadCount.collectAsState()
     val progressList by viewModel.progressList.collectAsState()
+    val banners by viewModel.banners.collectAsState()
+    val bannerList = remember(banners) {
+        if (banners.isNotEmpty()) banners.take(5) else BannerItem.getDefaultMilitaryBanners()
+    }
+    val pagerState = rememberPagerState(pageCount = { bannerList.size })
+
+    LaunchedEffect(bannerList.size) {
+        if (bannerList.size > 1) {
+            while (true) {
+                delay(4000L)
+                val nextPage = (pagerState.currentPage + 1) % bannerList.size
+                pagerState.animateScrollToPage(
+                    page = nextPage,
+                    animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing)
+                )
+            }
+        }
+    }
 
     var activeLessonForPlayer by remember { mutableStateOf<Lesson?>(null) }
 
@@ -145,70 +172,168 @@ fun TrangChuScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            // Hero Banner
+            // Poster & Banner Ngang Tự Động Chuyển Động (Tối đa 5 poster)
             item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = RedPrimary)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(185.dp)
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(
-                                Brush.horizontalGradient(
-                                    listOf(RedPrimary, Color(0xFFB71C1C), Color(0xFF880E4F))
-                                )
-                            )
-                            .padding(20.dp)
-                    ) {
-                        Column {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        Icon(
-                                            imageVector = Icons.Default.Star,
-                                            contentDescription = null,
-                                            tint = GoldPrimary,
-                                            modifier = Modifier.size(28.dp)
-                                        )
+                    HorizontalPager(
+                        state = pagerState,
+                        modifier = Modifier.fillMaxSize()
+                    ) { page ->
+                        val currentBanner = bannerList.getOrNull(page) ?: return@HorizontalPager
+                        Card(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clickable {
+                                    if (!currentBanner.targetLessonId.isNullOrBlank()) {
+                                        val targetLesson = lessons.firstOrNull { it.id == currentBanner.targetLessonId }
+                                        if (targetLesson != null) {
+                                            activeLessonForPlayer = targetLesson
+                                        }
                                     }
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    Text(
-                                        text = "HỌC TẬP, RÈN LUYỆN\nVÌ LÝ TƯỞNG CỘNG SẢN",
-                                        fontWeight = FontWeight.Black,
-                                        fontSize = 18.sp,
-                                        color = Color.White,
-                                        lineHeight = 24.sp
+                                },
+                            shape = RoundedCornerShape(20.dp),
+                            colors = CardDefaults.cardColors(containerColor = RedPrimary)
+                        ) {
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                if (currentBanner.imageUrl.isNotBlank()) {
+                                    // Poster dạng hình ảnh đăng tải từ Web Quản trị
+                                    AsyncImage(
+                                        model = currentBanner.imageUrl,
+                                        contentDescription = currentBanner.title,
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop
                                     )
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    Text(
-                                        text = "Kiên định mục tiêu độc lập dân tộc\nvà chủ nghĩa xã hội",
-                                        fontSize = 12.sp,
-                                        color = Color.White.copy(alpha = 0.9f),
-                                        lineHeight = 16.sp
-                                    )
+                                    // Overlay gradient nhẹ tạo độ tương phản đọc chữ
+                                    if (currentBanner.title.isNotBlank() || currentBanner.subtitle.isNotBlank()) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .background(
+                                                    Brush.verticalGradient(
+                                                        listOf(
+                                                            Color.Transparent,
+                                                            Color.Black.copy(alpha = 0.78f)
+                                                        )
+                                                    )
+                                                )
+                                                .padding(horizontal = 18.dp, vertical = 14.dp)
+                                        ) {
+                                            Column(
+                                                modifier = Modifier
+                                                    .align(Alignment.BottomStart)
+                                                    .padding(bottom = 12.dp)
+                                            ) {
+                                                if (currentBanner.title.isNotBlank()) {
+                                                    Text(
+                                                        text = currentBanner.title,
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 15.sp,
+                                                        color = Color.White,
+                                                        maxLines = 2,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                }
+                                                if (currentBanner.subtitle.isNotBlank()) {
+                                                    Spacer(modifier = Modifier.height(2.dp))
+                                                    Text(
+                                                        text = currentBanner.subtitle,
+                                                        fontSize = 11.sp,
+                                                        color = Color.White.copy(alpha = 0.9f),
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    // Poster khẩu hiệu chính trị quân sự Vùng 4 (Gradient & Huy hiệu)
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(
+                                                Brush.horizontalGradient(
+                                                    listOf(RedPrimary, Color(0xFFB71C1C), Color(0xFF880E4F))
+                                                )
+                                            )
+                                            .padding(horizontal = 20.dp, vertical = 16.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxSize(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Star,
+                                                        contentDescription = null,
+                                                        tint = GoldPrimary,
+                                                        modifier = Modifier.size(24.dp)
+                                                    )
+                                                }
+                                                Spacer(modifier = Modifier.height(6.dp))
+                                                Text(
+                                                    text = currentBanner.title,
+                                                    fontWeight = FontWeight.Black,
+                                                    fontSize = 16.sp,
+                                                    color = Color.White,
+                                                    lineHeight = 21.sp,
+                                                    maxLines = 3,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                if (currentBanner.subtitle.isNotBlank()) {
+                                                    Spacer(modifier = Modifier.height(6.dp))
+                                                    Text(
+                                                        text = currentBanner.subtitle,
+                                                        fontSize = 11.sp,
+                                                        color = Color.White.copy(alpha = 0.92f),
+                                                        lineHeight = 15.sp,
+                                                        maxLines = 2,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                }
+                                            }
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Vung4LogoBadge(size = 86.dp)
+                                        }
+                                    }
                                 }
-                                Vung4LogoBadge(size = 90.dp)
                             }
+                        }
+                    }
 
-                            Spacer(modifier = Modifier.height(16.dp))
-                            // Carousel Indicators
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.Center,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Box(modifier = Modifier.size(24.dp, 6.dp).clip(RoundedCornerShape(3.dp)).background(GoldPrimary))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.5f)))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.5f)))
-                            }
+
+                    // Thanh chỉ báo (Carousel Indicators: Thanh bo tròn mở rộng khi active, tròn khi inactive)
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 10.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        repeat(bannerList.size) { index ->
+                            val isSelected = pagerState.currentPage == index
+                            val indicatorWidth by animateDpAsState(
+                                targetValue = if (isSelected) 24.dp else 6.dp,
+                                animationSpec = tween(300),
+                                label = "indicatorWidth"
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .padding(horizontal = 3.dp)
+                                    .height(6.dp)
+                                    .width(indicatorWidth)
+                                    .clip(RoundedCornerShape(3.dp))
+                                    .background(if (isSelected) GoldPrimary else Color.White.copy(alpha = 0.5f))
+                            )
                         }
                     }
                 }
@@ -543,4 +668,6 @@ fun TrangChuScreen(
             }
         }
     }
+
+
 }
