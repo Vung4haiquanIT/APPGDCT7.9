@@ -19,6 +19,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.model.Lesson
@@ -52,9 +53,15 @@ fun TrangChuScreen(
         return
     }
 
-    val userName = userDoc?.name?.takeIf { it.isNotBlank() } 
-        ?: currentUser?.displayName?.takeIf { !it.isNullOrBlank() } 
-        ?: "Nguyễn Văn A"
+    val isGuest = currentUser == null && userDoc == null
+    val userName = if (isGuest) {
+        "Khách (Chưa đăng nhập)"
+    } else {
+        userDoc?.name?.takeIf { it.isNotBlank() } 
+            ?: currentUser?.displayName?.takeIf { !it.isNullOrBlank() } 
+            ?: currentUser?.email?.substringBefore("@")
+            ?: "Cán bộ, Chiến sĩ"
+    }
 
     Scaffold(
         topBar = {
@@ -395,22 +402,26 @@ fun TrangChuScreen(
                         }
 
                         LazyRow(
-                            horizontalArrangement = Arrangement.spacedBy(14.dp)
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                            contentPadding = PaddingValues(horizontal = 2.dp)
                         ) {
                             items(courses) { course ->
                                 Card(
                                     modifier = Modifier
                                         .width(180.dp)
+                                        .height(195.dp)
                                         .clickable { onNavigateToHocTap() },
                                     shape = RoundedCornerShape(16.dp),
                                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                                     elevation = CardDefaults.cardElevation(2.dp)
                                 ) {
-                                    Column {
+                                    Column(
+                                        modifier = Modifier.fillMaxSize()
+                                    ) {
                                         Box(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .height(110.dp)
+                                                .height(108.dp)
                                                 .background(
                                                     Brush.verticalGradient(
                                                         listOf(RedPrimary, Color(0xFF192841))
@@ -421,29 +432,42 @@ fun TrangChuScreen(
                                             Vung4LogoBadge(size = 64.dp)
                                         }
                                         Column(
-                                            modifier = Modifier.padding(12.dp)
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                                            verticalArrangement = Arrangement.SpaceBetween
                                         ) {
-                                            Text(
-                                                text = course.title,
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 13.sp,
-                                                maxLines = 2,
-                                                color = MaterialTheme.colorScheme.onSurface
-                                            )
-                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .height(38.dp),
+                                                contentAlignment = Alignment.TopStart
+                                            ) {
+                                                Text(
+                                                    text = course.title,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 13.sp,
+                                                    lineHeight = 17.sp,
+                                                    maxLines = 2,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    color = MaterialTheme.colorScheme.onSurface
+                                                )
+                                            }
                                             Row(
                                                 verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                                modifier = Modifier.fillMaxWidth()
                                             ) {
                                                 Icon(
-                                                    imageVector = Icons.Default.MenuBook,
+                                                    imageVector = Icons.AutoMirrored.Filled.MenuBook,
                                                     contentDescription = null,
                                                     tint = RedPrimary,
-                                                    modifier = Modifier.size(12.dp)
+                                                    modifier = Modifier.size(13.dp)
                                                 )
                                                 Text(
                                                     text = "${lessons.count { it.courseId == course.id }} bài học",
                                                     fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Medium,
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                                 )
                                             }

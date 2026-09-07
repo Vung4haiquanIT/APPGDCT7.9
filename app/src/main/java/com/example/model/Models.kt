@@ -193,16 +193,29 @@ data class UserDoc(
     val name: String = "",
     val email: String = "",
     val role: String = "Học viên",
+    val unit: String = "Vùng 4 Hải Quân",
+    val rank: String = "",
+    val phone: String = "",
+    val permissions: List<String> = emptyList(),
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 ) {
     companion object {
         fun fromDoc(doc: DocumentSnapshot): UserDoc {
+            val rawPerms = doc.get("permissions")
+            val permsList = when (rawPerms) {
+                is List<*> -> rawPerms.mapNotNull { it?.toString() }
+                else -> emptyList()
+            }
             return UserDoc(
                 id = doc.id,
-                name = doc.getString("name") ?: "",
-                email = doc.getString("email") ?: "",
-                role = doc.getString("role") ?: "Học viên",
+                name = doc.getString("name") ?: doc.getString("displayName") ?: doc.getString("fullName") ?: "",
+                email = doc.getString("email") ?: doc.getString("username") ?: "",
+                role = doc.getString("role") ?: doc.getString("userType") ?: "Học viên",
+                unit = doc.getString("unit") ?: doc.getString("donVi") ?: "Vùng 4 Hải Quân",
+                rank = doc.getString("rank") ?: doc.getString("capBac") ?: doc.getString("chucVu") ?: "",
+                phone = doc.getString("phone") ?: doc.getString("soDienThoai") ?: "",
+                permissions = permsList,
                 createdAt = parseTime(doc.get("createdAt")),
                 updatedAt = parseTime(doc.get("updatedAt"))
             )
