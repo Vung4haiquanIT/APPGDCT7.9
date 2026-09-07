@@ -1,9 +1,12 @@
 package com.example.viewmodel
 
+import android.app.Application
+import android.content.Context
 import android.util.Log
-import androidx.lifecycle.ViewModel
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.model.*
+import com.example.util.NotificationHelper
 import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
@@ -15,7 +18,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 
-class AppViewModel : ViewModel() {
+class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     companion object {
         private const val TAG = "FirebaseDebug"
@@ -71,6 +74,13 @@ class AppViewModel : ViewModel() {
     private val _storageFiles = MutableStateFlow<List<StorageFileItem>>(emptyList())
     val storageFiles: StateFlow<List<StorageFileItem>> = _storageFiles.asStateFlow()
 
+    private val _firestoreNotifications = MutableStateFlow<List<NotificationItem>>(emptyList())
+    private val _notifications = MutableStateFlow<List<NotificationItem>>(emptyList())
+    val notifications: StateFlow<List<NotificationItem>> = _notifications.asStateFlow()
+
+    private val _unreadCount = MutableStateFlow(0)
+    val unreadCount: StateFlow<Int> = _unreadCount.asStateFlow()
+
     private val _progressList = MutableStateFlow<List<ProgressDoc>>(emptyList())
     val progressList: StateFlow<List<ProgressDoc>> = _progressList.asStateFlow()
     private val _progressStatus = MutableStateFlow<String>("NOT AUTHENTICATED")
@@ -91,9 +101,69 @@ class AppViewModel : ViewModel() {
     private var audiosListener: ListenerRegistration? = null
     private var storageFilesListener: ListenerRegistration? = null
     private var progressListener: ListenerRegistration? = null
+    private var notificationsListener: ListenerRegistration? = null
 
     init {
+        restoreLocalUserSession()
         checkConnectionAndStartRealtime()
+    }
+
+    private fun saveUserSession(user: UserDoc) {
+        try {
+            val prefs = getApplication<Application>().getSharedPreferences("vung4_auth_prefs", Context.MODE_PRIVATE)
+            prefs.edit()
+                .putBoolean("is_logged_in", true)
+                .putString("user_id", user.id)
+                .putString("user_name", user.name)
+                .putString("user_email", user.email)
+                .putString("user_role", user.role)
+                .putString("user_unit", user.unit)
+                .putString("user_rank", user.rank)
+                .putString("user_phone", user.phone)
+                .apply()
+            Log.i(TAG, "[SESSION] Saved login session for ${user.name} (${user.id})")
+        } catch (e: Exception) {
+            Log.e(TAG, "[SESSION SAVE ERROR] ${e.localizedMessage}", e)
+        }
+    }
+
+    private fun clearUserSession() {
+        try {
+            val prefs = getApplication<Application>().getSharedPreferences("vung4_auth_prefs", Context.MODE_PRIVATE)
+            prefs.edit().clear().apply()
+            Log.i(TAG, "[SESSION] Cleared saved session")
+        } catch (e: Exception) {
+            Log.e(TAG, "[SESSION CLEAR ERROR] ${e.localizedMessage}", e)
+        }
+    }
+
+    private fun restoreLocalUserSession(): UserDoc? {
+        return try {
+            val prefs = getApplication<Application>().getSharedPreferences("vung4_auth_prefs", Context.MODE_PRIVATE)
+            val isLoggedIn = prefs.getBoolean("is_logged_in", false)
+            val id = prefs.getString("user_id", "") ?: ""
+            if (isLoggedIn && id.isNotBlank()) {
+                val restored = UserDoc(
+                    id = id,
+                    name = prefs.getString("user_name", "") ?: "",
+                    email = prefs.getString("user_email", "") ?: "",
+                    role = prefs.getString("user_role", "Học viên") ?: "Học viên",
+                    unit = prefs.getString("user_unit", "Vùng 4 Hải Quân") ?: "Vùng 4 Hải Quân",
+                    rank = prefs.getString("user_rank", "") ?: "",
+                    phone = prefs.getString("user_phone", "") ?: ""
+                )
+                _userDoc.value = restored
+                _userDocStatus.value = "CONNECTED (${restored.name})"
+                fetchProgress(restored.id)
+                Log.i(TAG, "[SESSION] Restored login session for ${restored.name}")
+                restored
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "[SESSION RESTORE ERROR] ${e.localizedMessage}", e)
+            null
+        }
     }
 
     fun checkConnectionAndStartRealtime() {
@@ -124,10 +194,13 @@ class AppViewModel : ViewModel() {
                         fetchUserDoc(user.uid)
                         fetchProgress(user.uid)
                     } else {
-                        _userDoc.value = null
-                        _userDocStatus.value = "NOT AUTHENTICATED"
-                        _progressList.value = emptyList()
-                        _progressStatus.value = "NOT AUTHENTICATED"
+                        val session = restoreLocalUserSession()
+                        if (session == null) {
+                            _userDoc.value = null
+                            _userDocStatus.value = "NOT AUTHENTICATED"
+                            _progressList.value = emptyList()
+                            _progressStatus.value = "NOT AUTHENTICATED"
+                        }
                     }
                 }
                 auth.currentUser?.let { user ->
@@ -135,7 +208,10 @@ class AppViewModel : ViewModel() {
                     fetchProgress(user.uid)
                 }
             } else {
-                _userDocStatus.value = "ERROR: Auth is null"
+                val session = restoreLocalUserSession()
+                if (session == null) {
+                    _userDocStatus.value = "NOT AUTHENTICATED"
+                }
             }
             _isLoading.value = false
         }
@@ -181,6 +257,7 @@ class AppViewModel : ViewModel() {
                         }
                         _lessons.value = list
                         Log.i(TAG, "[LESSONS] Documents: ${list.size}")
+                        updateCombinedNotifications()
                     }
                 }
         } catch (e: Exception) {
@@ -291,6 +368,28 @@ class AppViewModel : ViewModel() {
         } catch (e: Exception) {
             Log.e(TAG, "[DOCUMENTS EXCEPTION] ${e.localizedMessage}", e)
         }
+
+        // 8. notifications từ Web Quản Trị
+        try {
+            notificationsListener?.remove()
+            notificationsListener = db.collection("notifications")
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        Log.w(TAG, "[NOTIFICATIONS ERROR] ${error.code}: ${error.message}")
+                        return@addSnapshotListener
+                    }
+                    if (snapshot != null) {
+                        val list = snapshot.documents.mapNotNull { 
+                            try { NotificationItem.fromDoc(it) } catch (e: Exception) { null }
+                        }
+                        _firestoreNotifications.value = list
+                        updateCombinedNotifications()
+                        Log.i(TAG, "[NOTIFICATIONS] Loaded ${list.size} from Firestore")
+                    }
+                }
+        } catch (e: Exception) {
+            Log.w(TAG, "[NOTIFICATIONS EXCEPTION] ${e.localizedMessage}")
+        }
     }
 
     private fun fetchUserDoc(uid: String) {
@@ -299,8 +398,10 @@ class AppViewModel : ViewModel() {
             try {
                 val doc = db.collection("users").document(uid).get().await()
                 if (doc.exists()) {
-                    _userDoc.value = UserDoc.fromDoc(doc)
-                    _userDocStatus.value = "CONNECTED"
+                    val userDocObj = UserDoc.fromDoc(doc)
+                    _userDoc.value = userDocObj
+                    _userDocStatus.value = "CONNECTED (${userDocObj.name})"
+                    saveUserSession(userDocObj)
                     Log.i(TAG, "[USERS] User doc found for UID: $uid")
                 } else {
                     _userDocStatus.value = "NOT FOUND (Document does not exist)"
@@ -332,6 +433,7 @@ class AppViewModel : ViewModel() {
                         _progressList.value = list
                         _progressStatus.value = "CONNECTED (${list.size} docs)"
                         Log.i(TAG, "[PROGRESS] Documents for user $uid: ${list.size}")
+                        updateCombinedNotifications()
                     }
                 }
         } catch (e: Exception) {
@@ -341,7 +443,7 @@ class AppViewModel : ViewModel() {
     }
 
     fun updateLessonProgress(lessonId: String, completed: Boolean) {
-        val uid = _currentUser.value?.uid ?: return
+        val uid = _currentUser.value?.uid ?: _userDoc.value?.id ?: return
         if (db == null) return
         viewModelScope.launch {
             try {
@@ -504,6 +606,7 @@ class AppViewModel : ViewModel() {
                             val userDocObj = UserDoc.fromDoc(matchedDoc)
                             _userDoc.value = userDocObj
                             _userDocStatus.value = "CONNECTED (${userDocObj.name})"
+                            saveUserSession(userDocObj)
                             fetchProgress(matchedDoc.id)
                             _authActionLoading.value = false
                             onSuccess()
@@ -530,6 +633,7 @@ class AppViewModel : ViewModel() {
                                 )
                                 _userDoc.value = autoUserDoc
                                 _userDocStatus.value = "CONNECTED (${autoUserDoc.name})"
+                                saveUserSession(autoUserDoc)
                                 fetchProgress(autoUserDoc.id)
                                 _authActionLoading.value = false
                                 onSuccess()
@@ -567,12 +671,138 @@ class AppViewModel : ViewModel() {
         } catch (e: Exception) {
             Log.e(TAG, "[LOGOUT ERROR] ${e.localizedMessage}", e)
         }
+        clearUserSession()
         _currentUser.value = null
         _userDoc.value = null
         _userDocStatus.value = "NOT AUTHENTICATED"
         _progressList.value = emptyList()
         _progressStatus.value = "NOT AUTHENTICATED"
         _authMessage.value = "Đã chuyển về chế độ Khách"
+        updateCombinedNotifications()
+    }
+
+    private fun getReadNotificationIds(): Set<String> {
+        return try {
+            val prefs = getApplication<Application>().getSharedPreferences("vung4_notif_prefs", Context.MODE_PRIVATE)
+            prefs.getStringSet("read_ids", emptySet()) ?: emptySet()
+        } catch (e: Exception) {
+            emptySet()
+        }
+    }
+
+    fun markNotificationAsRead(id: String) {
+        try {
+            val prefs = getApplication<Application>().getSharedPreferences("vung4_notif_prefs", Context.MODE_PRIVATE)
+            val current = prefs.getStringSet("read_ids", emptySet())?.toMutableSet() ?: mutableSetOf()
+            current.add(id)
+            prefs.edit().putStringSet("read_ids", current).apply()
+            updateCombinedNotifications()
+        } catch (e: Exception) {
+            Log.e(TAG, "[NOTIF READ ERROR] ${e.localizedMessage}")
+        }
+    }
+
+    fun markAllNotificationsAsRead() {
+        try {
+            val prefs = getApplication<Application>().getSharedPreferences("vung4_notif_prefs", Context.MODE_PRIVATE)
+            val allIds = _notifications.value.map { it.id }.toSet()
+            prefs.edit().putStringSet("read_ids", allIds).apply()
+            updateCombinedNotifications()
+        } catch (e: Exception) {
+            Log.e(TAG, "[NOTIF READ ALL ERROR] ${e.localizedMessage}")
+        }
+    }
+
+    fun pushReminderToDevice(title: String? = null, message: String? = null) {
+        val app = getApplication<Application>()
+        if (!title.isNullOrBlank() && !message.isNullOrBlank()) {
+            NotificationHelper.sendNotification(app, title, message)
+            return
+        }
+
+        val completedLessonIds = _progressList.value.filter { it.completed }.map { it.lessonId }.toSet()
+        val incomplete = _lessons.value.filter { !completedLessonIds.contains(it.id) }
+
+        if (incomplete.isNotEmpty()) {
+            val lesson = incomplete.first()
+            NotificationHelper.sendNotification(
+                app,
+                "Nhắc nhở học tập: ${lesson.title}",
+                "Đồng chí đang còn ${incomplete.size} bài học chính trị chưa hoàn thành. Hãy vào học để cập nhật tiến độ huấn luyện!"
+            )
+        } else {
+            NotificationHelper.sendNotification(
+                app,
+                "Vùng 4 Hải Quân - Thông báo",
+                "Đồng chí đã hoàn thành đầy đủ các bài học chính trị được phân công. Chúc mừng đồng chí!"
+            )
+        }
+    }
+
+    fun updateCombinedNotifications() {
+        val adminList = _firestoreNotifications.value.ifEmpty {
+            listOf(
+                NotificationItem(
+                    id = "admin_notif_1",
+                    title = "Kế hoạch giáo dục chính trị Vùng 4 Hải Quân năm 2026",
+                    message = "Yêu cầu 100% cán bộ, chiến sĩ và học viên hoàn thành các chuyên đề học tập chính trị trước đợt kiểm tra đánh giá định kỳ.",
+                    type = "admin",
+                    priority = "urgent",
+                    timestamp = System.currentTimeMillis() - 3600000L * 2
+                ),
+                NotificationItem(
+                    id = "admin_notif_2",
+                    title = "Cập nhật bài giảng đa phương tiện & chuyên đề số",
+                    message = "Ban Tuyên huấn Vùng 4 đã phát hành thêm các video tư liệu và slide bài giảng chuyên đề trên hệ thống quản trị trực tuyến.",
+                    type = "admin",
+                    priority = "normal",
+                    timestamp = System.currentTimeMillis() - 3600000L * 24
+                )
+            )
+        }
+
+        val allLessons = _lessons.value
+        val completedLessonIds = _progressList.value.filter { it.completed }.map { it.lessonId }.toSet()
+        val incompleteLessons = allLessons.filter { !completedLessonIds.contains(it.id) }
+
+        val reminderList = mutableListOf<NotificationItem>()
+        if (incompleteLessons.isNotEmpty()) {
+            incompleteLessons.forEach { lesson ->
+                reminderList.add(
+                    NotificationItem(
+                        id = "reminder_${lesson.id}",
+                        title = "Thiếu tiến độ: ${lesson.title}",
+                        message = "Đồng chí chưa hoàn thành bài học này. Nhấn vào đây để tiếp tục học và ghi nhận kết quả.",
+                        type = "reminder",
+                        targetLessonId = lesson.id,
+                        targetCourseId = lesson.courseId,
+                        priority = "high",
+                        timestamp = System.currentTimeMillis() - 3600000L * 4
+                    )
+                )
+            }
+        } else if (allLessons.isNotEmpty()) {
+            reminderList.add(
+                NotificationItem(
+                    id = "reminder_all_done",
+                    title = "Xuất sắc: Đã hoàn thành tất cả chuyên đề",
+                    message = "Đồng chí đã hoàn thành 100% nội dung học tập chính trị. Hãy duy trì tinh thần tự học!",
+                    type = "reminder",
+                    priority = "normal",
+                    timestamp = System.currentTimeMillis()
+                )
+            )
+        }
+
+        val readIds = getReadNotificationIds()
+        val combined = (reminderList + adminList).map { notif ->
+            if (readIds.contains(notif.id)) notif.copy(isRead = true) else notif
+        }.sortedWith(compareByDescending<NotificationItem> { it.priority == "urgent" }
+            .thenByDescending { !it.isRead }
+            .thenByDescending { it.timestamp })
+
+        _notifications.value = combined
+        _unreadCount.value = combined.count { !it.isRead }
     }
 
     override fun onCleared() {
@@ -585,5 +815,6 @@ class AppViewModel : ViewModel() {
         audiosListener?.remove()
         storageFilesListener?.remove()
         progressListener?.remove()
+        notificationsListener?.remove()
     }
 }

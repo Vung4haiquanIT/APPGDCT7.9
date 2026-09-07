@@ -14,6 +14,7 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector)
     object TrangChu : Screen("trang_chu", "Trang chủ", Icons.Default.Home)
     object HocTap : Screen("hoc_tap", "Học tập", Icons.Default.MenuBook)
     object CaNhan : Screen("ca_nhan", "Cá nhân", Icons.Default.Person)
+    object ThongBao : Screen("thong_bao", "Thông báo", Icons.Default.Notifications)
     object Debug : Screen("debug", "Kiểm tra kết nối", Icons.Default.BugReport)
 }
 
@@ -29,7 +30,7 @@ fun MainScreen(viewModel: AppViewModel) {
 
     Scaffold(
         bottomBar = {
-            if (currentRoute != Screen.Debug.route) {
+            if (currentRoute != Screen.Debug.route && currentRoute != Screen.ThongBao.route) {
                 NavigationBar(
                     containerColor = MaterialTheme.colorScheme.surface,
                     contentColor = RedPrimary
@@ -56,6 +57,7 @@ fun MainScreen(viewModel: AppViewModel) {
                 Screen.TrangChu.route -> TrangChuScreen(
                     viewModel = viewModel,
                     onNavigateToHocTap = { currentRoute = Screen.HocTap.route },
+                    onNavigateToThongBao = { currentRoute = Screen.ThongBao.route },
                     onNavigateToDebug = { currentRoute = Screen.Debug.route },
                     onCategoryClick = { category ->
                         currentRoute = Screen.HocTap.route
@@ -64,7 +66,13 @@ fun MainScreen(viewModel: AppViewModel) {
                 Screen.HocTap.route -> HocTapScreen(viewModel = viewModel)
                 Screen.CaNhan.route -> CaNhanScreen(
                     viewModel = viewModel,
+                    onNavigateToThongBao = { currentRoute = Screen.ThongBao.route },
                     onNavigateToDebug = { currentRoute = Screen.Debug.route }
+                )
+                Screen.ThongBao.route -> ThongBaoScreen(
+                    viewModel = viewModel,
+                    onBack = { currentRoute = Screen.TrangChu.route },
+                    onNavigateToHocTap = { currentRoute = Screen.HocTap.route }
                 )
                 Screen.Debug.route -> FirebaseDebugScreen(
                     viewModel = viewModel,

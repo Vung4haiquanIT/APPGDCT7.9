@@ -247,15 +247,25 @@ data class NotificationItem(
     val id: String = "",
     val title: String = "",
     val message: String = "",
-    val timestamp: Long = System.currentTimeMillis()
+    val type: String = "admin", // "admin", "reminder", "system"
+    val targetLessonId: String? = null,
+    val targetCourseId: String? = null,
+    val timestamp: Long = System.currentTimeMillis(),
+    val isRead: Boolean = false,
+    val priority: String = "normal" // "urgent", "high", "normal"
 ) {
     companion object {
         fun fromDoc(doc: DocumentSnapshot): NotificationItem {
             return NotificationItem(
                 id = doc.id,
-                title = doc.getString("title") ?: "",
-                message = doc.getString("message") ?: "",
-                timestamp = parseTime(doc.get("timestamp") ?: doc.get("createdAt"))
+                title = cleanHtml(doc.getString("title") ?: doc.getString("tieuDe") ?: "Thông báo từ Web Quản trị"),
+                message = cleanHtml(doc.getString("message") ?: doc.getString("content") ?: doc.getString("noiDung") ?: ""),
+                type = doc.getString("type") ?: doc.getString("loai") ?: "admin",
+                targetLessonId = doc.getString("targetLessonId") ?: doc.getString("lessonId"),
+                targetCourseId = doc.getString("targetCourseId") ?: doc.getString("courseId"),
+                timestamp = parseTime(doc.get("timestamp") ?: doc.get("createdAt") ?: doc.get("date")),
+                isRead = doc.getBoolean("isRead") ?: false,
+                priority = doc.getString("priority") ?: doc.getString("mucDo") ?: "normal"
             )
         }
     }

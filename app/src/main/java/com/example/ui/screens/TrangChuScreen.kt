@@ -34,13 +34,16 @@ import com.example.viewmodel.AppViewModel
 fun TrangChuScreen(
     viewModel: AppViewModel,
     onNavigateToHocTap: () -> Unit,
-    onNavigateToDebug: () -> Unit,
+    onNavigateToThongBao: () -> Unit,
+    onNavigateToDebug: () -> Unit = {},
     onCategoryClick: (String) -> Unit
 ) {
     val courses by viewModel.courses.collectAsState()
     val lessons by viewModel.lessons.collectAsState()
     val userDoc by viewModel.userDoc.collectAsState()
     val currentUser by viewModel.currentUser.collectAsState()
+    val unreadCount by viewModel.unreadCount.collectAsState()
+    val progressList by viewModel.progressList.collectAsState()
 
     var activeLessonForPlayer by remember { mutableStateOf<Lesson?>(null) }
 
@@ -101,7 +104,7 @@ fun TrangChuScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = onNavigateToDebug) {
+                    IconButton(onClick = onNavigateToHocTap) {
                         Icon(
                             imageVector = Icons.Default.Search,
                             contentDescription = "Tìm kiếm",
@@ -109,20 +112,22 @@ fun TrangChuScreen(
                         )
                     }
                     Box {
-                        IconButton(onClick = onNavigateToDebug) {
+                        IconButton(onClick = onNavigateToThongBao) {
                             Icon(
                                 imageVector = Icons.Default.Notifications,
                                 contentDescription = "Thông báo",
                                 tint = MaterialTheme.colorScheme.onSurface
                             )
                         }
-                        Badge(
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .offset(x = (-8).dp, y = 8.dp),
-                            containerColor = Color.Red
-                        ) {
-                            Text("2", color = Color.White, fontSize = 10.sp)
+                        if (unreadCount > 0) {
+                            Badge(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .offset(x = (-6).dp, y = 6.dp),
+                                containerColor = Color.Red
+                            ) {
+                                Text("$unreadCount", color = Color.White, fontSize = 10.sp)
+                            }
                         }
                     }
                 },
@@ -204,6 +209,63 @@ fun TrangChuScreen(
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.5f)))
                             }
+                        }
+                    }
+                }
+            }
+
+            // Nhắc nhở học tập & tiến độ từ Web Quản trị
+            val completedIds = progressList.filter { it.completed }.map { it.lessonId }.toSet()
+            val incompleteCount = lessons.count { !completedIds.contains(it.id) }
+            if (incompleteCount > 0) {
+                item {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onNavigateToThongBao() },
+                        shape = RoundedCornerShape(14.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = Color(0xFFFFF3E0)
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFFFFE0B2)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.NotificationsActive,
+                                    contentDescription = null,
+                                    tint = Color(0xFFE65100),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Nhắc nhở: Có $incompleteCount bài học thiếu tiến độ",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    color = Color(0xFFBF360C)
+                                )
+                                Text(
+                                    text = "Nhấn để xem thông báo quản trị và cập nhật tiến độ học tập.",
+                                    fontSize = 12.sp,
+                                    color = Color(0xFF5D4037)
+                                )
+                            }
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                                contentDescription = null,
+                                tint = Color(0xFFBF360C),
+                                modifier = Modifier.size(14.dp)
+                            )
                         }
                     }
                 }
