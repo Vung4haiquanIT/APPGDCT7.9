@@ -200,56 +200,13 @@ fun TrangChuScreen(
                         ) {
                             Box(modifier = Modifier.fillMaxSize()) {
                                 if (currentBanner.imageUrl.isNotBlank()) {
-                                    // Poster dạng hình ảnh đăng tải từ Web Quản trị
+                                    // Poster dạng hình ảnh đăng tải từ Web Quản trị: Chỉ hiển thị ảnh, không đè chữ lên poster
                                     AsyncImage(
                                         model = currentBanner.imageUrl,
-                                        contentDescription = currentBanner.title,
+                                        contentDescription = currentBanner.title.ifEmpty { "Poster tuyên truyền" },
                                         modifier = Modifier.fillMaxSize(),
                                         contentScale = ContentScale.Crop
                                     )
-                                    // Overlay gradient nhẹ tạo độ tương phản đọc chữ
-                                    if (currentBanner.title.isNotBlank() || currentBanner.subtitle.isNotBlank()) {
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxSize()
-                                                .background(
-                                                    Brush.verticalGradient(
-                                                        listOf(
-                                                            Color.Transparent,
-                                                            Color.Black.copy(alpha = 0.78f)
-                                                        )
-                                                    )
-                                                )
-                                                .padding(horizontal = 18.dp, vertical = 14.dp)
-                                        ) {
-                                            Column(
-                                                modifier = Modifier
-                                                    .align(Alignment.BottomStart)
-                                                    .padding(bottom = 12.dp)
-                                            ) {
-                                                if (currentBanner.title.isNotBlank()) {
-                                                    Text(
-                                                        text = currentBanner.title,
-                                                        fontWeight = FontWeight.Bold,
-                                                        fontSize = 15.sp,
-                                                        color = Color.White,
-                                                        maxLines = 2,
-                                                        overflow = TextOverflow.Ellipsis
-                                                    )
-                                                }
-                                                if (currentBanner.subtitle.isNotBlank()) {
-                                                    Spacer(modifier = Modifier.height(2.dp))
-                                                    Text(
-                                                        text = currentBanner.subtitle,
-                                                        fontSize = 11.sp,
-                                                        color = Color.White.copy(alpha = 0.9f),
-                                                        maxLines = 1,
-                                                        overflow = TextOverflow.Ellipsis
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
                                 } else {
                                     // Poster khẩu hiệu chính trị quân sự Vùng 4 (Gradient & Huy hiệu)
                                     Box(

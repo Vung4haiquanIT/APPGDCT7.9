@@ -228,16 +228,47 @@ data class ProgressDoc(
     val userId: String = "",
     val lessonId: String = "",
     val completed: Boolean = false,
+    val score: Int? = null,
+    val totalQuestions: Int? = null,
+    val scorePercentage: Int? = null,
+    val viewedSlides: Boolean = false,
+    val readContent: Boolean = false,
+    val passedQuiz: Boolean = false,
     val updatedAt: Long = System.currentTimeMillis()
 ) {
     companion object {
         fun fromDoc(doc: DocumentSnapshot): ProgressDoc {
+            val rawScore = doc.get("score") ?: doc.get("diem") ?: doc.get("correctAnswers")
+            val scoreVal = when (rawScore) {
+                is Number -> rawScore.toInt()
+                is String -> rawScore.toIntOrNull()
+                else -> null
+            }
+            val rawTotal = doc.get("totalQuestions") ?: doc.get("tongSoCau")
+            val totalVal = when (rawTotal) {
+                is Number -> rawTotal.toInt()
+                is String -> rawTotal.toIntOrNull()
+                else -> null
+            }
+            val rawPercent = doc.get("scorePercentage") ?: doc.get("phanTramDiem")
+            val percentVal = when (rawPercent) {
+                is Number -> rawPercent.toInt()
+                is String -> rawPercent.toIntOrNull()
+                else -> if (scoreVal != null && totalVal != null && totalVal > 0) (scoreVal * 100 / totalVal) else null
+            }
+
             return ProgressDoc(
                 id = doc.id,
-                userId = doc.getString("userId") ?: "",
-                lessonId = doc.getString("lessonId") ?: doc.getString("baiHocId") ?: "",
-                completed = parseBoolean(doc.get("completed")),
-                updatedAt = parseTime(doc.get("updatedAt"))
+                userId = doc.getString("userId") ?: doc.getString("user_id") ?: doc.getString("nguoiDungId") ?: "",
+                lessonId = doc.getString("lessonId") ?: doc.getString("baiHocId") ?: doc.getString("lesson_id") ?: "",
+                completed = parseBoolean(doc.get("completed") ?: doc.get("hoanThanh") ?: doc.get("isCompleted")),
+                score = scoreVal,
+                totalQuestions = totalVal,
+                scorePercentage = percentVal,
+                viewedSlides = parseBoolean(doc.get("viewedSlides") ?: doc.get("daXemSlide")),
+                readContent = parseBoolean(doc.get("readContent") ?: doc.get("daDocNoiDung")),
+                passedQuiz = parseBoolean(doc.get("passedQuiz") ?: doc.get("passed") ?: doc.get("daDat")),
+                updatedAt = parseTime(doc.get("updatedAt") ?: doc.get("thoiGianHoanThanh"))
             )
         }
     }
@@ -284,16 +315,26 @@ data class BannerItem(
 ) {
     companion object {
         fun fromDoc(doc: DocumentSnapshot): BannerItem {
+            val imgUrl = doc.getString("imageUrl") 
+                ?: doc.getString("image") 
+                ?: doc.getString("hinhAnh") 
+                ?: doc.getString("url") 
+                ?: doc.getString("posterUrl")
+                ?: doc.getString("bannerUrl")
+                ?: doc.getString("photoUrl")
+                ?: doc.getString("fileUrl")
+                ?: doc.getString("src")
+                ?: ""
             return BannerItem(
                 id = doc.id,
-                title = cleanHtml(doc.getString("title") ?: doc.getString("tieuDe") ?: ""),
+                title = cleanHtml(doc.getString("title") ?: doc.getString("tieuDe") ?: doc.getString("name") ?: ""),
                 subtitle = cleanHtml(doc.getString("subtitle") ?: doc.getString("subTitle") ?: doc.getString("moTa") ?: doc.getString("content") ?: ""),
-                imageUrl = doc.getString("imageUrl") ?: doc.getString("image") ?: doc.getString("hinhAnh") ?: doc.getString("url") ?: "",
+                imageUrl = imgUrl,
                 linkUrl = doc.getString("linkUrl") ?: doc.getString("link") ?: "",
-                targetLessonId = doc.getString("targetLessonId") ?: doc.getString("lessonId"),
-                order = (doc.getLong("order") ?: doc.getLong("thuTu") ?: 0L).toInt(),
-                active = doc.getBoolean("active") ?: doc.getBoolean("isActive") ?: true,
-                createdAt = parseTime(doc.get("createdAt") ?: doc.get("timestamp"))
+                targetLessonId = doc.getString("targetLessonId") ?: doc.getString("lessonId") ?: doc.getString("baiHocId"),
+                order = (doc.getLong("order") ?: doc.getLong("thuTu") ?: doc.getLong("viTri") ?: 0L).toInt(),
+                active = doc.getBoolean("active") ?: doc.getBoolean("isActive") ?: doc.getBoolean("hienThi") ?: true,
+                createdAt = parseTime(doc.get("createdAt") ?: doc.get("timestamp") ?: doc.get("thoiGianTao"))
             )
         }
 

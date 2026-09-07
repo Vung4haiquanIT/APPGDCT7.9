@@ -493,29 +493,44 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun saveGuestProgressItem(lessonId: String, completed: Boolean, score: Int? = null) {
+    fun saveGuestProgressItem(
+        lessonId: String,
+        completed: Boolean,
+        score: Int? = null,
+        totalQuestions: Int? = null,
+        viewedSlides: Boolean = false,
+        readContent: Boolean = false,
+        passedQuiz: Boolean = false
+    ) {
         try {
             val prefs = getApplication<Application>().getSharedPreferences("vung4_guest_progress", Context.MODE_PRIVATE)
             val current = prefs.getStringSet("guest_items", emptySet())?.toMutableSet() ?: mutableSetOf()
             current.removeAll { it.startsWith("$lessonId###") }
-            current.add("$lessonId###$completed###${System.currentTimeMillis()}###${score ?: -1}")
+            current.add("$lessonId###$completed###${System.currentTimeMillis()}###${score ?: -1}###${totalQuestions ?: -1}###$viewedSlides###$readContent###$passedQuiz")
             prefs.edit().putStringSet("guest_items", current).apply()
 
             if (_currentUser.value == null && _userDoc.value == null) {
                 val updated = _progressList.value.filter { it.lessonId != lessonId }.toMutableList()
+                val percent = if (score != null && totalQuestions != null && totalQuestions > 0) (score * 100 / totalQuestions) else null
                 updated.add(
                     ProgressDoc(
                         id = "guest_$lessonId",
                         userId = "guest",
                         lessonId = lessonId,
                         completed = completed,
+                        score = score,
+                        totalQuestions = totalQuestions,
+                        scorePercentage = percent,
+                        viewedSlides = viewedSlides,
+                        readContent = readContent,
+                        passedQuiz = passedQuiz,
                         updatedAt = System.currentTimeMillis()
                     )
                 )
                 _progressList.value = updated
                 updateCombinedNotifications()
             }
-            Log.i(TAG, "[GUEST PROGRESS] Saved offline progress for lesson $lessonId, completed=$completed")
+            Log.i(TAG, "[GUEST PROGRESS] Saved offline progress for lesson $lessonId, completed=$completed, score=$score")
         } catch (e: Exception) {
             Log.e(TAG, "[GUEST PROGRESS SAVE ERROR] ${e.localizedMessage}")
         }
@@ -533,7 +548,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                             val lessonId = parts[0]
                             val completed = parts[1].toBoolean()
                             val score = if (parts.size >= 4) parts[3].toIntOrNull()?.takeIf { it >= 0 } else null
-                            updateLessonProgress(lessonId = lessonId, completed = completed, score = score)
+                            val totalQuestions = if (parts.size >= 5) parts[4].toIntOrNull()?.takeIf { it >= 0 } else null
+                            val viewedSlides = if (parts.size >= 6) parts[5].toBoolean() else false
+                            val readContent = if (parts.size >= 7) parts[6].toBoolean() else false
+                            val passedQuiz = if (parts.size >= 8) parts[7].toBoolean() else false
+                            updateLessonProgress(
+                                lessonId = lessonId,
+                                completed = completed,
+                                score = score,
+                                totalQuestions = totalQuestions,
+                                viewedSlides = viewedSlides,
+                                readContent = readContent,
+                                passedQuiz = passedQuiz
+                            )
                         }
                     }
                     prefs.edit().clear().apply()
@@ -596,6 +623,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         completed: Boolean,
         score: Int? = null,
         totalQuestions: Int? = null,
+        viewedSlides: Boolean = true,
+        readContent: Boolean = true,
+        passedQuiz: Boolean = true,
         onSuccess: (() -> Unit)? = null,
         onError: ((String) -> Unit)? = null
     ) {
@@ -604,8 +634,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val uid = user?.id ?: currentFbUser?.uid ?: user?.email
 
         if (uid.isNullOrBlank()) {
-            saveGuestProgressItem(lessonId, completed, score)
-            onError?.invoke("Chưa đăng nhập. Kết quả đã lưu trên thiết bị. Vui lòng đăng nhập để gửi về Web Quản trị!")
+            saveGuestProgressItem(
+                lessonId = lessonId,
+                completed = completed,
+                score = score,
+                totalQuestions = totalQuestions,
+                viewedSlides = viewedSlides,
+                readContent = readContent,
+                passedQuiz = passedQuiz
+            )
+            onError?.invoke("Chưa đăng nhập. Vui lòng đăng nhập tài khoản để tính điểm và lưu tiến độ vào hồ sơ Web Quản trị!")
             return
         }
 
@@ -620,6 +658,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 val userRole = user?.role ?: "Học viên"
 
                 val currentTime = System.currentTimeMillis()
+                val scorePercent = if (score != null && totalQuestions != null && totalQuestions > 0) {
+                    (score * 100 / totalQuestions)
+                } else null
+
                 val data = mutableMapOf<String, Any>(
                     "userId" to uid,
                     "user_id" to uid,
@@ -638,6 +680,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     "completed" to completed,
                     "hoanThanh" to completed,
                     "isCompleted" to completed,
+                    "viewedSlides" to viewedSlides,
+                    "daXemSlide" to viewedSlides,
+                    "readContent" to readContent,
+                    "daDocNoiDung" to readContent,
+                    "passedQuiz" to passedQuiz,
+                    "daDat" to passedQuiz,
                     "status" to if (completed) "completed" else "in_progress",
                     "trangThai" to if (completed) "Đã hoàn thành" else "Đang học",
                     "updatedAt" to currentTime,
@@ -656,6 +704,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     data["correctAnswers"] = score
                     data["totalQuestions"] = totalQuestions ?: 0
                     data["tongSoCau"] = totalQuestions ?: 0
+                    data["scorePercentage"] = scorePercent ?: 100
+                    data["phanTramDiem"] = scorePercent ?: 100
                     data["passed"] = (score.toFloat() / (totalQuestions ?: 1).coerceAtLeast(1)) >= 0.5f
                 }
 
@@ -685,12 +735,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
                     // 3. Cập nhật bài học gần nhất vào tài liệu người dùng (collection 'users')
                     try {
-                        val userUpdate = mapOf(
+                        val userUpdate = mutableMapOf<String, Any>(
                             "lastLessonId" to lessonId,
                             "lastLessonTitle" to lessonTitle,
                             "lastStudiedAt" to currentTime,
                             "updatedAt" to currentTime
                         )
+                        if (score != null) {
+                            userUpdate["lastScore"] = score
+                            userUpdate["lastScorePercentage"] = scorePercent ?: 100
+                        }
                         db.collection("users").document(uid).set(userUpdate, SetOptions.merge()).await()
                     } catch (ignored: Exception) {}
 
@@ -705,6 +759,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                             "lessonTitle" to lessonTitle,
                             "action" to if (completed) "COMPLETED_LESSON" else "STUDYING",
                             "score" to (score ?: 0),
+                            "totalQuestions" to (totalQuestions ?: 0),
+                            "scorePercentage" to (scorePercent ?: 0),
+                            "viewedSlides" to viewedSlides,
+                            "readContent" to readContent,
+                            "passedQuiz" to passedQuiz,
                             "timestamp" to currentTime,
                             "createdAt" to currentTime
                         )
@@ -720,13 +779,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         userId = uid,
                         lessonId = lessonId,
                         completed = completed,
+                        score = score,
+                        totalQuestions = totalQuestions,
+                        scorePercentage = scorePercent,
+                        viewedSlides = viewedSlides,
+                        readContent = readContent,
+                        passedQuiz = passedQuiz,
                         updatedAt = currentTime
                     )
                 )
                 _progressList.value = existing
                 updateCombinedNotifications()
 
-                Log.i(TAG, "[PROGRESS] Successfully pushed progress to Web Admin for lesson $lessonId, completed=$completed, score=$score")
+                Log.i(TAG, "[PROGRESS] Successfully pushed progress to Web Admin for lesson $lessonId, completed=$completed, score=$score, percent=$scorePercent%")
                 onSuccess?.invoke()
             } catch (e: Exception) {
                 Log.e(TAG, "[PROGRESS UPDATE ERROR] ${e.localizedMessage}", e)
