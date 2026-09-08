@@ -25,6 +25,7 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector)
 fun MainScreen(viewModel: AppViewModel) {
     var currentRoute by remember { mutableStateOf<String>(Screen.TrangChu.route) }
     var selectedCategoryForHocTap by remember { mutableStateOf<String?>(null) }
+    var isExamTaking by remember { mutableStateOf(false) }
 
     val bottomNavItems = listOf(
         Screen.TrangChu,
@@ -37,7 +38,7 @@ fun MainScreen(viewModel: AppViewModel) {
         Scaffold(
             containerColor = Color.Transparent,
             bottomBar = {
-                if (currentRoute != Screen.Debug.route && currentRoute != Screen.ThongBao.route) {
+                if (currentRoute != Screen.Debug.route && currentRoute != Screen.ThongBao.route && !isExamTaking) {
                     NavigationBar(
                         containerColor = Color.White.copy(alpha = 0.96f),
                         contentColor = RedPrimary
@@ -90,7 +91,10 @@ fun MainScreen(viewModel: AppViewModel) {
                 )
                 Screen.KiemTra.route -> KiemTraScreen(
                     viewModel = viewModel,
-                    onBack = { currentRoute = Screen.TrangChu.route }
+                    onBack = { currentRoute = Screen.TrangChu.route },
+                    onExamTakingStateChange = { isTaking ->
+                        isExamTaking = isTaking
+                    }
                 )
                 Screen.CaNhan.route -> CaNhanScreen(
                     viewModel = viewModel,

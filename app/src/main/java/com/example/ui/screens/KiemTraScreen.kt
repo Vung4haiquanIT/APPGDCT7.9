@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -9,6 +10,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -26,6 +28,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.example.model.ExamResultDoc
 import com.example.model.ExamSessionDoc
 import com.example.model.QuestionItem
@@ -47,7 +51,8 @@ enum class ExamMode {
 @Composable
 fun KiemTraScreen(
     viewModel: AppViewModel,
-    onBack: (() -> Unit)? = null
+    onBack: (() -> Unit)? = null,
+    onExamTakingStateChange: ((Boolean) -> Unit)? = null
 ) {
     val allQuestions by viewModel.questions.collectAsState()
     val examSessions by viewModel.examSessions.collectAsState()
@@ -59,6 +64,11 @@ fun KiemTraScreen(
     val userName = userDoc?.name?.ifEmpty { currentUser?.displayName } ?: currentUser?.email ?: "Cán bộ / Học viên"
 
     var currentMode by remember { mutableStateOf(ExamMode.OVERVIEW) }
+    
+    // Thông báo trạng thái làm bài thi cho MainScreen để ẩn BottomBar
+    LaunchedEffect(currentMode) {
+        onExamTakingStateChange?.invoke(currentMode == ExamMode.TAKING_EXAM)
+    }
     
     // Auth Dialog State
     var showLoginDialog by remember { mutableStateOf(false) }
@@ -148,6 +158,118 @@ fun KiemTraScreen(
         currentMode = ExamMode.TAKING_EXAM
     }
 
+    // GIAO DIỆN LÀM BÀI THI TOÀN MÀN HÌNH KHÔNG THỂ BẤM NHẦM TÙY CHỌN KHÁC
+    if (currentMode == ExamMode.TAKING_EXAM) {
+        Dialog(
+            onDismissRequest = {
+                showSubmitConfirmDialog = true
+            },
+            properties = DialogProperties(
+                usePlatformDefaultWidth = false,
+                dismissOnBackPress = false,
+                dismissOnClickOutside = false,
+                decorFitsSystemWindows = false
+            )
+        ) {
+            BackHandler {
+                showSubmitConfirmDialog = true
+            }
+
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                color = MaterialTheme.colorScheme.background
+            ) {
+                com.example.ui.components.TrongDongBackground {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .statusBarsPadding()
+                    ) {
+                        TopAppBar(
+                            title = {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Vung4LogoBadge(size = 32.dp)
+                                    Column {
+                                        Text(
+                                            text = activeExamName,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp,
+                                            color = MaterialTheme.colorScheme.onPrimary,
+                                            maxLines = 1
+                                        )
+                                        Text(
+                                            text = "Vùng 4 Hải quân - Hệ thống kiểm tra trực tuyến",
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f)
+                                        )
+                                    }
+                                }
+                            },
+                            navigationIcon = {
+                                IconButton(onClick = { showSubmitConfirmDialog = true }) {
+                                    Icon(
+                                        Icons.AutoMirrored.Filled.ArrowBack,
+                                        contentDescription = "Thoát / Nộp bài",
+                                        tint = MaterialTheme.colorScheme.onPrimary
+                                    )
+                                }
+                            },
+                            actions = {
+                                Button(
+                                    onClick = { showSubmitConfirmDialog = true },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color.White),
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                    modifier = Modifier.padding(end = 8.dp)
+                                ) {
+                                    Text(
+                                        text = "NỘP BÀI",
+                                        fontWeight = FontWeight.Bold,
+                                        color = RedPrimary,
+                                        fontSize = 12.sp
+                                    )
+                                }
+                            },
+                            colors = TopAppBarDefaults.topAppBarColors(
+                                containerColor = RedPrimary,
+                                titleContentColor = MaterialTheme.colorScheme.onPrimary
+                            )
+                        )
+
+                        ExamTakingView(
+                            examQuestions = examQuestions,
+                            currentIndex = currentQuestionIndex,
+                            userAnswers = userAnswers,
+                            remainingSeconds = examTimerSeconds,
+                            onSelectAnswer = { qIndex, answerIndex ->
+                                val updated = HashMap(userAnswers)
+                                updated[qIndex] = answerIndex
+                                userAnswers = updated
+                            },
+                            onJumpToQuestion = { currentQuestionIndex = it },
+                            onNext = {
+                                if (currentQuestionIndex < examQuestions.size - 1) {
+                                    currentQuestionIndex++
+                                }
+                            },
+                            onPrev = {
+                                if (currentQuestionIndex > 0) {
+                                    currentQuestionIndex--
+                                }
+                            },
+                            onSubmit = {
+                                showSubmitConfirmDialog = true
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     Scaffold(
         containerColor = Color.Transparent,
         topBar = {
@@ -162,7 +284,7 @@ fun KiemTraScreen(
                             Text(
                                 text = when (currentMode) {
                                     ExamMode.OVERVIEW -> "KIỂM TRA TRẮC NGHIỆM"
-                                    ExamMode.TAKING_EXAM -> "BÀI THI TRẮC NGHIỆM (20 CÂU)"
+                                    ExamMode.TAKING_EXAM -> "BÀI THI TRẮC NGHIỆM"
                                     ExamMode.EXAM_RESULT -> "KẾT QUẢ KIỂM TRA"
                                     ExamMode.QUESTION_BANK -> "TỔNG HỢP CÂU HỎI ĐÃ ĐĂNG"
                                 },
@@ -226,31 +348,8 @@ fun KiemTraScreen(
                     )
                 }
                 ExamMode.TAKING_EXAM -> {
-                    ExamTakingView(
-                        examQuestions = examQuestions,
-                        currentIndex = currentQuestionIndex,
-                        userAnswers = userAnswers,
-                        remainingSeconds = examTimerSeconds,
-                        onSelectAnswer = { qIndex, answerIndex ->
-                            val updated = HashMap(userAnswers)
-                            updated[qIndex] = answerIndex
-                            userAnswers = updated
-                        },
-                        onJumpToQuestion = { currentQuestionIndex = it },
-                        onNext = {
-                            if (currentQuestionIndex < examQuestions.size - 1) {
-                                currentQuestionIndex++
-                            }
-                        },
-                        onPrev = {
-                            if (currentQuestionIndex > 0) {
-                                currentQuestionIndex--
-                            }
-                        },
-                        onSubmit = {
-                            showSubmitConfirmDialog = true
-                        }
-                    )
+                    // Trạng thái đang hiển thị qua FullScreen Dialog ở trên
+                    Box(modifier = Modifier.fillMaxSize())
                 }
                 ExamMode.EXAM_RESULT -> {
                     ExamResultView(
@@ -656,68 +755,6 @@ private fun ExamOverviewView(
                     }
                 }
             }
-        } else {
-            // THÔNG TIN TÀI KHOẢN ĐÃ ĐĂNG NHẬP
-            item {
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    color = Color(0xFFE8F5E9),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF81C784))
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.AccountCircle,
-                            contentDescription = null,
-                            tint = Color(0xFF2E7D32),
-                            modifier = Modifier.size(24.dp)
-                        )
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "ĐÃ ĐĂNG NHẬP HỆ THỐNG",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 11.sp,
-                                color = Color(0xFF2E7D32)
-                            )
-                            Text(
-                                text = "Học viên: $userName - Sẵn sàng tham gia kiểm tra",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = Color(0xFF1B5E20)
-                            )
-                        }
-                        Icon(
-                            Icons.Default.CheckCircle,
-                            contentDescription = null,
-                            tint = Color(0xFF2E7D32),
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                }
-            }
-        }
-
-        // Section Title: Các đợt thi từ Web Quản trị
-        item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 4.dp, bottom = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Icon(Icons.Default.CloudDone, contentDescription = null, tint = RedPrimary, modifier = Modifier.size(22.dp))
-                Text(
-                    text = "ĐỢT THI MỞ TỪ WEB QUẢN TRỊ",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp,
-                    color = RedPrimary
-                )
-            }
         }
 
         // List of Active Exam Sessions from Web Admin
@@ -1020,6 +1057,13 @@ private fun ExamTakingView(
     val formattedTime = String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
     val isTimeLow = remainingSeconds < 180 // Dưới 3 phút
 
+    val questionListState = rememberLazyListState()
+    LaunchedEffect(currentIndex) {
+        if (currentIndex in examQuestions.indices) {
+            questionListState.animateScrollToItem(currentIndex)
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -1083,6 +1127,7 @@ private fun ExamTakingView(
 
                 // Dải số thứ tự câu hỏi để nhảy nhanh
                 LazyRow(
+                    state = questionListState,
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -1224,44 +1269,52 @@ private fun ExamTakingView(
         // Bottom Navigation & Submit Bar
         Surface(
             color = MaterialTheme.colorScheme.surface,
-            shadowElevation = 8.dp
+            shadowElevation = 8.dp,
+            modifier = Modifier.fillMaxWidth()
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+            Column(
+                modifier = Modifier.fillMaxWidth()
             ) {
-                OutlinedButton(
-                    onClick = onPrev,
-                    enabled = currentIndex > 0,
-                    shape = RoundedCornerShape(10.dp)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Câu trước")
+                    OutlinedButton(
+                        onClick = onPrev,
+                        enabled = currentIndex > 0,
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Câu trước")
+                    }
+
+                    Button(
+                        onClick = onSubmit,
+                        colors = ButtonDefaults.buttonColors(containerColor = RedPrimary),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Nộp bài", fontWeight = FontWeight.Bold)
+                    }
+
+                    OutlinedButton(
+                        onClick = onNext,
+                        enabled = currentIndex < examQuestions.size - 1,
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text("Câu sau")
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, modifier = Modifier.size(16.dp))
+                    }
                 }
 
-                Button(
-                    onClick = onSubmit,
-                    colors = ButtonDefaults.buttonColors(containerColor = RedPrimary),
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Nộp bài", fontWeight = FontWeight.Bold)
-                }
-
-                OutlinedButton(
-                    onClick = onNext,
-                    enabled = currentIndex < examQuestions.size - 1,
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    Text("Câu sau")
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, modifier = Modifier.size(16.dp))
-                }
+                Spacer(modifier = Modifier.height(36.dp))
+                Spacer(modifier = Modifier.navigationBarsPadding())
             }
         }
     }

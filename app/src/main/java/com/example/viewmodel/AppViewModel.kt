@@ -462,7 +462,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             Log.w(TAG, "[POSTERS EXCEPTION] ${e.localizedMessage}")
         }
 
-        // 8. questions / cauHoi / quizzes
+        // 8. questions / cauHoi / quizzes từ Web Quản trị
         try {
             questionsListener?.remove()
             questionsListener = db.collection("questions")
@@ -476,12 +476,30 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         val remoteList = snapshot.documents.mapNotNull { 
                             try { QuestionItem.fromDoc(it) } catch (e: Exception) { null }
                         }
-                        val remoteIds = remoteList.map { it.id }.toSet()
-                        val combined = remoteList + defaultBank.filter { it.id !in remoteIds }
-                        _questions.value = combined
-                        Log.i(TAG, "[QUESTIONS] Synced: ${combined.size} questions (${remoteList.size} from Web Quản trị)")
+                        if (remoteList.isNotEmpty()) {
+                            // Dùng 100% câu hỏi từ Web Quản trị, không tự ý gộp câu hỏi mặc định
+                            _questions.value = remoteList
+                            Log.i(TAG, "[QUESTIONS] Synced EXCLUSIVELY from Web Quản trị: ${remoteList.size} questions")
+                        } else {
+                            _questions.value = defaultBank
+                        }
                     } else {
-                        _questions.value = defaultBank
+                        // Kiểm tra bộ sưu tập "cauHoi" dự phòng từ Web Quản trị
+                        db.collection("cauHoi").get().addOnSuccessListener { cauHoiSnap ->
+                            if (cauHoiSnap != null && !cauHoiSnap.isEmpty) {
+                                val cauHoiList = cauHoiSnap.documents.mapNotNull { 
+                                    try { QuestionItem.fromDoc(it) } catch (e: Exception) { null }
+                                }
+                                if (cauHoiList.isNotEmpty()) {
+                                    _questions.value = cauHoiList
+                                    Log.i(TAG, "[QUESTIONS] Synced from cauHoi collection: ${cauHoiList.size} questions")
+                                    return@addOnSuccessListener
+                                }
+                            }
+                            _questions.value = defaultBank
+                        }.addOnFailureListener {
+                            _questions.value = defaultBank
+                        }
                     }
                 }
         } catch (e: Exception) {
