@@ -227,6 +227,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     if (user != null) {
                         fetchUserDoc(user.uid)
                         fetchProgress(user.uid)
+                        fetchExamResults(user.uid)
                     } else {
                         val session = restoreLocalUserSession()
                         if (session == null) {
@@ -234,12 +235,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                             _userDocStatus.value = "NOT AUTHENTICATED"
                             _progressList.value = emptyList()
                             _progressStatus.value = "NOT AUTHENTICATED"
+                            _userExamResults.value = emptyList()
                         }
                     }
                 }
                 auth.currentUser?.let { user ->
                     fetchUserDoc(user.uid)
                     fetchProgress(user.uid)
+                    fetchExamResults(user.uid)
                 }
             } else {
                 val session = restoreLocalUserSession()
@@ -462,7 +465,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             Log.w(TAG, "[POSTERS EXCEPTION] ${e.localizedMessage}")
         }
 
-        // 8. questions / cauHoi / quizzes từ Web Quản trị
+        // 8. questions / cauHoi / exam_questions / cauHoiKiemTra từ Web Quản trị
         try {
             questionsListener?.remove()
             questionsListener = db.collection("questions")
@@ -477,14 +480,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                             try { QuestionItem.fromDoc(it) } catch (e: Exception) { null }
                         }
                         if (remoteList.isNotEmpty()) {
-                            // Dùng 100% câu hỏi từ Web Quản trị, không tự ý gộp câu hỏi mặc định
+                            // Dùng 100% câu hỏi từ Web Quản trị
                             _questions.value = remoteList
                             Log.i(TAG, "[QUESTIONS] Synced EXCLUSIVELY from Web Quản trị: ${remoteList.size} questions")
                         } else {
                             _questions.value = defaultBank
                         }
                     } else {
-                        // Kiểm tra bộ sưu tập "cauHoi" dự phòng từ Web Quản trị
+                        // Kiểm tra bộ sưu tập dự phòng: "cauHoi", "exam_questions", "cauHoiKiemTra"
                         db.collection("cauHoi").get().addOnSuccessListener { cauHoiSnap ->
                             if (cauHoiSnap != null && !cauHoiSnap.isEmpty) {
                                 val cauHoiList = cauHoiSnap.documents.mapNotNull { 
@@ -496,7 +499,31 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                                     return@addOnSuccessListener
                                 }
                             }
-                            _questions.value = defaultBank
+                            db.collection("exam_questions").get().addOnSuccessListener { eqSnap ->
+                                if (eqSnap != null && !eqSnap.isEmpty) {
+                                    val eqList = eqSnap.documents.mapNotNull {
+                                        try { QuestionItem.fromDoc(it) } catch (e: Exception) { null }
+                                    }
+                                    if (eqList.isNotEmpty()) {
+                                        _questions.value = eqList
+                                        Log.i(TAG, "[QUESTIONS] Synced from exam_questions collection: ${eqList.size} questions")
+                                        return@addOnSuccessListener
+                                    }
+                                }
+                                db.collection("cauHoiKiemTra").get().addOnSuccessListener { chktSnap ->
+                                    if (chktSnap != null && !chktSnap.isEmpty) {
+                                        val chktList = chktSnap.documents.mapNotNull {
+                                            try { QuestionItem.fromDoc(it) } catch (e: Exception) { null }
+                                        }
+                                        if (chktList.isNotEmpty()) {
+                                            _questions.value = chktList
+                                            Log.i(TAG, "[QUESTIONS] Synced from cauHoiKiemTra collection: ${chktList.size} questions")
+                                            return@addOnSuccessListener
+                                        }
+                                    }
+                                    _questions.value = defaultBank
+                                }
+                            }
                         }.addOnFailureListener {
                             _questions.value = defaultBank
                         }
@@ -519,8 +546,33 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         val list = snapshot.documents.mapNotNull { 
                             try { ExamSessionDoc.fromDoc(it) } catch (e: Exception) { null }
                         }
-                        _examSessions.value = list
-                        Log.i(TAG, "[EXAM_SESSIONS] Realtime sync: ${list.size} exam sessions from Web Quản trị")
+                        if (list.isNotEmpty()) {
+                            _examSessions.value = list
+                            Log.i(TAG, "[EXAM_SESSIONS] Realtime sync: ${list.size} exam sessions from exam_sessions")
+                        } else {
+                            // Secondary fallback check for dot_thi / dotThi collections if Web Admin uses Vietnamese collection names
+                            db.collection("dot_thi").get().addOnSuccessListener { dotThiSnap ->
+                                if (dotThiSnap != null && !dotThiSnap.isEmpty) {
+                                    val dtList = dotThiSnap.documents.mapNotNull {
+                                        try { ExamSessionDoc.fromDoc(it) } catch (e: Exception) { null }
+                                    }
+                                    _examSessions.value = dtList
+                                    Log.i(TAG, "[EXAM_SESSIONS] Sync: ${dtList.size} exam sessions from dot_thi")
+                                } else {
+                                    db.collection("dotThi").get().addOnSuccessListener { dt2Snap ->
+                                        if (dt2Snap != null && !dt2Snap.isEmpty) {
+                                            val dt2List = dt2Snap.documents.mapNotNull {
+                                                try { ExamSessionDoc.fromDoc(it) } catch (e: Exception) { null }
+                                            }
+                                            _examSessions.value = dt2List
+                                            Log.i(TAG, "[EXAM_SESSIONS] Sync: ${dt2List.size} exam sessions from dotThi")
+                                        } else {
+                                            _examSessions.value = emptyList()
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
         } catch (e: Exception) {
@@ -538,20 +590,48 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         Log.w(TAG, "[EXAM_RESULTS ERROR] ${error.code}: ${error.message}")
                         return@addSnapshotListener
                     }
-                    if (snapshot != null) {
-                        val userEmail = _userDoc.value?.email ?: _currentUser.value?.email ?: ""
-                        val list = snapshot.documents.mapNotNull { doc ->
+                    val userEmail = _userDoc.value?.email ?: _currentUser.value?.email ?: ""
+                    val userName = _userDoc.value?.name ?: _currentUser.value?.displayName ?: ""
+
+                    val list1 = snapshot?.documents?.mapNotNull { doc ->
+                        try {
+                            val item = ExamResultDoc.fromDoc(doc)
+                            val docUserId = doc.getString("userId") ?: doc.getString("user_id") ?: doc.getString("nguoiDungId") ?: ""
+                            val docEmail = doc.getString("userEmail") ?: doc.getString("email") ?: ""
+                            val docName = doc.getString("userName") ?: doc.getString("hoTen") ?: ""
+
+                            val isMatch = docUserId == uid ||
+                                    (userEmail.isNotBlank() && docEmail.equals(userEmail, ignoreCase = true)) ||
+                                    (userName.isNotBlank() && docName.equals(userName, ignoreCase = true)) ||
+                                    (docUserId.isNotBlank() && uid.contains(docUserId))
+
+                            if (isMatch) item else null
+                        } catch (e: Exception) { null }
+                    } ?: emptyList()
+
+                    // Fallback to fetch additional results from ket_qua_thi collection on Firestore
+                    db.collection("ket_qua_thi").get().addOnSuccessListener { ketQuaSnap ->
+                        val list2 = ketQuaSnap?.documents?.mapNotNull { doc ->
                             try {
                                 val item = ExamResultDoc.fromDoc(doc)
-                                val docUserId = doc.getString("userId") ?: doc.getString("user_id") ?: ""
+                                val docUserId = doc.getString("userId") ?: doc.getString("user_id") ?: doc.getString("nguoiDungId") ?: ""
                                 val docEmail = doc.getString("userEmail") ?: doc.getString("email") ?: ""
-                                if (docUserId == uid || (userEmail.isNotBlank() && docEmail.equals(userEmail, ignoreCase = true))) {
-                                    item
-                                } else null
+                                val docName = doc.getString("userName") ?: doc.getString("hoTen") ?: ""
+
+                                val isMatch = docUserId == uid ||
+                                        (userEmail.isNotBlank() && docEmail.equals(userEmail, ignoreCase = true)) ||
+                                        (userName.isNotBlank() && docName.equals(userName, ignoreCase = true)) ||
+                                        (docUserId.isNotBlank() && uid.contains(docUserId))
+
+                                if (isMatch) item else null
                             } catch (e: Exception) { null }
-                        }.sortedByDescending { it.timestamp }
-                        _userExamResults.value = list
-                        Log.i(TAG, "[EXAM_RESULTS] Realtime sync: ${list.size} results for user $uid")
+                        } ?: emptyList()
+
+                        val combined = (list1 + list2).distinctBy { "${it.examId}_${it.timestamp}" }.sortedByDescending { it.timestamp }
+                        _userExamResults.value = combined
+                        Log.i(TAG, "[EXAM_RESULTS] Realtime sync: ${combined.size} results for user $uid")
+                    }.addOnFailureListener {
+                        _userExamResults.value = list1.sortedByDescending { it.timestamp }
                     }
                 }
         } catch (e: Exception) {
@@ -569,6 +649,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     _userDoc.value = userDocObj
                     _userDocStatus.value = "CONNECTED (${userDocObj.name})"
                     saveUserSession(userDocObj)
+                    fetchProgress(userDocObj.id)
+                    fetchExamResults(userDocObj.id)
+                    syncPendingGuestProgressToFirestore(userDocObj.id)
                     Log.i(TAG, "[USERS] User doc found for UID: $uid")
                 } else {
                     _userDocStatus.value = "NOT FOUND (Document does not exist)"
@@ -955,31 +1038,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             try {
-                // 1. Chỉ gọi FirebaseAuth nếu cấu hình API key hợp lệ từ Google Console
-                if (isFirebaseApiKeyValid() && auth != null) {
-                    val emailToTry = if (!trimmedInput.contains("@")) {
-                        "${trimmedInput.lowercase()}@gdctvung4.vn"
-                    } else {
-                        trimmedInput
-                    }
-                    try {
-                        val authResult = auth.signInWithEmailAndPassword(emailToTry, password).await()
-                        val user = authResult.user
-                        if (user != null) {
-                            _currentUser.value = user
-                            fetchUserDoc(user.uid)
-                            fetchProgress(user.uid)
-                            syncPendingGuestProgressToFirestore(user.uid)
-                            _authActionLoading.value = false
-                            onSuccess()
-                            return@launch
-                        }
-                    } catch (authEx: Exception) {
-                        Log.w(TAG, "[AUTH SDK] Fallback to Web Admin Firestore: ${authEx.localizedMessage}")
-                    }
-                }
-
-                // 2. Tra cứu trực tiếp trong dữ liệu Quản Trị Web (Firestore collection 'users' / 'accounts')
+                // 1. Tra cứu trực tiếp trong dữ liệu Quản Trị Web (Firestore collection 'users' / 'accounts')
                 if (db != null) {
                     try {
                         var matchedDoc: com.google.firebase.firestore.DocumentSnapshot? = null
@@ -1040,48 +1099,33 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                                 return@launch
                             }
 
+                            // Gọi FirebaseAuth đăng nhập bổ trợ để đồng bộ phiên nếu API key hợp lệ
+                            if (isFirebaseApiKeyValid() && auth != null) {
+                                val emailToTry = matchedDoc.getString("email")?.ifEmpty { null }
+                                    ?: if (!trimmedInput.contains("@")) "${trimmedInput.lowercase()}@gdctvung4.vn" else trimmedInput
+                                try {
+                                    val authResult = auth.signInWithEmailAndPassword(emailToTry, password).await()
+                                    _currentUser.value = authResult.user
+                                } catch (authEx: Exception) {
+                                    Log.w(TAG, "[AUTH SDK] Background sign in failed: ${authEx.localizedMessage}")
+                                }
+                            }
+
                             // Xác thực thành công tài khoản từ Web Quản Trị!
                             val userDocObj = UserDoc.fromDoc(matchedDoc)
                             _userDoc.value = userDocObj
                             _userDocStatus.value = "CONNECTED (${userDocObj.name})"
                             saveUserSession(userDocObj)
                             fetchProgress(matchedDoc.id)
+                            fetchExamResults(matchedDoc.id)
                             syncPendingGuestProgressToFirestore(matchedDoc.id)
                             _authActionLoading.value = false
                             onSuccess()
                             return@launch
                         } else {
-                            // Tự động nhận diện tài khoản được cấp từ web admin (theo email hoặc tên đăng nhập)
-                            if (trimmedInput.contains("@") || trimmedInput.length >= 3) {
-                                val accountName = if (trimmedInput.contains("@")) {
-                                    val localPart = trimmedInput.substringBefore("@")
-                                    localPart.replace(".", " ").replace("_", " ").split(" ")
-                                        .filter { it.isNotBlank() }
-                                        .joinToString(" ") { it.replaceFirstChar { char -> char.uppercase() } }
-                                } else {
-                                    trimmedInput
-                                }
-
-                                val autoUserDoc = UserDoc(
-                                    id = trimmedInput.replace("@", "_").replace(".", "_"),
-                                    name = accountName,
-                                    email = if (trimmedInput.contains("@")) trimmedInput else "$trimmedInput@gdctvung4.vn",
-                                    role = if (trimmedInput.contains("admin") || trimmedInput.contains("cb") || trimmedInput.contains("chihuy")) "Cán bộ" else "Học viên",
-                                    unit = "Vùng 4 Hải Quân",
-                                    rank = if (trimmedInput.contains("cb") || trimmedInput.contains("chihuy")) "Sĩ quan" else "Học viên"
-                                )
-                                _userDoc.value = autoUserDoc
-                                _userDocStatus.value = "CONNECTED (${autoUserDoc.name})"
-                                saveUserSession(autoUserDoc)
-                                fetchProgress(autoUserDoc.id)
-                                syncPendingGuestProgressToFirestore(autoUserDoc.id)
-                                _authActionLoading.value = false
-                                onSuccess()
-                                return@launch
-                            }
-
+                            // Tài khoản KHÔNG ĐƯỢC ĐĂNG KÝ trên hệ thống quản trị -> KHÔNG ĐĂNG NHẬP ĐƯỢC
                             _authActionLoading.value = false
-                            onError("Tài khoản hoặc mật khẩu không chính xác!")
+                            onError("Tài khoản chưa được đăng ký bởi hệ thống Web Quản trị. Vui lòng liên hệ cán bộ quản trị để được cấp tài khoản!")
                             return@launch
                         }
                     } catch (dbEx: Exception) {
@@ -1117,6 +1161,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         _userDocStatus.value = "NOT AUTHENTICATED"
         _progressList.value = emptyList()
         _progressStatus.value = "NOT AUTHENTICATED"
+        _userExamResults.value = emptyList()
         _authMessage.value = "Đã chuyển về chế độ Khách"
         updateCombinedNotifications()
     }
@@ -1406,6 +1451,67 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     db.collection("exam_results").add(logData).await()
                     db.collection("ket_qua_thi").add(logData).await()
                     db.collection("study_logs").add(logData).await()
+                    
+                    if (uid.isNotBlank() && uid != "guest") {
+                        // 1. Gửi kết quả về dữ liệu riêng trực tiếp của tài khoản ngay lập tức
+                        val docId = "res_${timestamp}"
+                        db.collection("users").document(uid).collection("exam_results").document(docId).set(logData).await()
+                        db.collection("users").document(uid).collection("ket_qua_thi").document(docId).set(logData).await()
+                        
+                        // Cũng thử lưu vào accounts nếu tài khoản nằm ở collection accounts
+                        try {
+                            db.collection("accounts").document(uid).collection("exam_results").document(docId).set(logData).await()
+                            db.collection("accounts").document(uid).collection("ket_qua_thi").document(docId).set(logData).await()
+                        } catch (ignored: Exception) {}
+
+                        // 2. Cập nhật các thông số tổng hợp kiểm tra trực tiếp vào dữ liệu tài khoản
+                        try {
+                            val userRef = db.collection("users").document(uid)
+                            db.runTransaction { transaction ->
+                                val snapshot = transaction.get(userRef)
+                                if (snapshot.exists()) {
+                                    val currentTotal = snapshot.getLong("totalExamsCount") ?: 0L
+                                    val currentPassed = snapshot.getLong("passedExamsCount") ?: 0L
+                                    
+                                    val updates = hashMapOf<String, Any>(
+                                        "lastExamScore" to score,
+                                        "lastExamTotal" to totalQuestions,
+                                        "lastExamPercent" to percent,
+                                        "lastExamPassed" to passed,
+                                        "lastExamTime" to timestamp,
+                                        "totalExamsCount" to (currentTotal + 1),
+                                        "passedExamsCount" to if (passed) (currentPassed + 1) else currentPassed
+                                    )
+                                    transaction.update(userRef, updates)
+                                }
+                            }.await()
+                        } catch (userDocEx: Exception) {
+                            Log.w(TAG, "[EXAM USER DOC UPDATE ERROR] ${userDocEx.localizedMessage}")
+                        }
+
+                        try {
+                            val accRef = db.collection("accounts").document(uid)
+                            db.runTransaction { transaction ->
+                                val snapshot = transaction.get(accRef)
+                                if (snapshot.exists()) {
+                                    val currentTotal = snapshot.getLong("totalExamsCount") ?: 0L
+                                    val currentPassed = snapshot.getLong("passedExamsCount") ?: 0L
+                                    
+                                    val updates = hashMapOf<String, Any>(
+                                        "lastExamScore" to score,
+                                        "lastExamTotal" to totalQuestions,
+                                        "lastExamPercent" to percent,
+                                        "lastExamPassed" to passed,
+                                        "lastExamTime" to timestamp,
+                                        "totalExamsCount" to (currentTotal + 1),
+                                        "passedExamsCount" to if (passed) (currentPassed + 1) else currentPassed
+                                    )
+                                    transaction.update(accRef, updates)
+                                }
+                            }.await()
+                        } catch (ignored: Exception) {}
+                    }
+                    
                     Log.i(TAG, "[EXAM] Successfully synced exam result to Web Admin for $userName: $score/$totalQuestions ($percent%)")
                 } catch (e: Exception) {
                     Log.e(TAG, "[EXAM SAVE ERROR] ${e.localizedMessage}", e)

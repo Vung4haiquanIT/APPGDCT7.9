@@ -49,8 +49,10 @@ import com.example.ui.components.Vung4LogoBadge
 import com.example.ui.theme.GoldPrimary
 import com.example.ui.theme.RedPrimary
 import com.example.viewmodel.AppViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Suppress("OPT_IN_IS_NOT_ENABLED", "UnstableApiUsage")
 @OptIn(UnstableApi::class, ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
@@ -235,6 +237,18 @@ fun LessonPlayerScreen(
     var audioDuration by remember { mutableStateOf(0L) }
     var isUserDraggingSlider by remember { mutableStateOf(false) }
     var viewingFile by remember { mutableStateOf<com.example.model.StorageFileItem?>(null) }
+    var downloadingFileIds by remember { mutableStateOf(setOf<String>()) }
+    var cachedFileIds by remember { mutableStateOf(setOf<String>()) }
+    var savedToDeviceFileIds by remember { mutableStateOf(setOf<String>()) }
+
+    LaunchedEffect(lessonFiles) {
+        withContext(Dispatchers.IO) {
+            val cached = lessonFiles.filter { f ->
+                com.example.ui.components.isDocumentCachedInApp(context, f.downloadUrl, f.fileName, "")
+            }.map { it.id }.toSet()
+            cachedFileIds = cached
+        }
+    }
 
     // Tự động lưu và đồng bộ tiến độ về Web Quản trị trong nền
     fun triggerAutoSave(
@@ -869,57 +883,203 @@ fun LessonPlayerScreen(
 
                             if (lessonFiles.isNotEmpty()) {
                                 lessonFiles.forEach { file ->
+                                    val isCached = cachedFileIds.contains(file.id) || com.example.ui.components.isDocumentCachedInApp(context, file.downloadUrl, file.fileName, "")
+                                    val isSavedToDevice = savedToDeviceFileIds.contains(file.id)
+                                    val isDownloading = downloadingFileIds.contains(file.id)
+
                                     Card(
                                         modifier = Modifier.fillMaxWidth(),
                                         shape = RoundedCornerShape(12.dp),
                                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                                         elevation = CardDefaults.cardElevation(1.dp)
                                     ) {
-                                        Row(
+                                        Column(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .padding(14.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.SpaceBetween
+                                                .padding(14.dp)
                                         ) {
                                             Row(
+                                                modifier = Modifier.fillMaxWidth(),
                                                 verticalAlignment = Alignment.CenterVertically,
-                                                modifier = Modifier.weight(1f)
+                                                horizontalArrangement = Arrangement.SpaceBetween
                                             ) {
-                                                val ext = if (file.fileName.contains(".")) file.fileName.substringAfterLast(".").lowercase() else "pdf"
-                                                val icon = when {
-                                                    ext.contains("pdf") -> Icons.Default.PictureAsPdf
-                                                    ext.contains("doc") -> Icons.Default.Description
-                                                    ext.contains("xls") -> Icons.Default.TableChart
-                                                    ext.contains("ppt") -> Icons.Default.Slideshow
-                                                    else -> Icons.Default.InsertDriveFile
-                                                }
-                                                Icon(imageVector = icon, contentDescription = null, tint = RedPrimary, modifier = Modifier.size(28.dp))
-                                                Spacer(modifier = Modifier.width(12.dp))
-                                                Column {
-                                                    Text(
-                                                        text = file.title.ifEmpty { file.fileName.ifEmpty { "Tài liệu học tập" } },
-                                                        fontWeight = FontWeight.Bold,
-                                                        fontSize = 14.sp,
-                                                        maxLines = 1
-                                                    )
-                                                    Text(
-                                                        text = ext.uppercase(),
-                                                        fontSize = 12.sp,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                    )
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    modifier = Modifier.weight(1f)
+                                                ) {
+                                                    val ext = if (file.fileName.contains(".")) file.fileName.substringAfterLast(".").lowercase() else "pdf"
+                                                    val icon = when {
+                                                        ext.contains("pdf") -> Icons.Default.PictureAsPdf
+                                                        ext.contains("doc") -> Icons.Default.Description
+                                                        ext.contains("xls") -> Icons.Default.TableChart
+                                                        ext.contains("ppt") -> Icons.Default.Slideshow
+                                                        else -> Icons.Default.InsertDriveFile
+                                                    }
+                                                    Icon(imageVector = icon, contentDescription = null, tint = RedPrimary, modifier = Modifier.size(32.dp))
+                                                    Spacer(modifier = Modifier.width(12.dp))
+                                                    Column {
+                                                        Text(
+                                                            text = file.title.ifEmpty { file.fileName.ifEmpty { "Tài liệu học tập" } },
+                                                            fontWeight = FontWeight.Bold,
+                                                            fontSize = 14.sp,
+                                                            maxLines = 2,
+                                                            lineHeight = 19.sp
+                                                        )
+                                                        Spacer(modifier = Modifier.height(3.dp))
+                                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                                            Surface(
+                                                                shape = RoundedCornerShape(4.dp),
+                                                                color = MaterialTheme.colorScheme.surfaceVariant
+                                                            ) {
+                                                                Text(
+                                                                    text = ext.uppercase(),
+                                                                    fontSize = 10.sp,
+                                                                    fontWeight = FontWeight.Bold,
+                                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                                )
+                                                            }
+                                                            Spacer(modifier = Modifier.width(6.dp))
+                                                            if (isSavedToDevice) {
+                                                                Surface(
+                                                                    shape = RoundedCornerShape(4.dp),
+                                                                    color = Color(0xFFE8F5E9)
+                                                                ) {
+                                                                    Row(
+                                                                        verticalAlignment = Alignment.CenterVertically,
+                                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                                    ) {
+                                                                        Icon(Icons.Default.Folder, contentDescription = null, tint = Color(0xFF2E7D32), modifier = Modifier.size(12.dp))
+                                                                        Spacer(modifier = Modifier.width(4.dp))
+                                                                        Text(
+                                                                            text = "Đã tải về máy (Thư mục Downloads)",
+                                                                            fontSize = 10.sp,
+                                                                            fontWeight = FontWeight.Bold,
+                                                                            color = Color(0xFF2E7D32)
+                                                                        )
+                                                                    }
+                                                                }
+                                                            } else if (isCached) {
+                                                                Surface(
+                                                                    shape = RoundedCornerShape(4.dp),
+                                                                    color = Color(0xFFE8F5E9)
+                                                                ) {
+                                                                    Row(
+                                                                        verticalAlignment = Alignment.CenterVertically,
+                                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                                    ) {
+                                                                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF2E7D32), modifier = Modifier.size(12.dp))
+                                                                        Spacer(modifier = Modifier.width(4.dp))
+                                                                        Text(
+                                                                            text = "Đã lưu đệm (Xem ngoại tuyến)",
+                                                                            fontSize = 10.sp,
+                                                                            fontWeight = FontWeight.Bold,
+                                                                            color = Color(0xFF2E7D32)
+                                                                        )
+                                                                    }
+                                                                }
+                                                            } else {
+                                                                Text(
+                                                                    text = "Mở lần đầu để tự động lưu đệm",
+                                                                    fontSize = 11.sp,
+                                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                                )
+                                                            }
+                                                        }
+                                                    }
                                                 }
                                             }
 
-                                            Button(
-                                                onClick = { viewingFile = file },
-                                                colors = ButtonDefaults.buttonColors(containerColor = RedPrimary),
-                                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-                                                shape = RoundedCornerShape(8.dp)
+                                            Spacer(modifier = Modifier.height(10.dp))
+
+                                            // Action Buttons Row (Xem ngay / Tải về)
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                                                verticalAlignment = Alignment.CenterVertically
                                             ) {
-                                                Icon(Icons.Default.Visibility, contentDescription = null, modifier = Modifier.size(16.dp))
-                                                Spacer(modifier = Modifier.width(4.dp))
-                                                Text("Xem", fontSize = 13.sp)
+                                                // Nút Xem ngay
+                                                Button(
+                                                    onClick = {
+                                                        viewingFile = file
+                                                        cachedFileIds = cachedFileIds + file.id
+                                                    },
+                                                    colors = ButtonDefaults.buttonColors(containerColor = RedPrimary),
+                                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                                                    shape = RoundedCornerShape(8.dp)
+                                                ) {
+                                                    Icon(Icons.Default.Visibility, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Text("Xem ngay", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                                }
+
+                                                // Nút Tải về máy / Đã tải (Hiển thị dạng thư mục mở vị trí tệp)
+                                                if (isSavedToDevice) {
+                                                    OutlinedButton(
+                                                        onClick = {
+                                                            com.example.ui.components.openDownloadsFolder(context, file.fileName)
+                                                        },
+                                                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2E7D32)),
+                                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF2E7D32)),
+                                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                                                        shape = RoundedCornerShape(8.dp)
+                                                    ) {
+                                                        Icon(Icons.Default.Folder, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color(0xFF2E7D32))
+                                                        Spacer(modifier = Modifier.width(4.dp))
+                                                        Text("Đã tải về máy", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
+                                                    }
+                                                } else {
+                                                    OutlinedButton(
+                                                        onClick = {
+                                                            if (isDownloading) return@OutlinedButton
+                                                            val stdName = com.example.ui.components.getStandardFileName(file.title, "", file.downloadUrl)
+                                                            com.example.ui.components.downloadFileViaSystemManager(context, file.downloadUrl, file.title, stdName)
+                                                            savedToDeviceFileIds = savedToDeviceFileIds + file.id
+                                                            downloadingFileIds = downloadingFileIds + file.id
+                                                            coroutineScope.launch {
+                                                                val (downloadedFile, err) = com.example.ui.components.downloadFileToAppStorage(context, file.downloadUrl, stdName)
+                                                                downloadingFileIds = downloadingFileIds - file.id
+                                                                if (downloadedFile != null && downloadedFile.exists()) {
+                                                                    cachedFileIds = cachedFileIds + file.id
+                                                                    val savedOk = com.example.ui.components.saveToDeviceDownloads(context, downloadedFile, stdName)
+                                                                    if (savedOk) {
+                                                                        savedToDeviceFileIds = savedToDeviceFileIds + file.id
+                                                                        android.widget.Toast.makeText(
+                                                                            context,
+                                                                            "Đã tải & lưu tài liệu vào thư mục Downloads trên máy! Bấm vào để mở vị trí tệp.",
+                                                                            android.widget.Toast.LENGTH_LONG
+                                                                        ).show()
+                                                                    } else {
+                                                                        android.widget.Toast.makeText(
+                                                                            context,
+                                                                            "Đã lưu đệm trong App thành công!",
+                                                                            android.widget.Toast.LENGTH_LONG
+                                                                        ).show()
+                                                                    }
+                                                                } else {
+                                                                    android.widget.Toast.makeText(
+                                                                        context,
+                                                                        "Lỗi tải tài liệu: ${err ?: "Không thể kết nối"}",
+                                                                        android.widget.Toast.LENGTH_SHORT
+                                                                    ).show()
+                                                                }
+                                                            }
+                                                        },
+                                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                                                        shape = RoundedCornerShape(8.dp),
+                                                        enabled = !isDownloading
+                                                    ) {
+                                                        if (isDownloading) {
+                                                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = RedPrimary)
+                                                            Spacer(modifier = Modifier.width(6.dp))
+                                                            Text("Đang tải...", fontSize = 13.sp)
+                                                        } else {
+                                                            Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                            Spacer(modifier = Modifier.width(4.dp))
+                                                            Text("Tải về máy", fontSize = 13.sp)
+                                                        }
+                                                    }
+                                                }
                                             }
                                         }
                                     }

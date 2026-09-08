@@ -820,6 +820,7 @@ data class ExamSessionDoc(
     val durationMinutes: Int = 20,
     val totalQuestions: Int = 20,
     val questionIds: List<String> = emptyList(),
+    val questionsList: List<QuestionItem> = emptyList(),
     val startTime: Long = System.currentTimeMillis(),
     val endTime: Long = System.currentTimeMillis() + 86400000L * 30,
     val createdAt: Long = System.currentTimeMillis()
@@ -830,14 +831,72 @@ data class ExamSessionDoc(
             val isOpenBool = doc.getBoolean("isOpen") ?: doc.getBoolean("dangMo") ?: true
             val effectiveStatus = if (!isOpenBool) "closed" else rawStatus.lowercase()
 
-            val rawQIds = doc.get("questionIds") ?: doc.get("dsCauHoi") ?: doc.get("questions")
+            val rawQIds = doc.get("questionIds") ?: doc.get("dsCauHoiId") ?: doc.get("listQuestionIds")
             val qIdList = when (rawQIds) {
                 is List<*> -> rawQIds.mapNotNull { it?.toString() }
                 else -> emptyList()
             }
 
+            val rawQuestions = doc.get("questions") ?: doc.get("dsCauHoi") ?: doc.get("cauHoiList") ?: doc.get("questionsList")
+            val embeddedQList = mutableListOf<QuestionItem>()
+            val parsedQIds = mutableListOf<String>()
+
+            if (rawQuestions is List<*>) {
+                rawQuestions.forEach { item ->
+                    if (item is Map<*, *>) {
+                        try {
+                            val qText = (item["question"] ?: item["cauHoi"] ?: item["content"] ?: item["title"] ?: "").toString()
+                            val rawOpts = item["options"] ?: item["dapAn"] ?: item["choices"] ?: item["answers"]
+                            val opts = when (rawOpts) {
+                                is List<*> -> rawOpts.mapNotNull { it?.toString() }
+                                else -> {
+                                    val a = (item["optionA"] ?: item["dapAnA"] ?: "").toString()
+                                    val b = (item["optionB"] ?: item["dapAnB"] ?: "").toString()
+                                    val c = (item["optionC"] ?: item["dapAnC"] ?: "").toString()
+                                    val d = (item["optionD"] ?: item["dapAnD"] ?: "").toString()
+                                    listOf(a, b, c, d).filter { it.isNotEmpty() }
+                                }
+                            }
+                            val rawCorr = item["correctIndex"] ?: item["correctAnswer"] ?: item["dapAnDung"] ?: item["correct"] ?: 0
+                            val corrIdx = when (rawCorr) {
+                                is Number -> rawCorr.toInt()
+                                is String -> {
+                                    when (rawCorr.trim().uppercase()) {
+                                        "A", "0" -> 0
+                                        "B", "1" -> 1
+                                        "C", "2" -> 2
+                                        "D", "3" -> 3
+                                        else -> rawCorr.toIntOrNull() ?: 0
+                                    }
+                                }
+                                else -> 0
+                            }
+                            val qId = (item["id"] ?: item["_id"] ?: item["questionId"] ?: System.currentTimeMillis().toString()).toString()
+                            if (qText.isNotBlank()) {
+                                embeddedQList.add(
+                                    QuestionItem(
+                                        id = qId,
+                                        question = cleanHtml(qText),
+                                        options = opts.map { cleanHtml(it) },
+                                        correctIndex = corrIdx,
+                                        category = doc.getString("category") ?: "GDCT",
+                                        explanation = cleanHtml((item["explanation"] ?: item["giaiThich"] ?: "").toString())
+                                    )
+                                )
+                            }
+                        } catch (e: Exception) {
+                            // Skip item on error
+                        }
+                    } else if (item is String) {
+                        parsedQIds.add(item)
+                    }
+                }
+            }
+
+            val finalQIds = if (qIdList.isNotEmpty()) qIdList else parsedQIds
+
             val dur = (doc.getLong("durationMinutes") ?: doc.getLong("thoiGianLamBai") ?: doc.getLong("thoiGian") ?: 20L).toInt()
-            val totalQ = (doc.getLong("totalQuestions") ?: doc.getLong("soCauHoi") ?: doc.getLong("tongSoCau") ?: 20L).toInt()
+            val totalQ = (doc.getLong("totalQuestions") ?: doc.getLong("soCauHoi") ?: doc.getLong("tongSoCau") ?: (if (embeddedQList.isNotEmpty()) embeddedQList.size.toLong() else 20L)).toInt()
 
             return ExamSessionDoc(
                 id = doc.id,
@@ -846,8 +905,9 @@ data class ExamSessionDoc(
                 category = doc.getString("category") ?: doc.getString("chuyenDe") ?: "",
                 status = effectiveStatus,
                 durationMinutes = if (dur > 0) dur else 20,
-                totalQuestions = if (totalQ > 0) totalQ else 20,
-                questionIds = qIdList,
+                totalQuestions = if (totalQ > 0) totalQ else (if (embeddedQList.isNotEmpty()) embeddedQList.size else 20),
+                questionIds = finalQIds,
+                questionsList = embeddedQList,
                 startTime = parseTime(doc.get("startTime") ?: doc.get("thoiGianBatDau") ?: doc.get("createdAt")),
                 endTime = parseTime(doc.get("endTime") ?: doc.get("thoiGianKetThuc") ?: (System.currentTimeMillis() + 86400000L * 30)),
                 createdAt = parseTime(doc.get("createdAt") ?: doc.get("thoiGianTao"))

@@ -1,10 +1,12 @@
 package com.example.ui.components
 
+import android.app.DownloadManager
 import android.content.ContentValues
 import android.content.Context
+import android.content.Intent
+import androidx.core.content.FileProvider
 import android.graphics.Bitmap
 import android.graphics.Canvas
-import android.graphics.Color
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.Build
@@ -33,6 +35,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -81,15 +84,67 @@ fun getStandardFileName(title: String, format: String, urlString: String): Strin
 }
 
 /**
- * Chuẩn hóa URL (xử lý ký tự Unicode, khoảng trắng)
+ * Xây dựng danh sách các URL ứng viên hợp lệ để tải tệp (khắc phục triệt để lỗi 404 do mã hóa đúp)
  */
+fun buildCandidateUrls(rawUrl: String): List<String> {
+    val candidateUrls = mutableListOf<String>()
+    val trimmed = rawUrl.trim()
+    if (trimmed.isBlank()) return candidateUrls
+
+    // 1. Thử chuỗi URL nguyên bản (nếu không chứa khoảng trắng thô)
+    if (!trimmed.contains(" ")) {
+        candidateUrls.add(trimmed)
+    }
+
+    // 2. Chỉ thay thế khoảng trắng đơn thuần bằng %20 (không đụng vào các ký tự % đã mã hóa sẵn)
+    val spaceReplaced = trimmed.replace(" ", "%20")
+    if (!candidateUrls.contains(spaceReplaced)) {
+        candidateUrls.add(spaceReplaced)
+    }
+
+    // 3. Giải mã URLDecoder nếu tệp từng bị mã hóa kép, sau đó mã hóa lại an toàn
+    try {
+        val decoded = java.net.URLDecoder.decode(trimmed, "UTF-8")
+        val reEncoded = decoded.replace(" ", "%20")
+        if (!candidateUrls.contains(reEncoded)) {
+            candidateUrls.add(reEncoded)
+        }
+    } catch (_: Exception) {}
+
+    // 4. Biến thể Cloudinary fl_attachment nếu có
+    val copy = candidateUrls.toList()
+    for (url in copy) {
+        if (url.contains("cloudinary.com") && url.contains("/raw/upload/") && !url.contains("/fl_attachment/")) {
+            val flUrl = url.replace("/raw/upload/", "/raw/upload/fl_attachment/")
+            if (!candidateUrls.contains(flUrl)) {
+                candidateUrls.add(flUrl)
+            }
+        }
+    }
+
+    return candidateUrls
+}
+
 fun sanitizeUrl(rawUrl: String): String {
+    return buildCandidateUrls(rawUrl).firstOrNull() ?: rawUrl
+}
+
+/**
+ * Kiểm tra xem tệp tài liệu đã được lưu trong bộ nhớ đệm (Internal Storage) của ứng dụng chưa
+ */
+fun isDocumentCachedInApp(context: Context, urlString: String, fileName: String, fileFormat: String = ""): Boolean {
     return try {
-        val url = URL(rawUrl)
-        val uri = URI(url.protocol, url.userInfo, url.host, url.port, url.path, url.query, url.ref)
-        uri.toASCIIString()
+        val dir = File(context.filesDir, "documents")
+        if (!dir.exists()) return false
+        val standardFileName = getStandardFileName(fileName, fileFormat, urlString)
+        val urlHash = Math.abs(urlString.hashCode()).toString()
+        val ext = if (standardFileName.contains(".")) standardFileName.substringAfterLast(".") else "bin"
+        val baseName = standardFileName.substringBeforeLast(".")
+        val cacheFileName = "${baseName}_$urlHash.$ext"
+        val file = File(dir, cacheFileName)
+        file.exists() && file.length() > 100
     } catch (_: Exception) {
-        rawUrl.replace(" ", "%20")
+        false
     }
 }
 
@@ -125,14 +180,7 @@ suspend fun downloadFileToAppStorage(
                 .readTimeout(30, TimeUnit.SECONDS)
                 .build()
 
-            val sanitizedUrl = sanitizeUrl(urlString)
-            val candidateUrls = mutableListOf(sanitizedUrl)
-
-            // Nếu là URL Cloudinary raw/upload, thử thêm biến thể fl_attachment phòng trường hợp policy
-            if (sanitizedUrl.contains("cloudinary.com") && sanitizedUrl.contains("/raw/upload/")) {
-                val flUrl = sanitizedUrl.replace("/raw/upload/", "/raw/upload/fl_attachment/")
-                if (!candidateUrls.contains(flUrl)) candidateUrls.add(flUrl)
-            }
+            val candidateUrls = buildCandidateUrls(urlString)
 
             var lastErrorMsg: String? = null
             for (testUrl in candidateUrls) {
@@ -215,6 +263,95 @@ fun saveToDeviceDownloads(context: Context, sourceFile: File, fileName: String):
     } catch (e: Exception) {
         Log.e(TAG, "Save downloads error: ${e.message}", e)
         false
+    }
+}
+
+/**
+ * Tải tệp trực tiếp từ Web Quản trị về máy bằng Android System DownloadManager.
+ * Đảm bảo tải tệp gốc qua mạng đúng định dạng MIME và hiển thị thanh tiến trình trên hệ thống.
+ */
+fun downloadFileViaSystemManager(
+    context: Context,
+    fileUrl: String,
+    fileTitle: String,
+    standardFileName: String
+): Boolean {
+    return try {
+        val candidateUrls = buildCandidateUrls(fileUrl)
+        val validUrl = candidateUrls.firstOrNull() ?: fileUrl
+        val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
+            ?: return false
+
+        val ext = if (standardFileName.contains(".")) standardFileName.substringAfterLast(".").lowercase() else ""
+        val mime = when {
+            ext == "pdf" -> "application/pdf"
+            ext == "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            ext == "doc" -> "application/msword"
+            ext == "xlsx" -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            ext == "xls" -> "application/vnd.ms-excel"
+            ext == "pptx" -> "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            ext == "ppt" -> "application/vnd.ms-powerpoint"
+            else -> "application/octet-stream"
+        }
+
+        val request = DownloadManager.Request(Uri.parse(validUrl)).apply {
+            setTitle(fileTitle.ifBlank { standardFileName })
+            setDescription("Tải tài liệu học tập từ Web Quản trị")
+            setMimeType(mime)
+            setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, standardFileName)
+            setAllowedOverMetered(true)
+            setAllowedOverRoaming(true)
+        }
+
+        downloadManager.enqueue(request)
+        Toast.makeText(
+            context,
+            "Đang tải tệp '$standardFileName' từ máy chủ về thư mục Downloads...",
+            Toast.LENGTH_LONG
+        ).show()
+        true
+    } catch (e: Exception) {
+        Log.e(TAG, "System DownloadManager error: ${e.message}", e)
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(fileUrl)).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+}
+
+/**
+ * Mở thư mục Tải về (Downloads) hoặc Trình quản lý tệp trên thiết bị
+ */
+fun openDownloadsFolder(context: Context, fileName: String? = null) {
+    try {
+        val intent = Intent(DownloadManager.ACTION_VIEW_DOWNLOADS).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        context.startActivity(intent)
+    } catch (_: Exception) {
+        try {
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", downloadsDir)
+                setDataAndType(uri, "*/*")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+        } catch (_: Exception) {
+            val msg = if (!fileName.isNullOrBlank()) {
+                "Tệp '$fileName' đã được lưu tại thư mục Tải về (Downloads) trên máy của bạn."
+            } else {
+                "Tài liệu đã được lưu tại thư mục Tải về (Downloads) trên máy."
+            }
+            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+        }
     }
 }
 
@@ -726,7 +863,7 @@ suspend fun renderPdfPageBitmap(
 
         // Quan trọng: Vẽ nền trắng trước khi render để chữ không bị trong suốt / đen
         val canvas = Canvas(bitmap)
-        canvas.drawColor(Color.WHITE)
+        canvas.drawColor(android.graphics.Color.WHITE)
 
         page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
         bitmap
@@ -760,11 +897,12 @@ fun InAppDocumentViewerDialog(
     var localFile by remember { mutableStateOf<File?>(null) }
     var downloadError by remember { mutableStateOf<String?>(null) }
     var wordHtmlContent by remember { mutableStateOf("") }
-    var isWebViewMode by remember { mutableStateOf(true) } // Mặc định mở ngay chế độ xem Web
+    var isWebViewMode by remember { mutableStateOf(false) } // Mặc định dùng chế độ đọc bộ nhớ đệm nội bộ (hoạt động khi Ngoại tuyến / Offline)
 
     var isWebLoading by remember { mutableStateOf(true) }
     var webProgress by remember { mutableStateOf(0) }
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
+    var isSavedToDeviceInDialog by remember { mutableStateOf(false) }
 
     val standardFileName = remember(fileTitle, fileFormat, fileUrl) {
         getStandardFileName(fileTitle, fileFormat, fileUrl)
@@ -809,6 +947,7 @@ fun InAppDocumentViewerDialog(
         val (downloaded, err) = downloadFileToAppStorage(context, fileUrl, standardFileName)
         if (downloaded != null && downloaded.exists()) {
             localFile = downloaded
+            isWebViewMode = false
             if (isWord) {
                 withContext(Dispatchers.Default) {
                     wordHtmlContent = DocxToHtmlConverter.convert(downloaded)
@@ -930,18 +1069,30 @@ fun InAppDocumentViewerDialog(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        // Nút Tải về máy
-                        if (localFile != null && localFile!!.exists()) {
+                        // Nút Tải về máy / Đã tải (Dạng thư mục mở thư mục chứa)
+                        if (isSavedToDeviceInDialog) {
                             OutlinedButton(
                                 onClick = {
+                                    openDownloadsFolder(context, standardFileName)
+                                },
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2E7D32)),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF2E7D32)),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                shape = RoundedCornerShape(20.dp),
+                                modifier = Modifier.height(34.dp)
+                            ) {
+                                Icon(Icons.Default.Folder, contentDescription = null, modifier = Modifier.size(15.dp), tint = Color(0xFF2E7D32))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Đã tải - Mở thư mục", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
+                            }
+                        } else if (localFile != null && localFile!!.exists()) {
+                            OutlinedButton(
+                                onClick = {
+                                    val okSystem = downloadFileViaSystemManager(context, fileUrl, fileTitle, standardFileName)
                                     localFile?.let { file ->
-                                        val ok = saveToDeviceDownloads(context, file, standardFileName)
-                                        if (ok) {
-                                            Toast.makeText(context, "Đã lưu tệp $standardFileName vào thư mục Tải về (Downloads)!", Toast.LENGTH_LONG).show()
-                                        } else {
-                                            Toast.makeText(context, "Không thể lưu vào Downloads", Toast.LENGTH_SHORT).show()
-                                        }
+                                        saveToDeviceDownloads(context, file, standardFileName)
                                     }
+                                    isSavedToDeviceInDialog = true
                                 },
                                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                                 shape = RoundedCornerShape(20.dp),
@@ -954,11 +1105,14 @@ fun InAppDocumentViewerDialog(
                         } else {
                             OutlinedButton(
                                 onClick = {
-                                    try {
-                                        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(fileUrl))
-                                        context.startActivity(intent)
-                                    } catch (e: Exception) {
-                                        Toast.makeText(context, "Không thể mở liên kết: ${e.message}", Toast.LENGTH_SHORT).show()
+                                    downloadFileViaSystemManager(context, fileUrl, fileTitle, standardFileName)
+                                    isSavedToDeviceInDialog = true
+                                    coroutineScope.launch {
+                                        val (downloaded, _) = downloadFileToAppStorage(context, fileUrl, standardFileName)
+                                        if (downloaded != null && downloaded.exists()) {
+                                            localFile = downloaded
+                                            isWebViewMode = false
+                                        }
                                     }
                                 },
                                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
@@ -967,7 +1121,7 @@ fun InAppDocumentViewerDialog(
                             ) {
                                 Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(15.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("Tải tệp", fontSize = 12.sp)
+                                Text("Tải tệp về máy", fontSize = 12.sp)
                             }
                         }
 

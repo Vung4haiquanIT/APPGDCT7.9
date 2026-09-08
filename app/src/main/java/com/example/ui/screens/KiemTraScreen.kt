@@ -56,6 +56,7 @@ fun KiemTraScreen(
 ) {
     val allQuestions by viewModel.questions.collectAsState()
     val examSessions by viewModel.examSessions.collectAsState()
+    val userExamResults by viewModel.userExamResults.collectAsState()
     val currentUser by viewModel.currentUser.collectAsState()
     val userDoc by viewModel.userDoc.collectAsState()
     val authActionLoading by viewModel.authActionLoading.collectAsState()
@@ -127,27 +128,47 @@ fun KiemTraScreen(
             activeExamId = session.id
             activeExamName = session.title
             
-            // Filter questions for this session if IDs specified, or pick category / random
-            val matchedQ = if (session.questionIds.isNotEmpty()) {
+            // 1. Ưu tiên lấy trực tiếp danh sách câu hỏi nhúng bên trong đợt thi từ Web Quản trị
+            val sessionQuestions = if (session.questionsList.isNotEmpty()) {
+                session.questionsList
+            } else if (session.questionIds.isNotEmpty()) {
                 val qSet = session.questionIds.toSet()
                 allQuestions.filter { it.id in qSet }
             } else if (session.category.isNotBlank()) {
-                allQuestions.filter { it.category.equals(session.category, ignoreCase = true) }
-            } else emptyList()
-
-            val totalToPick = if (session.totalQuestions > 0) session.totalQuestions else 20
-            examQuestions = if (matchedQ.size >= totalToPick) {
-                matchedQ.shuffled().take(totalToPick)
+                // Chỉ lấy câu hỏi kiểm tra chung, tuyệt đối không lấy nhầm câu hỏi ôn tập cuối bài học GDCT (lessonId != "")
+                allQuestions.filter { it.category.equals(session.category, ignoreCase = true) && it.lessonId.isBlank() }
             } else {
-                (matchedQ + allQuestions.filter { it !in matchedQ }.shuffled()).take(minOf(totalToPick, allQuestions.size))
+                // Chỉ lấy câu hỏi kiểm tra ngân hàng chung
+                allQuestions.filter { it.lessonId.isBlank() }
             }
+
+            val targetCount = if (session.totalQuestions > 0) session.totalQuestions else if (sessionQuestions.isNotEmpty()) sessionQuestions.size else 20
+
+            examQuestions = if (sessionQuestions.isNotEmpty()) {
+                if (sessionQuestions.size >= targetCount) {
+                    sessionQuestions.take(targetCount)
+                } else {
+                    // Hiển thị chính xác toàn bộ danh sách câu hỏi của đợt thi mà không tự ý lấy nhầm câu hỏi GDCT bài học
+                    sessionQuestions
+                }
+            } else {
+                val nonLessonQuestions = allQuestions.filter { it.lessonId.isBlank() }
+                if (nonLessonQuestions.isNotEmpty()) {
+                    nonLessonQuestions.shuffled().take(minOf(targetCount, nonLessonQuestions.size))
+                } else {
+                    allQuestions.take(minOf(targetCount, allQuestions.size))
+                }
+            }
+
             examTimerSeconds = if (session.durationMinutes > 0) session.durationMinutes * 60 else 20 * 60
         } else {
             isOfficialWebExam = false
             activeExamId = "random_practice_${System.currentTimeMillis()}"
             activeExamName = "Đề thi 20 câu ngẫu nhiên"
-            val totalToPick = minOf(20, allQuestions.size)
-            examQuestions = allQuestions.shuffled().take(totalToPick)
+            val nonLessonQuestions = allQuestions.filter { it.lessonId.isBlank() }
+            val pool = if (nonLessonQuestions.isNotEmpty()) nonLessonQuestions else allQuestions
+            val totalToPick = minOf(20, pool.size)
+            examQuestions = pool.shuffled().take(totalToPick)
             examTimerSeconds = 20 * 60
         }
 
@@ -340,8 +361,7 @@ fun KiemTraScreen(
                         totalQuestionsCount = allQuestions.size,
                         examSessions = examSessions,
                         isAuthenticated = isAuthenticated,
-                        userName = userName,
-                        onOpenLogin = { showLoginDialog = true },
+                        onOpenLogin = { showLoginRequiredDialog = true },
                         onStartSessionExam = { session -> startExamForSession(session) },
                         onStartExam = { startExamForSession(null) },
                         onOpenQuestionBank = { currentMode = ExamMode.QUESTION_BANK }
@@ -617,37 +637,13 @@ private fun ExamOverviewView(
     totalQuestionsCount: Int,
     examSessions: List<ExamSessionDoc>,
     isAuthenticated: Boolean,
-    userName: String,
     onOpenLogin: () -> Unit,
     onStartSessionExam: (ExamSessionDoc) -> Unit,
     onStartExam: () -> Unit,
     onOpenQuestionBank: () -> Unit
 ) {
-    // Default fallback exam sessions if Web Admin hasn't pushed specific custom sessions yet
-    val displaySessions = if (examSessions.isNotEmpty()) {
-        examSessions
-    } else {
-        listOf(
-            ExamSessionDoc(
-                id = "session_gdct_gdpl_q3",
-                title = "Đợt thi Giáo dục Chính trị & Pháp luật Quý III/2026",
-                description = "Nội dung kiểm tra GDCT & GDPL",
-                category = "GDCT",
-                status = "open",
-                durationMinutes = 20,
-                totalQuestions = 20
-            ),
-            ExamSessionDoc(
-                id = "session_lichsu_biendao_q3",
-                title = "Đợt kiểm tra Lịch sử Truyền thống & Biển đảo Việt Nam",
-                description = "Chuyên đề kiểm tra nhận thức Lịch sử & Biển đảo",
-                category = "LICHSU",
-                status = "open",
-                durationMinutes = 20,
-                totalQuestions = 20
-            )
-        )
-    }
+    // Only display exam sessions published by Web Admin from Firestore
+    val displaySessions = examSessions
 
     LazyColumn(
         modifier = Modifier
@@ -690,75 +686,50 @@ private fun ExamOverviewView(
             }
         }
 
-        // BẢNG THÔNG BÁO YÊU CẦU ĐĂNG NHẬP NẾU CHƯA ĐĂNG NHẬP
-        if (!isAuthenticated) {
+        // List of Active Exam Sessions from Web Admin
+        if (displaySessions.isEmpty()) {
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = RedPrimary.copy(alpha = 0.12f)),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)),
                     border = CardDefaults.outlinedCardBorder().copy(
-                        brush = androidx.compose.ui.graphics.SolidColor(RedPrimary)
+                        brush = androidx.compose.ui.graphics.SolidColor(Color.Gray.copy(alpha = 0.3f))
                     )
                 ) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(18.dp),
+                            .padding(24.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.Lock,
-                                contentDescription = null,
-                                tint = RedPrimary,
-                                modifier = Modifier.size(26.dp)
-                            )
-                            Text(
-                                text = "THÔNG BÁO: YÊU CẦU ĐĂNG NHẬP",
-                                fontWeight = FontWeight.Black,
-                                fontSize = 15.sp,
-                                color = RedPrimary,
-                                textAlign = TextAlign.Center
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        Text(
-                            text = "Yêu cầu đăng nhập tài khoản cán bộ / học viên để tham gia làm bài kiểm tra trắc nghiệm. Kết quả bài làm sẽ được tự động đồng bộ và báo cáo về hệ thống Web Quản trị.",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            textAlign = TextAlign.Center,
-                            lineHeight = 17.sp
+                        Icon(
+                            imageVector = Icons.Default.HourglassEmpty,
+                            contentDescription = null,
+                            tint = RedPrimary,
+                            modifier = Modifier.size(44.dp)
                         )
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        Button(
-                            onClick = onOpenLogin,
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(containerColor = RedPrimary),
-                            shape = RoundedCornerShape(10.dp)
-                        ) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.Login,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("ĐĂNG NHẬP TÀI KHOẢN ĐỂ LÀM BÀI", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                        }
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = "CHƯA CÓ ĐỢT THI NÀO TỪ WEB QUẢN TRỊ",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
+                            color = RedPrimary,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Hiện chưa có đợt thi chính thức nào được đăng tải. Đợt thi sẽ tự động hiển thị tại đây ngay khi Ban Quản trị Web phát hành đợt thi mới.",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                            lineHeight = 18.sp
+                        )
                     }
                 }
             }
-        }
-
-        // List of Active Exam Sessions from Web Admin
-        items(displaySessions) { session ->
+        } else {
+            items(displaySessions) { session ->
             val isOpen = session.status.equals("open", ignoreCase = true) || session.status.equals("active", ignoreCase = true)
             
             Card(
@@ -859,6 +830,7 @@ private fun ExamOverviewView(
                     }
                 }
             }
+        }
         }
 
         // Section Title: Chế độ ôn luyện tự do
