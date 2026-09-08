@@ -42,6 +42,7 @@ import coil.compose.AsyncImage
 import com.example.model.Lesson
 import com.example.ui.components.InAppDocumentViewerDialog
 import com.example.ui.components.LoginDialog
+import com.example.ui.components.TrongDongBackground
 import com.example.ui.components.Vung4LogoBadge
 import com.example.ui.theme.GoldPrimary
 import com.example.ui.theme.RedPrimary
@@ -89,29 +90,40 @@ fun LessonPlayerScreen(
         progressList.find { it.lessonId == lesson.id }
     }
 
-    // Danh sách các slide đã xem đủ ít nhất 5 giây
-    var viewedSlideIndices by remember(lesson.id, existingProgress, lessonSlides.size) {
+    // Danh sách các slide đã xem đủ ít nhất 5 giây (ghi nhớ theo lesson.id, không bị reset khi lưu tiến độ)
+    var viewedSlideIndices by remember(lesson.id) {
         mutableStateOf<Set<Int>>(
             if (existingProgress?.viewedSlides == true || existingProgress?.completed == true) {
-                (0 until lessonSlides.size).toSet()
+                (0 until maxOf(1, lessonSlides.size)).toSet()
             } else {
                 emptySet()
             }
         )
     }
 
-    // Thời gian đã xem ở slide hiện tại (đếm từ 0s -> 5s)
+    // Thời gian đã xem ở từng slide (map từ index slide -> số giây đã xem)
+    var slideDwellMap by remember(lesson.id) {
+        mutableStateOf<Map<Int, Int>>(emptyMap())
+    }
+
+    // Thời gian đã xem ở slide hiện tại đang hiển thị (đếm từ 0s -> 5s)
     var currentSlideDwellSeconds by remember { mutableIntStateOf(0) }
 
-    // Tỷ lệ cuộn nội dung cao nhất học viên đã đạt được (0.0 -> 1.0)
-    var maxContentScrollRatio by remember(lesson.id, existingProgress) {
+    // Tỷ lệ cuộn nội dung cao nhất học viên đã đạt được (0.0 -> 1.0, CHỈ TĂNG KHI LƯỚT XUỐNG TỪ TỪ, KHÔNG GIẢM KHI LƯỚT LÊN)
+    var maxContentScrollRatio by remember(lesson.id) {
         mutableFloatStateOf(
             if (existingProgress?.readContent == true || existingProgress?.completed == true) 1f else 0f
         )
     }
 
+    // Trạng thái cảnh báo khi lướt nội dung quá nhanh
+    var isScrollingTooFast by remember { mutableStateOf(false) }
+    var fastScrollWarningDismissTime by remember { mutableLongStateOf(0L) }
+    var lastScrollPosition by remember { mutableIntStateOf(0) }
+    var lastScrollTimeMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
+
     // 3. Trả lời câu hỏi trắc nghiệm & nộp bài
-    var quizSubmitted by remember(lesson.id, existingProgress) {
+    var quizSubmitted by remember(lesson.id) {
         mutableStateOf(
             existingProgress?.passedQuiz == true ||
             existingProgress?.completed == true ||
@@ -119,50 +131,32 @@ fun LessonPlayerScreen(
         )
     }
 
-    var currentScore by remember(lesson.id, existingProgress) {
+    var currentScore by remember(lesson.id) {
         mutableStateOf(existingProgress?.score)
     }
-    var currentTotalQuestions by remember(lesson.id, existingProgress) {
+    var currentTotalQuestions by remember(lesson.id) {
         mutableStateOf(existingProgress?.totalQuestions ?: 3)
     }
-    var currentScorePercent by remember(lesson.id, existingProgress) {
+    var currentScorePercent by remember(lesson.id) {
         mutableStateOf(existingProgress?.scorePercentage)
     }
 
-    // Danh sách câu hỏi trắc nghiệm kiểm tra kiến thức bài học
-    val sampleQuestions = remember {
-        listOf(
-            Triple(
-                "1. Nội dung cốt lõi trong đường lối chính trị của Vùng 4 Hải quân là gì?",
-                listOf(
-                    "Kiên định mục tiêu độc lập dân tộc và chủ nghĩa xã hội",
-                    "Phát triển kinh tế biển đơn thuần",
-                    "Hợp tác quốc tế đa phương",
-                    "Xây dựng lực lượng tên lửa bờ"
-                ),
-                0
-            ),
-            Triple(
-                "2. Truyền thống vẻ vang của Quân chủng Hải quân Nhân dân Việt Nam là gì?",
-                listOf(
-                    "Đánh yếu thắng mạnh",
-                    "Chiến đấu anh dũng, mưu trí sáng tạo, làm chủ vùng biển, quyết chiến quyết thắng",
-                    "Phòng thủ biên giới đất liền",
-                    "Huấn luyện chuyên sâu"
-                ),
-                1
-            ),
-            Triple(
-                "3. Nhiệm vụ trọng tâm của cán bộ, chiến sĩ tại Vùng 4 Hải quân là gì?",
-                listOf(
-                    "Quản lý, bảo vệ vững chắc chủ quyền biển đảo, thềm lục địa thiêng liêng của Tổ quốc",
-                    "Tham gia tuần tra biên giới Tây Nam",
-                    "Phát triển công nghiệp đóng tàu",
-                    "Xây dựng hạ tầng du lịch biển"
-                ),
-                0
-            )
-        )
+    val allQuestions by viewModel.questions.collectAsState()
+
+    // Lấy danh sách câu hỏi trắc nghiệm đã tạo từ Web Quản trị gắn với bài học / chuyên đề này
+    val lessonQuestions = remember(allQuestions, lesson.id, lesson.courseId, lesson.category) {
+        val matchedDirect = allQuestions.filter { q ->
+            (q.lessonId.isNotBlank() && q.lessonId == lesson.id) ||
+            (q.courseId.isNotBlank() && q.courseId == lesson.id)
+        }
+        if (matchedDirect.isNotEmpty()) {
+            matchedDirect
+        } else {
+            // Lọc câu hỏi theo courseId của chuyên đề (nếu câu hỏi đó gán cho courseId)
+            allQuestions.filter { q ->
+                (q.courseId.isNotBlank() && q.courseId == lesson.courseId && q.lessonId.isBlank())
+            }
+        }
     }
 
     // Trạng thái đáp án người dùng đã chọn
@@ -181,27 +175,29 @@ fun LessonPlayerScreen(
     val hasReadContent = maxContentScrollRatio >= 0.95f
 
     // 3. Tỷ lệ Trắc nghiệm: nộp bài là đạt 100% phần trắc nghiệm hoặc tính theo số câu đã làm
-    val quizRatio = remember(quizSubmitted, selectedQuizAnswers, sampleQuestions.size) {
-        if (quizSubmitted) 1f
-        else if (sampleQuestions.isNotEmpty()) (selectedQuizAnswers.size.toFloat() / sampleQuestions.size).coerceIn(0f, 1f)
-        else 1f
+    val quizRatio = remember(quizSubmitted, selectedQuizAnswers, lessonQuestions.size) {
+        if (lessonQuestions.isEmpty()) 1f
+        else if (quizSubmitted) 1f
+        else (selectedQuizAnswers.size.toFloat() / lessonQuestions.size).coerceIn(0f, 1f)
     }
 
     // TỔNG TIẾN ĐỘ HOÀN THÀNH: Chia đều 100% cho các phần (Slide, Nội dung, Trắc nghiệm)
-    val progressPercentage = remember(slideRatio, contentRatio, quizRatio, lessonSlides.size, quizSubmitted, hasViewedAllSlides, hasReadContent) {
-        if (lessonSlides.isEmpty()) {
-            // Không có slide: Nội dung 50%, Trắc nghiệm 50%
-            if (hasReadContent && quizSubmitted) 100
-            else {
-                val p = (contentRatio * 50f) + (quizRatio * 50f)
-                p.toInt().coerceIn(0, 99)
+    val progressPercentage = remember(slideRatio, contentRatio, quizRatio, lessonSlides.size, lessonQuestions.size, quizSubmitted, hasViewedAllSlides, hasReadContent) {
+        if (lessonQuestions.isEmpty()) {
+            if (lessonSlides.isEmpty()) {
+                if (hasReadContent) 100
+                else (contentRatio * 100f).toInt().coerceIn(0, 99)
+            } else {
+                if (hasViewedAllSlides && hasReadContent) 100
+                else ((slideRatio * 50f) + (contentRatio * 50f)).toInt().coerceIn(0, 99)
             }
         } else {
-            // Có slide: Slide 33.33%, Nội dung 33.33%, Trắc nghiệm 33.34%
-            if (hasViewedAllSlides && hasReadContent && quizSubmitted) 100
-            else {
-                val p = (slideRatio * 33.333f) + (contentRatio * 33.333f) + (quizRatio * 33.334f)
-                p.toInt().coerceIn(0, 99)
+            if (lessonSlides.isEmpty()) {
+                if (hasReadContent && quizSubmitted) 100
+                else ((contentRatio * 50f) + (quizRatio * 50f)).toInt().coerceIn(0, 99)
+            } else {
+                if (hasViewedAllSlides && hasReadContent && quizSubmitted) 100
+                else ((slideRatio * 33.333f) + (contentRatio * 33.333f) + (quizRatio * 33.334f)).toInt().coerceIn(0, 99)
             }
         }
     }
@@ -239,7 +235,7 @@ fun LessonPlayerScreen(
         totalVal: Int? = currentTotalQuestions,
         forceComplete: Boolean = isFullyCompleted
     ) {
-        val totalQ = totalVal ?: sampleQuestions.size
+        val totalQ = totalVal ?: lessonQuestions.size
         val score = scoreVal ?: (if (quizSubmitted) (currentScore ?: totalQ) else null)
 
         viewModel.updateLessonProgress(
@@ -249,7 +245,7 @@ fun LessonPlayerScreen(
             totalQuestions = totalQ,
             viewedSlides = hasViewedAllSlides,
             readContent = hasReadContent,
-            passedQuiz = quizSubmitted,
+            passedQuiz = if (lessonQuestions.isEmpty()) true else quizSubmitted,
             onSuccess = {
                 // Tự động đồng bộ thành công
             },
@@ -365,76 +361,77 @@ fun LessonPlayerScreen(
         }
     }
 
-    Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-        topBar = {
-            TopAppBar(
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Quay lại",
-                            tint = MaterialTheme.colorScheme.onPrimary
-                        )
-                    }
-                },
-                title = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(end = 8.dp)
-                    ) {
-                        Vung4LogoBadge(size = 36.dp)
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = lesson.title.ifEmpty { "Chi tiết bài học" },
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 15.sp,
-                                maxLines = 2,
-                                lineHeight = 19.sp,
-                                color = Color.White
+    TrongDongBackground(watermarkAlpha = 0.08f) {
+        Scaffold(
+            containerColor = Color.Transparent,
+            snackbarHost = { SnackbarHost(snackbarHostState) },
+            topBar = {
+                TopAppBar(
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Quay lại",
+                                tint = MaterialTheme.colorScheme.onPrimary
                             )
-                            if (isLoggedIn) {
+                        }
+                    },
+                    title = {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(end = 8.dp)
+                        ) {
+                            Vung4LogoBadge(size = 36.dp)
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = "${userDoc?.name ?: currentUser?.email ?: ""} • ${userDoc?.unit ?: "Vùng 4 Hải Quân"}",
-                                    fontSize = 12.sp,
-                                    color = Color.White.copy(alpha = 0.9f),
-                                    maxLines = 1
+                                    text = lesson.title.ifEmpty { "Chi tiết bài học" },
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp,
+                                    maxLines = 2,
+                                    lineHeight = 19.sp,
+                                    color = Color.White
+                                )
+                                if (isLoggedIn) {
+                                    Text(
+                                        text = "${userDoc?.name ?: currentUser?.email ?: ""} • ${userDoc?.unit ?: "Vùng 4 Hải Quân"}",
+                                        fontSize = 12.sp,
+                                        color = Color.White.copy(alpha = 0.9f),
+                                        maxLines = 1
+                                    )
+                                }
+                            }
+
+                            // Hiển thị phần trăm tiến độ bài học gọn gàng trên thanh tiêu đề
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (progressPercentage == 100) Color(0xFF2E7D32) else GoldPrimary,
+                                shadowElevation = 2.dp
+                            ) {
+                                Text(
+                                    text = "$progressPercentage%",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    color = if (progressPercentage == 100) Color.White else Color(0xFF8B0000),
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                                 )
                             }
                         }
-
-                        // Hiển thị phần trăm tiến độ bài học gọn gàng trên thanh tiêu đề
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = if (progressPercentage == 100) Color(0xFF2E7D32) else GoldPrimary,
-                            shadowElevation = 2.dp
-                        ) {
-                            Text(
-                                text = "$progressPercentage%",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp,
-                                color = if (progressPercentage == 100) Color.White else Color(0xFF8B0000),
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                            )
-                        }
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = RedPrimary,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimary
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = RedPrimary,
+                        titleContentColor = MaterialTheme.colorScheme.onPrimary
+                    )
                 )
-            )
-        }
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .background(MaterialTheme.colorScheme.background)
-        ) {
+            }
+        ) { padding ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+            ) {
             // Thanh chỉ báo phần trăm tiến độ thanh mảnh, hiện đại
             LinearProgressIndicator(
                 progress = { progressPercentage / 100f },
@@ -480,24 +477,85 @@ fun LessonPlayerScreen(
                         // TAB 0: SLIDES
                         Column(
                             modifier = Modifier.fillMaxSize(),
-                            verticalArrangement = Arrangement.spacedBy(14.dp)
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             if (lessonSlides.isNotEmpty()) {
                                 val pagerState = rememberPagerState(pageCount = { lessonSlides.size })
 
-                                // Bộ đếm thời gian: Học viên phải xem slide hiện tại ít nhất 5 giây mới tính là đã xem
-                                LaunchedEffect(pagerState.currentPage, selectedTab) {
+                                // Bộ đếm thời gian từng slide: Học viên phải xem mỗi slide ít nhất 5 giây mới được tính là đã xem
+                                LaunchedEffect(pagerState.currentPage, selectedTab, lessonSlides.size) {
                                     if (selectedTab == 0 && lessonSlides.isNotEmpty()) {
                                         val page = pagerState.currentPage
-                                        if (!viewedSlideIndices.contains(page)) {
-                                            currentSlideDwellSeconds = 0
-                                            while (currentSlideDwellSeconds < 5) {
-                                                kotlinx.coroutines.delay(1000L)
-                                                currentSlideDwellSeconds++
-                                            }
-                                            viewedSlideIndices = viewedSlideIndices + page
-                                        } else {
+                                        if (viewedSlideIndices.contains(page)) {
                                             currentSlideDwellSeconds = 5
+                                        } else {
+                                            var dwell = slideDwellMap[page] ?: 0
+                                            currentSlideDwellSeconds = dwell
+                                            while (dwell < 5 && pagerState.currentPage == page && selectedTab == 0) {
+                                                kotlinx.coroutines.delay(1000L)
+                                                dwell++
+                                                currentSlideDwellSeconds = dwell
+                                                slideDwellMap = slideDwellMap + (page to dwell)
+                                                if (dwell >= 5) {
+                                                    viewedSlideIndices = viewedSlideIndices + page
+                                                    break
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Thanh chỉ báo tổng thể số slide đã hoàn thành
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (hasViewedAllSlides) Color(0xFFE8F5E9) else RedPrimary.copy(alpha = 0.08f)
+                                    )
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = if (hasViewedAllSlides) Icons.Default.CheckCircle else Icons.Default.Slideshow,
+                                                contentDescription = null,
+                                                tint = if (hasViewedAllSlides) Color(0xFF2E7D32) else RedPrimary,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                            Column {
+                                                Text(
+                                                    text = if (hasViewedAllSlides) "Đã hoàn thành xem tất cả Slide" else "Tiến độ xem Slide bài giảng",
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 13.sp,
+                                                    color = if (hasViewedAllSlides) Color(0xFF1B5E20) else RedPrimary
+                                                )
+                                                Text(
+                                                    text = "Đã xem đủ: ${viewedSlideIndices.size}/${lessonSlides.size} slide (tối thiểu 5s/slide)",
+                                                    fontSize = 11.sp,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
+
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = if (hasViewedAllSlides) Color(0xFF2E7D32) else RedPrimary
+                                        ) {
+                                            Text(
+                                                text = "${((viewedSlideIndices.size.toFloat() / lessonSlides.size) * 100).toInt()}%",
+                                                color = Color.White,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 12.sp,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                            )
                                         }
                                     }
                                 }
@@ -542,13 +600,13 @@ fun LessonPlayerScreen(
                                             }
                                         }
 
-                                        // Badge hiển thị trạng thái xem slide và đếm ngược 5 giây
+                                        // Badge hiển thị trạng thái xem slide và đếm ngược 5 giây chính xác
                                         val isCurrentSlideViewed = viewedSlideIndices.contains(pagerState.currentPage)
                                         Surface(
                                             modifier = Modifier
                                                 .align(Alignment.BottomEnd)
                                                 .padding(12.dp),
-                                            color = Color.Black.copy(alpha = 0.75f),
+                                            color = Color.Black.copy(alpha = 0.78f),
                                             shape = RoundedCornerShape(8.dp)
                                         ) {
                                             Row(
@@ -564,10 +622,10 @@ fun LessonPlayerScreen(
                                                         modifier = Modifier.size(16.dp)
                                                     )
                                                     Text(
-                                                        text = "Slide ${pagerState.currentPage + 1}/${lessonSlides.size} (Đã xem ${viewedSlideIndices.size}/${lessonSlides.size})",
+                                                        text = "Slide ${pagerState.currentPage + 1}/${lessonSlides.size} • Đã xem xong (5s/5s) ✓",
                                                         color = Color.White,
                                                         fontSize = 12.sp,
-                                                        fontWeight = FontWeight.Medium
+                                                        fontWeight = FontWeight.Bold
                                                     )
                                                 } else {
                                                     CircularProgressIndicator(
@@ -635,8 +693,9 @@ fun LessonPlayerScreen(
                                         Icon(Icons.Default.Slideshow, contentDescription = null, modifier = Modifier.size(64.dp), tint = RedPrimary)
                                         Spacer(modifier = Modifier.height(12.dp))
                                         Text(
-                                            text = "Bài học này chưa có slide.",
+                                            text = "Chưa có nội dung slide bài giảng",
                                             fontSize = 14.sp,
+                                            fontWeight = FontWeight.Medium,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
@@ -649,16 +708,63 @@ fun LessonPlayerScreen(
                         // TAB 1: NỘI DUNG & TÀI LIỆU & TRẮC NGHIỆM
                         val contentScrollState = rememberScrollState()
 
-                        // Tự động nhận diện độ sâu kéo cuộn từ trên xuống dưới trên tổng chiều dài nội dung
+                        // Tự động tắt cảnh báo lướt nhanh sau thời gian chờ
+                        LaunchedEffect(fastScrollWarningDismissTime) {
+                            if (fastScrollWarningDismissTime > 0) {
+                                val remaining = fastScrollWarningDismissTime - System.currentTimeMillis()
+                                if (remaining > 0) {
+                                    kotlinx.coroutines.delay(remaining)
+                                }
+                                isScrollingTooFast = false
+                            }
+                        }
+
+                        // Xử lý bài học có nội dung ngắn vừa vặn 1 màn hình (không cuộn được)
+                        LaunchedEffect(selectedTab, lessonContents.size) {
+                            if (selectedTab == 1) {
+                                kotlinx.coroutines.delay(5000L)
+                                if (contentScrollState.maxValue <= 0) {
+                                    maxContentScrollRatio = 1f
+                                }
+                            }
+                        }
+
+                        // Theo dõi cuộn nội dung: CHỈ CỘNG PHẦN TRĂM KHI LƯỚT XUỐNG TỪ TỪ, KHÔNG GIẢM KHI LƯỚT LÊN
                         LaunchedEffect(contentScrollState.value, contentScrollState.maxValue) {
-                            if (contentScrollState.maxValue > 0) {
-                                val ratio = (contentScrollState.value.toFloat() / contentScrollState.maxValue).coerceIn(0f, 1f)
-                                if (ratio > maxContentScrollRatio) {
-                                    maxContentScrollRatio = ratio
+                            val currentPos = contentScrollState.value
+                            val maxPos = contentScrollState.maxValue
+                            val now = System.currentTimeMillis()
+                            val timeDelta = (now - lastScrollTimeMillis).coerceAtLeast(1L)
+                            val posDelta = currentPos - lastScrollPosition
+
+                            if (maxPos > 0) {
+                                if (posDelta < 0) {
+                                    // LƯỚT NGƯỢC LÊN TRÊN: Giữ nguyên tỷ lệ tối đa đã đạt, tuyệt đối không giảm phần trăm!
+                                } else if (posDelta > 0) {
+                                    // LƯỚT XUỐNG DƯỚI: Kiểm tra tốc độ đọc
+                                    val speedPxPerSec = (posDelta.toFloat() / timeDelta) * 1000f
+
+                                    // Nếu lướt quá nhanh (vút nhanh hơn 1400px/s hoặc nhảy hơn 280px trong nháy mắt) -> Cảnh báo & Không tính
+                                    if ((posDelta > 280 && timeDelta < 200) || speedPxPerSec > 1400f) {
+                                        isScrollingTooFast = true
+                                        fastScrollWarningDismissTime = now + 3000L
+                                    } else {
+                                        // Cuộn từ từ theo đúng tốc độ đọc -> Cộng phần trăm
+                                        val ratio = (currentPos.toFloat() / maxPos).coerceIn(0f, 1f)
+                                        if (ratio > maxContentScrollRatio) {
+                                            maxContentScrollRatio = ratio
+                                        }
+                                        if (isScrollingTooFast && now > fastScrollWarningDismissTime) {
+                                            isScrollingTooFast = false
+                                        }
+                                    }
                                 }
                             } else if (lessonContents.isEmpty()) {
                                 maxContentScrollRatio = 1f
                             }
+
+                            lastScrollPosition = currentPos
+                            lastScrollTimeMillis = now
                         }
 
                         Column(
@@ -667,6 +773,101 @@ fun LessonPlayerScreen(
                                 .verticalScroll(contentScrollState),
                             verticalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
+                            // CẢNH BÁO KHI LƯỚT NỘI DUNG QUÁ NHANH
+                            AnimatedVisibility(
+                                visible = isScrollingTooFast,
+                                enter = fadeIn() + expandVertically(),
+                                exit = fadeOut() + shrinkVertically()
+                            ) {
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(14.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Warning,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.error,
+                                            modifier = Modifier.size(26.dp)
+                                        )
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = "⚠️ BẠN ĐANG LƯỚT QUÁ NHANH!",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 13.sp,
+                                                color = MaterialTheme.colorScheme.error
+                                            )
+                                            Text(
+                                                text = "Vui lòng cuộn từ từ và đọc kỹ tài liệu để hệ thống ghi nhận đúng tiến độ học tập.",
+                                                fontSize = 12.sp,
+                                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                                lineHeight = 16.sp
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Thẻ trạng thái tiến độ đọc tài liệu
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (hasReadContent) Color(0xFFE8F5E9) else RedPrimary.copy(alpha = 0.08f)
+                                )
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = if (hasReadContent) Icons.Default.CheckCircle else Icons.Default.MenuBook,
+                                            contentDescription = null,
+                                            tint = if (hasReadContent) Color(0xFF2E7D32) else RedPrimary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Column {
+                                            Text(
+                                                text = if (hasReadContent) "Đã hoàn thành đọc tài liệu" else "Đang đọc tài liệu bài học",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 13.sp,
+                                                color = if (hasReadContent) Color(0xFF1B5E20) else RedPrimary
+                                            )
+                                            Text(
+                                                text = if (isScrollingTooFast) "Tạm dừng ghi nhận: Đang cuộn quá nhanh" else "Tiến độ đọc: ${(maxContentScrollRatio * 100).toInt()}% (chỉ tính khi lướt xuống từ từ)",
+                                                fontSize = 11.sp,
+                                                color = if (isScrollingTooFast) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = if (hasReadContent) Color(0xFF2E7D32) else RedPrimary
+                                    ) {
+                                        Text(
+                                            text = "${(maxContentScrollRatio * 100).toInt()}%",
+                                            color = Color.White,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 12.sp,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                        )
+                                    }
+                                }
+                            }
+
                             // 1. Nội dung bài học
                             Text(
                                 text = "Nội dung bài học",
@@ -727,9 +928,11 @@ fun LessonPlayerScreen(
                                     ) {
                                         Icon(Icons.Default.Article, contentDescription = null, modifier = Modifier.size(40.dp), tint = RedPrimary)
                                         Spacer(modifier = Modifier.height(8.dp))
+                                        val descText = lesson.description.ifBlank { "Chưa có nội dung" }
                                         Text(
-                                            text = lesson.description.ifEmpty { "Nội dung chi tiết đang được cập nhật từ hệ thống Web Quản Trị Vùng 4." },
+                                            text = descText,
                                             fontSize = 14.sp,
+                                            fontWeight = if (descText == "Chưa có nội dung") FontWeight.Medium else FontWeight.Normal,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                                             lineHeight = 20.sp
@@ -834,7 +1037,7 @@ fun LessonPlayerScreen(
                                             .padding(16.dp),
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        Text("Chưa có tài liệu đính kèm nào cho bài học này.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text("Chưa có nội dung tài liệu đính kèm nào cho bài học này.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 }
                             }
@@ -850,176 +1053,231 @@ fun LessonPlayerScreen(
                             ) {
                                 Icon(Icons.Default.Quiz, contentDescription = null, tint = RedPrimary)
                                 Text(
-                                    text = "Câu hỏi kiểm tra trắc nghiệm",
+                                    text = if (lessonQuestions.isNotEmpty()) "Câu hỏi kiểm tra trắc nghiệm (${lessonQuestions.size})" else "Câu hỏi kiểm tra trắc nghiệm",
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 16.sp,
                                     color = RedPrimary
                                 )
                             }
 
-                            sampleQuestions.forEachIndexed { qIndex, (question, options, correctIndex) ->
-                                Card(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(12.dp),
-                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                    elevation = CardDefaults.cardElevation(1.dp)
-                                ) {
-                                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        Text(
-                                            text = question,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 14.sp,
-                                            color = MaterialTheme.colorScheme.onSurface,
-                                            lineHeight = 20.sp
-                                        )
-                                        Spacer(modifier = Modifier.height(4.dp))
+                            if (lessonQuestions.isNotEmpty()) {
+                                lessonQuestions.forEachIndexed { qIndex, q ->
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                        elevation = CardDefaults.cardElevation(1.dp)
+                                    ) {
+                                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            Text(
+                                                text = "${qIndex + 1}. ${q.question}",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 14.sp,
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                lineHeight = 20.sp
+                                            )
+                                            Spacer(modifier = Modifier.height(4.dp))
 
-                                        options.forEachIndexed { optIndex, option ->
-                                            val isSelected = selectedQuizAnswers[qIndex] == optIndex
-                                            val isCorrect = optIndex == correctIndex
-                                            val cardColor = when {
-                                                quizSubmitted && isCorrect -> Color(0xFFC8E6C9)
-                                                quizSubmitted && isSelected && !isCorrect -> Color(0xFFFFCDD2)
-                                                isSelected -> RedPrimary.copy(alpha = 0.15f)
-                                                else -> MaterialTheme.colorScheme.surfaceVariant
-                                            }
-                                            val textColor = when {
-                                                quizSubmitted && isCorrect -> Color(0xFF1B5E20)
-                                                quizSubmitted && isSelected && !isCorrect -> Color(0xFFB71C1C)
-                                                isSelected -> RedPrimary
-                                                else -> MaterialTheme.colorScheme.onSurface
-                                            }
+                                            q.options.forEachIndexed { optIndex, option ->
+                                                val isSelected = selectedQuizAnswers[qIndex] == optIndex
+                                                val isCorrect = optIndex == q.correctIndex
+                                                val cardColor = when {
+                                                    quizSubmitted && isCorrect -> Color(0xFFC8E6C9)
+                                                    quizSubmitted && isSelected && !isCorrect -> Color(0xFFFFCDD2)
+                                                    isSelected -> RedPrimary.copy(alpha = 0.15f)
+                                                    else -> MaterialTheme.colorScheme.surfaceVariant
+                                                }
+                                                val textColor = when {
+                                                    quizSubmitted && isCorrect -> Color(0xFF1B5E20)
+                                                    quizSubmitted && isSelected && !isCorrect -> Color(0xFFB71C1C)
+                                                    isSelected -> RedPrimary
+                                                    else -> MaterialTheme.colorScheme.onSurface
+                                                }
 
-                                            Surface(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .clickable {
-                                                        if (!quizSubmitted) {
-                                                            selectedQuizAnswers = selectedQuizAnswers + (qIndex to optIndex)
-                                                        }
-                                                    },
-                                                shape = RoundedCornerShape(8.dp),
-                                                color = cardColor
-                                            ) {
-                                                Row(
-                                                    modifier = Modifier.padding(12.dp),
-                                                    verticalAlignment = Alignment.CenterVertically
-                                                ) {
-                                                    RadioButton(
-                                                        selected = isSelected,
-                                                        onClick = {
+                                                Surface(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .clickable {
                                                             if (!quizSubmitted) {
                                                                 selectedQuizAnswers = selectedQuizAnswers + (qIndex to optIndex)
                                                             }
-                                                        }
-                                                    )
-                                                    Spacer(modifier = Modifier.width(8.dp))
+                                                        },
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    color = cardColor
+                                                ) {
+                                                    Row(
+                                                        modifier = Modifier.padding(12.dp),
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        RadioButton(
+                                                            selected = isSelected,
+                                                            onClick = {
+                                                                if (!quizSubmitted) {
+                                                                    selectedQuizAnswers = selectedQuizAnswers + (qIndex to optIndex)
+                                                                }
+                                                            }
+                                                        )
+                                                        Spacer(modifier = Modifier.width(8.dp))
+                                                        Text(
+                                                            text = option,
+                                                            fontSize = 13.sp,
+                                                            color = textColor,
+                                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                                        )
+                                                    }
+                                                }
+                                            }
+
+                                            if (quizSubmitted && q.explanation.isNotBlank()) {
+                                                Spacer(modifier = Modifier.height(4.dp))
+                                                Surface(
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    color = Color(0xFFE8F5E9)
+                                                ) {
                                                     Text(
-                                                        text = option,
-                                                        fontSize = 13.sp,
-                                                        color = textColor,
-                                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                                        text = "💡 Giải thích: ${q.explanation}",
+                                                        fontSize = 12.sp,
+                                                        color = Color(0xFF1B5E20),
+                                                        modifier = Modifier.padding(8.dp)
                                                     )
                                                 }
                                             }
                                         }
                                     }
                                 }
-                            }
 
-                            // Nút nộp bài trắc nghiệm & tự động cập nhật về Web Quản trị
-                            Button(
-                                onClick = {
-                                    val correctCount = sampleQuestions.indices.count { qIndex ->
-                                        val correctIndex = sampleQuestions[qIndex].third
-                                        selectedQuizAnswers[qIndex] == correctIndex
-                                    }
-                                    val percent = (correctCount * 100) / sampleQuestions.size
+                                // Nút nộp bài trắc nghiệm & tự động cập nhật về Web Quản trị
+                                Button(
+                                    onClick = {
+                                        val correctCount = lessonQuestions.indices.count { qIndex ->
+                                            val correctIndex = lessonQuestions[qIndex].correctIndex
+                                            selectedQuizAnswers[qIndex] == correctIndex
+                                        }
+                                        val percent = if (lessonQuestions.isNotEmpty()) (correctCount * 100) / lessonQuestions.size else 100
 
-                                    quizSubmitted = true
-                                    currentScore = correctCount
-                                    currentTotalQuestions = sampleQuestions.size
-                                    currentScorePercent = percent
+                                        quizSubmitted = true
+                                        currentScore = correctCount
+                                        currentTotalQuestions = lessonQuestions.size
+                                        currentScorePercent = percent
 
-                                    triggerAutoSave(
-                                        scoreVal = correctCount,
-                                        totalVal = sampleQuestions.size,
-                                        forceComplete = (hasViewedAllSlides && hasReadContent)
-                                    )
+                                        triggerAutoSave(
+                                            scoreVal = correctCount,
+                                            totalVal = lessonQuestions.size,
+                                            forceComplete = (hasViewedAllSlides && hasReadContent)
+                                        )
 
-                                    if (hasViewedAllSlides && hasReadContent) {
-                                        completionCelebrationDialog = true
-                                    }
-                                },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(48.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (quizSubmitted) Color(0xFF2E7D32) else RedPrimary
-                                ),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Icon(Icons.Default.CheckCircle, contentDescription = null)
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = if (quizSubmitted) "NỘP LẠI BÀI KIỂM TRA" else "NỘP BÀI KIỂM TRA TRẮC NGHIỆM",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp
-                                )
-                            }
-
-                            // Thẻ kết quả kiểm tra
-                            if (quizSubmitted) {
-                                val score = currentScore ?: sampleQuestions.indices.count { qIndex ->
-                                    selectedQuizAnswers[qIndex] == sampleQuestions[qIndex].third
-                                }
-                                val percent = (score * 100) / sampleQuestions.size
-                                val isPassed = percent >= 50
-
-                                Card(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = if (isPassed) Color(0xFFE8F5E9) else Color(0xFFFFEBEE)
+                                        if (hasViewedAllSlides && hasReadContent) {
+                                            completionCelebrationDialog = true
+                                        }
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(48.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (quizSubmitted) Color(0xFF2E7D32) else RedPrimary
                                     ),
                                     shape = RoundedCornerShape(12.dp)
                                 ) {
-                                    Column(
-                                        modifier = Modifier.padding(16.dp),
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                                    Icon(Icons.Default.CheckCircle, contentDescription = null)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = if (quizSubmitted) "NỘP LẠI BÀI KIỂM TRA" else "NỘP BÀI KIỂM TRA TRẮC NGHIỆM",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp
+                                    )
+                                }
+
+                                // Thẻ kết quả kiểm tra
+                                if (quizSubmitted) {
+                                    val score = currentScore ?: lessonQuestions.indices.count { qIndex ->
+                                        selectedQuizAnswers[qIndex] == lessonQuestions[qIndex].correctIndex
+                                    }
+                                    val totalQ = lessonQuestions.size.coerceAtLeast(1)
+                                    val percent = (score * 100) / totalQ
+                                    val isPassed = percent >= 50
+
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = if (isPassed) Color(0xFFE8F5E9) else Color(0xFFFFEBEE)
+                                        ),
+                                        shape = RoundedCornerShape(12.dp)
                                     ) {
-                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                            Icon(
-                                                imageVector = if (isPassed) Icons.Default.EmojiEvents else Icons.Default.Info,
-                                                contentDescription = null,
-                                                tint = if (isPassed) GoldPrimary else RedPrimary,
-                                                modifier = Modifier.size(24.dp)
-                                            )
-                                            Text(
-                                                text = "KẾT QUẢ: $score / ${sampleQuestions.size} CÂU ĐÚNG ($percent%)",
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 15.sp,
-                                                color = if (isPassed) Color(0xFF1B5E20) else Color(0xFFB71C1C)
-                                            )
-                                        }
+                                        Column(
+                                            modifier = Modifier.padding(16.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                Icon(
+                                                    imageVector = if (isPassed) Icons.Default.EmojiEvents else Icons.Default.Info,
+                                                    contentDescription = null,
+                                                    tint = if (isPassed) GoldPrimary else RedPrimary,
+                                                    modifier = Modifier.size(24.dp)
+                                                )
+                                                Text(
+                                                    text = "KẾT QUẢ: $score / $totalQ CÂU ĐÚNG ($percent%)",
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 15.sp,
+                                                    color = if (isPassed) Color(0xFF1B5E20) else Color(0xFFB71C1C)
+                                                )
+                                            }
 
-                                        Text(
-                                            text = if (isPassed) {
-                                                "Đánh giá: ĐẠT YÊU CẦU BÀI HỌC CHÍNH TRỊ."
-                                            } else {
-                                                "Đánh giá: Chưa đạt yêu cầu. Đồng chí nên xem lại bài học để làm lại."
-                                            },
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.Medium,
-                                            color = MaterialTheme.colorScheme.onSurface
-                                        )
-
-                                        if (isLoggedIn) {
                                             Text(
-                                                text = "✓ Đã tự động cập nhật kết quả vào hồ sơ Web Quản trị",
-                                                fontSize = 12.sp,
+                                                text = if (isPassed) {
+                                                    "Đánh giá: ĐẠT YÊU CẦU BÀI HỌC CHÍNH TRỊ."
+                                                } else {
+                                                    "Đánh giá: Chưa đạt yêu cầu. Đồng chí nên xem lại bài học để làm lại."
+                                                },
+                                                fontSize = 13.sp,
                                                 fontWeight = FontWeight.Medium,
-                                                color = Color(0xFF2E7D32)
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+
+                                            if (isLoggedIn) {
+                                                Text(
+                                                    text = "✓ Đã tự động cập nhật kết quả vào hồ sơ Web Quản trị",
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Medium,
+                                                    color = Color(0xFF2E7D32)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(20.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            Icon(
+                                                Icons.Default.Quiz,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(36.dp),
+                                                tint = RedPrimary
+                                            )
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Text(
+                                                text = "Chưa có câu hỏi kiểm tra trắc nghiệm",
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                            )
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(
+                                                text = "Bài học này chưa có câu hỏi được tạo trên Web Quản trị.",
+                                                fontSize = 12.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
                                             )
                                         }
                                     }
@@ -1116,7 +1374,7 @@ fun LessonPlayerScreen(
                                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                             Icon(Icons.Default.PlayCircle, contentDescription = null, modifier = Modifier.size(48.dp), tint = RedPrimary)
                                             Spacer(modifier = Modifier.height(8.dp))
-                                            Text("Chưa có video bài giảng nào cho bài học này.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Text("Chưa có nội dung video bài giảng.", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
                                     }
                                 }
@@ -1262,7 +1520,7 @@ fun LessonPlayerScreen(
                                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                             Icon(Icons.Default.AudioFile, contentDescription = null, modifier = Modifier.size(48.dp), tint = RedPrimary)
                                             Spacer(modifier = Modifier.height(8.dp))
-                                            Text("Chưa có audio ghi âm nào cho bài học này.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Text("Chưa có nội dung audio ghi âm.", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
                                     }
                                 }
@@ -1342,6 +1600,7 @@ fun LessonPlayerScreen(
                 )
             }
         )
+    }
     }
 }
 

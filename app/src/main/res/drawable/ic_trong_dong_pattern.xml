@@ -1,0 +1,189 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="400dp"
+    android:height="400dp"
+    android:viewportWidth="400"
+    android:viewportHeight="400">
+
+    <!-- ================================================================= -->
+    <!-- NỀN HOA VĂN TRỐNG ĐỒNG ĐÔNG SƠN ÁNH VÀNG KIM TINH XẢO           -->
+    <!-- ================================================================= -->
+
+    <!-- VÙNG TỎA SÁNG TRUNG TÂM (RADIAL GLOW) -->
+    <path
+        android:pathData="M200,200 m-190,0 a190,190 0 1,0 380,0 a190,190 0 1,0 -380,0"
+        android:fillColor="#0DFFD54F" />
+
+    <!-- 1. CÁC VÒNG TRÒN ĐỒNG TÂM NGOÀI CÙNG (OUTER CONCENTRIC RINGS) -->
+    <path
+        android:pathData="M200,200 m-188,0 a188,188 0 1,0 376,0 a188,188 0 1,0 -376,0"
+        android:strokeWidth="2.5"
+        android:strokeColor="#BFA15F"
+        android:fillColor="#00000000" />
+
+    <path
+        android:pathData="M200,200 m-182,0 a182,182 0 1,0 364,0 a182,182 0 1,0 -364,0"
+        android:strokeWidth="1.2"
+        android:strokeColor="#C5A059"
+        android:fillColor="#00000000" />
+
+    <!-- VÒNG CHẤM BI TIẾP TUYẾN NGOÀI CÙNG -->
+    <path
+        android:pathData="M200,200 m-176,0 a176,176 0 1,0 352,0 a176,176 0 1,0 -352,0"
+        android:strokeWidth="1.5"
+        android:strokeColor="#D4AF37"
+        android:fillColor="#00000000" />
+
+    <path
+        android:pathData="M200,200 m-170,0 a170,170 0 1,0 340,0 a170,170 0 1,0 -340,0"
+        android:strokeWidth="1.2"
+        android:strokeColor="#D4AF37"
+        android:fillColor="#00000000" />
+
+    <!-- 2. VÒNG HOA VĂN RĂNG CƯA / TAM GIÁC HÌNH HỌC (ZIG-ZAG SAWTOOTH) -->
+    <path
+        android:pathData="M200,200 m-158,0 a158,158 0 1,0 316,0 a158,158 0 1,0 -316,0"
+        android:strokeWidth="2"
+        android:strokeColor="#CCA03B"
+        android:fillColor="#00000000" />
+
+    <path
+        android:pathData="M200,200 m-150,0 a150,150 0 1,0 300,0 a150,150 0 1,0 -300,0"
+        android:strokeWidth="1"
+        android:strokeColor="#D4AF37"
+        android:fillColor="#00000000" />
+
+    <!-- 3. VÒNG CHIM LẠC BAY NGƯỢC CHIỀU KIM ĐỒNG HỒ (LAC BIRDS BAND) -->
+    <!-- Vòng giới hạn dải chim Lạc -->
+    <path
+        android:pathData="M200,200 m-138,0 a138,138 0 1,0 276,0 a138,138 0 1,0 -276,0"
+        android:strokeWidth="1.5"
+        android:strokeColor="#D4AF37"
+        android:fillColor="#00000000" />
+
+    <path
+        android:pathData="M200,200 m-105,0 a105,105 0 1,0 210,0 a105,105 0 1,0 -210,0"
+        android:strokeWidth="1.5"
+        android:strokeColor="#D4AF37"
+        android:fillColor="#00000000" />
+
+    <!-- Chim Lạc 1 (Góc trên 0 độ) -->
+    <path
+        android:pathData="M200,72 C220,68 245,70 260,82 C248,84 235,88 225,92 C210,85 195,82 180,88 C190,80 195,74 200,72 Z M235,88 C255,90 270,100 278,112 C265,106 250,102 238,100 C236,95 235,90 235,88 Z"
+        android:fillColor="#D4AF37" />
+
+    <!-- Chim Lạc 2 (Góc phải 90 độ) -->
+    <path
+        android:pathData="M328,200 C332,220 330,245 318,260 C316,248 312,235 308,225 C315,210 318,195 312,180 C320,190 326,195 328,200 Z M308,235 C310,255 300,270 288,278 C294,265 298,250 300,238 C305,236 310,235 308,235 Z"
+        android:fillColor="#D4AF37" />
+
+    <!-- Chim Lạc 3 (Góc dưới 180 độ) -->
+    <path
+        android:pathData="M200,328 C180,332 155,330 140,318 C152,316 165,312 175,308 C190,315 205,318 220,312 C210,320 205,326 200,328 Z M165,312 C145,310 130,300 122,288 C135,294 150,298 162,300 C164,305 165,310 165,312 Z"
+        android:fillColor="#D4AF37" />
+
+    <!-- Chim Lạc 4 (Góc trái 270 độ) -->
+    <path
+        android:pathData="M72,200 C68,180 70,155 82,140 C84,152 88,165 92,175 C85,190 82,205 88,220 C80,210 74,205 72,200 Z M92,165 C90,145 100,130 112,122 C106,135 102,150 100,162 C95,164 90,165 92,165 Z"
+        android:fillColor="#D4AF37" />
+
+    <!-- 4. VÒNG CHỮ N & HỌA TIẾT HÌNH HỌC XOẮN ỐC (SPIRAL & S-SHAPE MOTIFS) -->
+    <path
+        android:pathData="M200,200 m-94,0 a94,94 0 1,0 188,0 a94,94 0 1,0 -188,0"
+        android:strokeWidth="1.2"
+        android:strokeColor="#CCA03B"
+        android:fillColor="#00000000" />
+
+    <path
+        android:pathData="M200,200 m-84,0 a84,84 0 1,0 168,0 a84,84 0 1,0 -168,0"
+        android:strokeWidth="1.8"
+        android:strokeColor="#D4AF37"
+        android:fillColor="#00000000" />
+
+    <path
+        android:pathData="M200,200 m-74,0 a74,74 0 1,0 148,0 a74,74 0 1,0 -148,0"
+        android:strokeWidth="1.2"
+        android:strokeColor="#CCA03B"
+        android:fillColor="#00000000" />
+
+    <!-- 5. NGÔI SAO MẶT TRỜI 14 CÁNH Ở TRUNG TÂM (14-POINT SUNBURST STAR) -->
+    <path
+        android:pathData="M200,138 L206,178 L232,146 L224,184 L258,164 L236,194 L270,188 L240,208 L268,220 L234,226 L254,248 L220,238 L228,266 L204,244 L196,270 L194,244 L172,266 L180,238 L146,248 L166,226 L132,220 L160,208 L130,188 L164,194 L142,164 L176,184 L168,146 L194,178 Z"
+        android:fillColor="#E5B23B" />
+
+    <!-- Tâm Mặt Trời trống đồng -->
+    <path
+        android:pathData="M200,200 m-16,0 a16,16 0 1,0 32,0 a16,16 0 1,0 -32,0"
+        android:fillColor="#FFF176" />
+
+    <path
+        android:pathData="M200,200 m-8,0 a8,8 0 1,0 16,0 a8,8 0 1,0 -16,0"
+        android:fillColor="#D4AF37" />
+
+    <!-- CÁC HỌA TIẾT LÔNG CÔNG / HÌNH NÓN GIỮA CÁC CÁNH SAO -->
+    <path
+        android:pathData="M200,148 L203,172 L197,172 Z M238,168 L222,185 L227,180 Z M252,204 L228,206 L229,200 Z M238,240 L218,227 L223,223 Z M200,258 L197,234 L203,234 Z M162,240 L182,227 L177,223 Z M148,204 L172,206 L171,200 Z M162,168 L178,185 L173,180 Z"
+        android:fillColor="#FBC02D" />
+
+    <!-- 6. BỐN GÓC HOA VĂN DÂY LÁ / RĂNG CƯA TRỐNG ĐỒNG (CORNER ORNAMENTS) -->
+    <!-- Góc trên trái -->
+    <path
+        android:pathData="M15,15 L65,15 C50,30 30,50 15,65 Z"
+        android:fillColor="#D4AF37" />
+    <path
+        android:pathData="M10,10 L85,10 M10,10 L10,85"
+        android:strokeWidth="2"
+        android:strokeColor="#D4AF37"
+        android:fillColor="#00000000" />
+    <path
+        android:pathData="M20,20 L60,20 M20,20 L20,60"
+        android:strokeWidth="1"
+        android:strokeColor="#FBC02D"
+        android:fillColor="#00000000" />
+
+    <!-- Góc trên phải -->
+    <path
+        android:pathData="M385,15 L335,15 C350,30 370,50 385,65 Z"
+        android:fillColor="#D4AF37" />
+    <path
+        android:pathData="M390,10 L315,10 M390,10 L390,85"
+        android:strokeWidth="2"
+        android:strokeColor="#D4AF37"
+        android:fillColor="#00000000" />
+    <path
+        android:pathData="M380,20 L340,20 M380,20 L380,60"
+        android:strokeWidth="1"
+        android:strokeColor="#FBC02D"
+        android:fillColor="#00000000" />
+
+    <!-- Góc dưới trái -->
+    <path
+        android:pathData="M15,385 L65,385 C50,370 30,350 15,335 Z"
+        android:fillColor="#D4AF37" />
+    <path
+        android:pathData="M10,390 L85,390 M10,390 L10,315"
+        android:strokeWidth="2"
+        android:strokeColor="#D4AF37"
+        android:fillColor="#00000000" />
+    <path
+        android:pathData="M20,380 L60,380 M20,380 L20,340"
+        android:strokeWidth="1"
+        android:strokeColor="#FBC02D"
+        android:fillColor="#00000000" />
+
+    <!-- Góc dưới phải -->
+    <path
+        android:pathData="M385,385 L335,385 C350,370 370,350 385,335 Z"
+        android:fillColor="#D4AF37" />
+    <path
+        android:pathData="M390,390 L315,390 M390,390 L390,315"
+        android:strokeWidth="2"
+        android:strokeColor="#D4AF37"
+        android:fillColor="#00000000" />
+    <path
+        android:pathData="M380,380 L340,380 M380,380 L380,340"
+        android:strokeWidth="1"
+        android:strokeColor="#FBC02D"
+        android:fillColor="#00000000" />
+
+</vector>

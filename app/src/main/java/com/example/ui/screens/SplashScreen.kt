@@ -120,43 +120,36 @@ fun SplashScreen(
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .size(220.dp)
+                    .size(230.dp)
                     .scale(scale)
                     .alpha(alpha)
             ) {
                 // Vòng ánh hào quang vàng óng tỏa sáng phía sau logo
                 Box(
                     modifier = Modifier
-                        .size(190.dp)
+                        .size(200.dp)
                         .scale(pulseScale)
                         .alpha(pulseAlpha)
                         .clip(CircleShape)
                         .background(
                             Brush.radialGradient(
                                 colors = listOf(
-                                    GoldPrimary.copy(alpha = 0.6f),
-                                    Color(0xFFF59E0B).copy(alpha = 0.3f),
+                                    GoldPrimary.copy(alpha = 0.65f),
+                                    Color(0xFFF59E0B).copy(alpha = 0.35f),
                                     Color.Transparent
                                 )
                             )
                         )
                 )
 
-                // Viền bóng nổi khối 3D cho logo chính
-                Box(
+                // Logo chính hình chiếc khiên Vùng 4 Hải quân
+                Image(
+                    painter = painterResource(id = R.drawable.ic_app_logo),
+                    contentDescription = "Huy hiệu Vùng 4 Hải quân",
                     modifier = Modifier
-                        .size(160.dp)
-                        .shadow(16.dp, CircleShape)
-                        .clip(CircleShape)
-                        .background(Color(0xFF7F1D1D)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Image(
-                        painter = painterResource(id = R.drawable.ic_app_logo),
-                        contentDescription = "Logo GDCT Vùng 4 Hải quân",
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
+                        .width(162.dp)
+                        .height(180.dp)
+                )
             }
 
             Spacer(modifier = Modifier.height(28.dp))

@@ -94,6 +94,7 @@ fun TrangChuScreen(
     }
 
     Scaffold(
+        containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
                 title = {
@@ -159,7 +160,7 @@ fun TrangChuScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+                    containerColor = Color.Transparent
                 )
             )
         }
@@ -167,8 +168,7 @@ fun TrangChuScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .background(MaterialTheme.colorScheme.background),
+                .padding(padding),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
@@ -366,6 +366,7 @@ fun TrangChuScreen(
                     val utilities = listOf(
                         Triple("GDCT", Icons.Default.Book, "gdct"),
                         Triple("GDPL", Icons.Default.Balance, "gdpl"),
+                        Triple("TỦ SÁCH\nPHÁP LUẬT", Icons.Default.AutoStories, "tu_sach_phap_luat"),
                         Triple("KIỂM TRA", Icons.AutoMirrored.Filled.Assignment, "kiem_tra"),
                         Triple("LỊCH SỬ\nTRUYỀN THỐNG", Icons.Default.AccountBalance, "lich_su"),
                         Triple("BIỂN ĐẢO\nVIỆT NAM", Icons.Default.Map, "bien_dao")
@@ -382,8 +383,8 @@ fun TrangChuScreen(
                                     .height(116.dp)
                                     .clickable { onCategoryClick(util.third) },
                                 shape = RoundedCornerShape(14.dp),
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                                elevation = CardDefaults.cardElevation(2.dp)
+                                colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.94f)),
+                                elevation = CardDefaults.cardElevation(3.dp)
                             ) {
                                 Column(
                                     modifier = Modifier
@@ -396,7 +397,7 @@ fun TrangChuScreen(
                                         modifier = Modifier
                                             .size(42.dp)
                                             .clip(RoundedCornerShape(12.dp))
-                                            .background(RedPrimary.copy(alpha = 0.15f)),
+                                            .background(RedPrimary.copy(alpha = 0.12f)),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Icon(
@@ -455,7 +456,8 @@ fun TrangChuScreen(
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(14.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.94f)),
+                        elevation = CardDefaults.cardElevation(2.dp)
                     ) {
                         Column(
                             modifier = Modifier
@@ -481,7 +483,7 @@ fun TrangChuScreen(
                             .fillMaxWidth()
                             .clickable { activeLessonForPlayer = lesson },
                         shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.94f)),
                         elevation = CardDefaults.cardElevation(2.dp)
                     ) {
                         Row(

@@ -1,252 +1,466 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:aapt="http://schemas.android.com/aapt"
-    android:width="108dp"
-    android:height="108dp"
-    android:viewportWidth="108"
-    android:viewportHeight="108">
+    android:width="200dp"
+    android:height="230dp"
+    android:viewportWidth="200"
+    android:viewportHeight="230">
 
-    <!-- 1. VÒNG HÀO QUANG & NỀN TRÒN ĐỎ QUÂN KỲ -->
-    <!-- Đĩa nền đỏ đậm -->
+    <!-- ================================================================= -->
+    <!-- 1. VIỀN KHIÊN VÀNG KIM CHÍNH XÁC NGUYÊN BẢN (GOLDEN SHIELD FRAME) -->
+    <!-- ================================================================= -->
+    <!-- Lớp viền ngoài cùng tạo dáng khiên đặc trưng -->
     <path
-        android:pathData="M54,54m-48,0a48,48 0,1 1,96 0a48,48 0,1 1,-96 0">
+        android:pathData="M14,14 C40,4 100,0 100,0 C100,0 160,4 186,14 C192,40 198,112 188,150 C176,192 128,218 100,228 C72,218 24,192 12,150 C2,112 8,40 14,14 Z">
         <aapt:attr name="android:fillColor">
             <gradient
-                android:centerX="54"
-                android:centerY="42"
-                android:gradientRadius="48"
-                android:type="radial">
-                <item android:color="#DC2626" android:offset="0.0" />
-                <item android:color="#B91C1C" android:offset="0.6" />
-                <item android:color="#7F1D1D" android:offset="1.0" />
+                android:startX="100"
+                android:startY="0"
+                android:endX="100"
+                android:endY="228"
+                android:type="linear">
+                <item android:color="#FFF176" android:offset="0.0" />
+                <item android:color="#FBC02D" android:offset="0.25" />
+                <item android:color="#F57F17" android:offset="0.75" />
+                <item android:color="#E65100" android:offset="1.0" />
             </gradient>
         </aapt:attr>
     </path>
 
-    <!-- Vành đai kim loại vàng ngoài cùng -->
+    <!-- Đường gân chỉ nổi ánh kim bên trong viền khiên -->
     <path
-        android:pathData="M54,54m-47,0a47,47 0,1 1,94 0a47,47 0,1 1,-94 0"
-        android:strokeWidth="2.2"
-        android:strokeColor="#D4AF37"
-        android:fillColor="#00000000" />
-
-    <!-- Vành kim loại chỉ vàng phụ -->
-    <path
-        android:pathData="M54,54m-43.5,0a43.5,43.5 0,1 1,87 0a43.5,43.5 0,1 1,-87 0"
-        android:strokeWidth="0.8"
-        android:strokeColor="#FDE68A"
-        android:fillColor="#00000000" />
-
-    <!-- 2. BÔNG LÚA VÀNG / NHÁNH NGUYỆT QUẾ ĐÔI BÊN (BIỂU TƯỢNG VINH QUANG) -->
-    <!-- Nhánh bên trái -->
-    <path
-        android:pathData="M23,72 C20,60 21,44 28,32"
-        android:strokeWidth="1.2"
-        android:strokeColor="#F59E0B"
-        android:fillColor="#00000000" />
-    <path
-        android:fillColor="#FBBF24"
-        android:pathData="M20,66 C18,63 19,60 23,61 C23,64 22,66 20,66 Z" />
-    <path
-        android:fillColor="#FDE047"
-        android:pathData="M18,58 C16,55 18,52 22,53 C22,56 20,58 18,58 Z" />
-    <path
-        android:fillColor="#FBBF24"
-        android:pathData="M19,49 C18,46 20,43 24,44 C24,47 21,49 19,49 Z" />
-    <path
-        android:fillColor="#FDE047"
-        android:pathData="M21,41 C21,38 24,35 27,37 C26,40 23,41 21,41 Z" />
-    <path
-        android:fillColor="#FBBF24"
-        android:pathData="M25,34 C26,31 29,30 32,32 C30,35 27,35 25,34 Z" />
-
-    <!-- Hạt bông lúa hướng trong - trái -->
-    <path
-        android:fillColor="#D97706"
-        android:pathData="M24,63 C26,62 28,64 26,67 C24,66 23,64 24,63 Z" />
-    <path
-        android:fillColor="#D97706"
-        android:pathData="M23,54 C25,53 28,55 26,58 C24,57 23,55 23,54 Z" />
-    <path
-        android:fillColor="#D97706"
-        android:pathData="M25,45 C27,44 30,46 28,49 C26,48 24,46 25,45 Z" />
-
-    <!-- Nhánh bên phải -->
-    <path
-        android:pathData="M85,72 C88,60 87,44 80,32"
-        android:strokeWidth="1.2"
-        android:strokeColor="#F59E0B"
-        android:fillColor="#00000000" />
-    <path
-        android:fillColor="#FBBF24"
-        android:pathData="M88,66 C90,63 89,60 85,61 C85,64 86,66 88,66 Z" />
-    <path
-        android:fillColor="#FDE047"
-        android:pathData="M90,58 C92,55 90,52 86,53 C86,56 88,58 90,58 Z" />
-    <path
-        android:fillColor="#FBBF24"
-        android:pathData="M89,49 C90,46 88,43 84,44 C84,47 87,49 89,49 Z" />
-    <path
-        android:fillColor="#FDE047"
-        android:pathData="M87,41 C87,38 84,35 81,37 C82,40 85,41 87,41 Z" />
-    <path
-        android:fillColor="#FBBF24"
-        android:pathData="M83,34 C82,31 79,30 76,32 C78,35 81,35 83,34 Z" />
-
-    <!-- Hạt bông lúa hướng trong - phải -->
-    <path
-        android:fillColor="#D97706"
-        android:pathData="M84,63 C82,62 80,64 82,67 C84,66 85,64 84,63 Z" />
-    <path
-        android:fillColor="#D97706"
-        android:pathData="M85,54 C83,53 80,55 82,58 C84,57 85,55 85,54 Z" />
-    <path
-        android:fillColor="#D97706"
-        android:pathData="M83,45 C81,44 78,46 80,49 C82,48 84,46 83,45 Z" />
-
-    <!-- 3. SÓNG BIỂN ĐẠI DƯƠNG XANH HẢI QUÂN DƯỚI ĐÁY -->
-    <!-- Lớp sóng nền xanh thẫm -->
-    <path
-        android:fillColor="#0B2545"
-        android:pathData="M24,78 C30,73 40,73 48,77 C56,81 64,74 72,74 C78,74 82,77 84,79 C76,92 64,98 54,98 C44,98 32,92 24,78 Z" />
-
-    <!-- Lớp sóng xanh biển tươi -->
-    <path
-        android:fillColor="#0284C7"
-        android:pathData="M26,81 C32,77 40,78 47,82 C55,86 63,80 71,79 C77,79 81,81 83,83 C75,93 64,98 54,98 C44,98 33,93 26,81 Z" />
-
-    <!-- Ngọn bọt sóng trắng cách điệu -->
-    <path
-        android:pathData="M28,81 C34,76 42,77 49,81 C57,85 64,79 72,78 C77,78 80,80 82,82"
+        android:pathData="M18,17 C42,8 100,4 100,4 C100,4 158,8 182,17 C188,42 193,110 184,147 C172,188 126,214 100,224 C74,214 28,188 16,147 C7,110 12,42 18,17 Z"
         android:strokeWidth="1.2"
         android:strokeColor="#FFFFFF"
         android:fillColor="#00000000" />
+
+    <!-- ================================================================= -->
+    <!-- 2. LÒNG KHIÊN: NỬA TRÊN TRỜI XANH SÁNG & NỬA DƯỚI BIỂN XANH ĐẬM   -->
+    <!-- ================================================================= -->
+    <!-- Lòng khiên trọn vẹn -->
     <path
-        android:pathData="M34,87 C40,84 48,84 55,87 C62,89 68,86 74,85"
+        android:pathData="M20,19 C44,10 100,6 100,6 C100,6 156,10 180,19 C185,44 190,108 181,144 C170,184 125,210 100,220 C75,210 30,184 19,144 C10,108 15,44 20,19 Z"
+        android:fillColor="#052857" />
+
+    <!-- NỬA TRÊN: NỀN TRỜI XANH DA TRỜI TƯƠI SÁNG (#5BA4E6) -->
+    <path
+        android:pathData="M20,19 C44,10 100,6 100,6 C100,6 156,10 180,19 C185,44 188,78 187,116 L13,116 C12,78 15,44 20,19 Z"
+        android:fillColor="#5BA4E6" />
+
+    <!-- NỬA DƯỚI: NỀN BIỂN XANH THẪM (#052857) -->
+    <path
+        android:pathData="M13,116 L187,116 C186,132 181,144 170,184 C125,210 100,220 100,220 C100,220 75,210 30,184 C19,144 14,132 13,116 Z"
+        android:fillColor="#052857" />
+
+    <!-- ================================================================= -->
+    <!-- 3. GÓC TRÊN TRÁI: HUÂN CHƯƠNG ANH HÙNG LỰC LƯỢNG VŨ TRANG         -->
+    <!-- ================================================================= -->
+    <!-- Cuống huân chương (Dải băng đỏ viền vàng) -->
+    <path
+        android:fillColor="#D32F2F"
+        android:pathData="M38,38 L56,38 L56,46 L38,46 Z" />
+    <path
+        android:pathData="M38,38 L56,38 L56,46 L38,46 Z"
+        android:strokeWidth="1.2"
+        android:strokeColor="#FFD54F"
+        android:fillColor="#00000000" />
+    <!-- Móc treo chữ V nối cuống với ngôi sao -->
+    <path
+        android:pathData="M44,46 L47,52 L50,46"
+        android:strokeWidth="1.2"
+        android:strokeColor="#FFD54F"
+        android:fillColor="#00000000" />
+
+    <!-- Ngôi sao vàng 5 cánh Huân chương Anh hùng (Tâm: 47, 63) -->
+    <!-- Cánh 1: đỉnh -->
+    <path android:fillColor="#FFF59D" android:pathData="M47,52 L47,63 L43,59 Z" />
+    <path android:fillColor="#FBC02D" android:pathData="M47,52 L51,59 L47,63 Z" />
+    <!-- Cánh 2: phải trên -->
+    <path android:fillColor="#FFF59D" android:pathData="M58,58 L47,63 L51,59 Z" />
+    <path android:fillColor="#F57F17" android:pathData="M58,58 L52,66 L47,63 Z" />
+    <!-- Cánh 3: phải dưới -->
+    <path android:fillColor="#FFF59D" android:pathData="M54,71 L47,63 L52,66 Z" />
+    <path android:fillColor="#E65100" android:pathData="M54,71 L47,67 L47,63 Z" />
+    <!-- Cánh 4: trái dưới -->
+    <path android:fillColor="#F57F17" android:pathData="M40,71 L47,67 L47,63 Z" />
+    <path android:fillColor="#FFF59D" android:pathData="M40,71 L47,63 L42,66 Z" />
+    <!-- Cánh 5: trái trên -->
+    <path android:fillColor="#FFF59D" android:pathData="M36,58 L42,66 L47,63 Z" />
+    <path android:fillColor="#FBC02D" android:pathData="M36,58 L47,63 L43,59 Z" />
+
+    <!-- Đĩa tròn đỏ chính giữa ngôi sao huân chương -->
+    <path
+        android:pathData="M47,63m-5.5,0a5.5,5.5 0,1 1,11 0a5.5,5.5 0,1 1,-11 0"
+        android:fillColor="#D32F2F" />
+    <path
+        android:pathData="M47,63m-5.5,0a5.5,5.5 0,1 1,11 0a5.5,5.5 0,1 1,-11 0"
         android:strokeWidth="0.8"
-        android:strokeColor="#BAE6FD"
+        android:strokeColor="#FFF59D"
+        android:fillColor="#00000000" />
+    <!-- Chữ tượng trưng "ANH HÙNG LỰC LƯỢNG VŨ TRANG NHÂN DÂN" -->
+    <path
+        android:fillColor="#FFF59D"
+        android:pathData="M44,61 L50,61 M43.5,63 L50.5,63 M44,65 L50,65"
+        android:strokeWidth="0.8"
+        android:strokeColor="#FFF59D" />
+
+    <!-- ================================================================= -->
+    <!-- 4. CHÍNH GIỮA TRÊN: CỘT MỐC CHỦ QUYỀN ĐẢO TRƯỜNG SA                -->
+    <!-- ================================================================= -->
+    <!-- Chân đế cột mốc & Họa tiết trống đồng Đông Sơn -->
+    <path
+        android:fillColor="#C69457"
+        android:pathData="M84,100 L116,100 L113,80 L87,80 Z" />
+    <path
+        android:fillColor="#E3B37C"
+        android:pathData="M86,98 L114,98 L111,82 L89,82 Z" />
+    <!-- Hình tròn trống đồng khắc trên chân mốc -->
+    <path
+        android:pathData="M100,90m-6.5,0a6.5,6.5 0,1 1,13 0a6.5,6.5 0,1 1,-13 0"
+        android:strokeWidth="1.0"
+        android:strokeColor="#78350F"
+        android:fillColor="#C69457" />
+    <path
+        android:pathData="M100,90m-4,0a4,4 0,1 1,8 0a4,4 0,1 1,-8 0"
+        android:strokeWidth="0.8"
+        android:strokeColor="#D97706"
+        android:fillColor="#FDE68A" />
+
+    <!-- Thân cột mốc Trường Sa (Đá hoa cương sáng & đổ bóng 3D) -->
+    <path
+        android:fillColor="#F5D0A9"
+        android:pathData="M88,80 L100,80 L100,38 L90,38 Z" />
+    <path
+        android:fillColor="#D89F67"
+        android:pathData="M100,80 L112,80 L110,38 L100,38 Z" />
+
+    <!-- Băng đỏ mang tên "ĐẢO TRƯỜNG SA" -->
+    <path
+        android:fillColor="#D32F2F"
+        android:pathData="M89,52 L111,52 L110,67 L90,67 Z" />
+    <!-- Chữ "ĐẢO" màu vàng -->
+    <path
+        android:fillColor="#FFF59D"
+        android:pathData="M94,56 L106,56"
+        android:strokeWidth="1.2"
+        android:strokeColor="#FFF59D" />
+    <!-- Chữ "TRƯỜNG SA" màu vàng đậm nét -->
+    <path
+        android:fillColor="#FFF59D"
+        android:pathData="M92,60 L108,60 M93,64 L107,64"
+        android:strokeWidth="1.4"
+        android:strokeColor="#FFF59D" />
+
+    <!-- Tọa độ địa lý VĨ ĐỘ 08°38'30" N / KINH ĐỘ 111°55'55" E -->
+    <path
+        android:fillColor="#78350F"
+        android:pathData="M92,71 L108,71 M93,75 L107,75"
+        android:strokeWidth="0.9"
+        android:strokeColor="#78350F" />
+
+    <!-- Khối chóp đỏ Quốc kỳ đỉnh cột mốc -->
+    <path
+        android:fillColor="#D32F2F"
+        android:pathData="M90,38 L110,38 L108,24 L92,24 Z" />
+    <!-- Chóp nón đỉnh cột mốc -->
+    <path
+        android:fillColor="#E67E22"
+        android:pathData="M92,24 L108,24 L100,16 Z" />
+    <path
+        android:fillColor="#D35400"
+        android:pathData="M100,24 L108,24 L100,16 Z" />
+
+    <!-- Dòng chữ "CHXHCN VIỆT NAM" trên nền đỏ chóp -->
+    <path
+        android:fillColor="#FFF59D"
+        android:pathData="M94,20.5 L106,20.5"
+        android:strokeWidth="0.9"
+        android:strokeColor="#FFF59D" />
+
+    <!-- Ngôi sao vàng trên chóp cờ (Tâm: 100, 31) -->
+    <!-- Cánh 1: đỉnh -->
+    <path android:fillColor="#FFF59D" android:pathData="M100,25 L100,31 L97.5,29 Z" />
+    <path android:fillColor="#FBC02D" android:pathData="M100,25 L102.5,29 L100,31 Z" />
+    <!-- Cánh 2: phải trên -->
+    <path android:fillColor="#FFF59D" android:pathData="M105.5,28 L100,31 L102.5,29 Z" />
+    <path android:fillColor="#F57F17" android:pathData="M105.5,28 L103,32.5 L100,31 Z" />
+    <!-- Cánh 3: phải dưới -->
+    <path android:fillColor="#FFF59D" android:pathData="M104,36 L100,31 L103,32.5 Z" />
+    <path android:fillColor="#E65100" android:pathData="M104,36 L100,33 L100,31 Z" />
+    <!-- Cánh 4: trái dưới -->
+    <path android:fillColor="#F57F17" android:pathData="M96,36 L100,33 L100,31 Z" />
+    <path android:fillColor="#FFF59D" android:pathData="M96,36 L100,31 L97,32.5 Z" />
+    <!-- Cánh 5: trái trên -->
+    <path android:fillColor="#FFF59D" android:pathData="M94.5,28 L97,32.5 L100,31 Z" />
+    <path android:fillColor="#FBC02D" android:pathData="M94.5,28 L100,31 L97.5,29 Z" />
+
+    <!-- ================================================================= -->
+    <!-- 5. TÀU HỘ VỆ TÊN LỬA HẢI QUÂN VÙNG 4 (GEPARD 3.9 WARSHIP)          -->
+    <!-- ================================================================= -->
+    <!-- Thân tàu chiến màu vàng cát vát nhọn lướt sóng ngang màn hình -->
+    <path
+        android:pathData="M20,107 L178,101 L182,108 L174,116 L27,116 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="20"
+                android:startY="107"
+                android:endX="182"
+                android:endY="107"
+                android:type="linear">
+                <item android:color="#FFF9C4" android:offset="0.0" />
+                <item android:color="#FFF176" android:offset="0.35" />
+                <item android:color="#FBC02D" android:offset="0.75" />
+                <item android:color="#F57F17" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Mũi tàu chiến nhọn sắc -->
+    <path
+        android:fillColor="#FFF59D"
+        android:pathData="M20,107 L44,104 L44,116 L27,116 Z" />
+
+    <!-- Thượng tầng cabin chỉ huy & Tháp Rada -->
+    <path
+        android:fillColor="#FFF59D"
+        android:pathData="M70,103 L82,85 L110,85 L114,103 Z" />
+    <path
+        android:fillColor="#FBC02D"
+        android:pathData="M110,85 L114,103 L121,103 L117,89 Z" />
+    <!-- Dải kính quan sát màu xanh thẫm -->
+    <path
+        android:fillColor="#052857"
+        android:pathData="M83,91 L103,91 L104,94 L84,94 Z" />
+
+    <!-- Tháp rada hình nón cụt & quả cầu vòm rada -->
+    <path
+        android:fillColor="#F57F17"
+        android:pathData="M94,85 L98,72 L101,72 L104,85 Z" />
+    <path
+        android:pathData="M99.5,71m-3.5,0a3.5,3.5 0,1 1,7 0a3.5,3.5 0,1 1,-7 0"
+        android:fillColor="#FFF59D" />
+
+    <!-- Pháo hạm mũi tàu (AK-176 76mm) -->
+    <path
+        android:fillColor="#E65100"
+        android:pathData="M50,105 L54,100 L62,100 L63,105 Z" />
+    <path
+        android:pathData="M50,102 L40,101"
+        android:strokeWidth="1.4"
+        android:strokeColor="#E65100"
         android:fillColor="#00000000" />
 
-    <!-- 4. BIỂU TƯỢNG MỎ NEO VÀNG HẢI QUÂN (CHÍNH TÂM) -->
-    <!-- Dây cáp mỏ neo quấn quanh trục -->
+    <!-- Bệ pháo phòng không tầm gần phía sau thượng tầng -->
     <path
-        android:pathData="M52,38 C49,42 49,46 54,48 C59,50 59,54 54,58 C49,61 49,66 54,70"
-        android:strokeWidth="1.3"
-        android:strokeColor="#FEF08A"
+        android:fillColor="#E65100"
+        android:pathData="M127,102 L131,98 L137,98 L139,102 Z" />
+    <path
+        android:fillColor="#E65100"
+        android:pathData="M144,102 L147,99 L153,99 L155,102 Z" />
+
+    <!-- Trực thăng săn ngầm Ka-28 tại bãi đáp đuôi tàu -->
+    <path
+        android:fillColor="#F57F17"
+        android:pathData="M27,106 L32,101 L37,106 Z" />
+    <!-- Cánh quạt trực thăng -->
+    <path
+        android:pathData="M25,100 L39,100"
+        android:strokeWidth="1.1"
+        android:strokeColor="#5D4037"
         android:fillColor="#00000000" />
 
-    <!-- Vòng khuyên đỉnh neo -->
+    <!-- Bọt sóng trắng quanh mép mạn tàu -->
     <path
-        android:pathData="M54,34m-4.2,0a4.2,4.2 0,1 1,8.4 0a4.2,4.2 0,1 1,-8.4 0"
-        android:strokeWidth="2.0"
-        android:strokeColor="#D4AF37"
+        android:pathData="M20,110 C28,107 36,108 45,112 C54,116 63,110 72,109 C81,108 90,111 99,113 C108,115 117,109 126,109 C135,109 144,112 153,114 C162,116 171,111 180,111"
+        android:strokeWidth="1.2"
+        android:strokeColor="#FFFFFF"
+        android:fillColor="#00000000" />
+
+    <!-- ================================================================= -->
+    <!-- 6. CHỮ NỔI BẬT: "VÙNG 4" (MÀU VÀNG KIM) & "HẢI QUÂN" (TRẮNG TINH)  -->
+    <!-- ================================================================= -->
+    <!-- DÒNG CHỮ: "VÙNG 4" -->
+    <!-- Chữ V -->
+    <path
+        android:fillColor="#FFF59D"
+        android:pathData="M52,126 L57,126 L61,139 L65,126 L70,126 L64,142 L58,142 Z" />
+    <!-- Chữ Ù -->
+    <path
+        android:fillColor="#FFF59D"
+        android:pathData="M73,126 L78,126 L78,136 C78,138.5 79.5,140 82,140 C84.5,140 86,138.5 86,136 L86,126 L91,126 L91,136 C91,141 87.5,143.5 82,143.5 C76.5,143.5 73,141 73,136 Z" />
+    <!-- Dấu huyền trên chữ Ù -->
+    <path
+        android:fillColor="#FFF59D"
+        android:pathData="M79,121.5 L83,124 L81.5,125.5 L77.5,123 Z" />
+    <!-- Chữ N -->
+    <path
+        android:fillColor="#FFF59D"
+        android:pathData="M94,126 L99,126 L105,136.5 L105,126 L110,126 L110,142 L105,142 L99,131.5 L99,142 L94,142 Z" />
+    <!-- Chữ G -->
+    <path
+        android:fillColor="#FFF59D"
+        android:pathData="M113,134 C113,128.5 116.5,126 122,126 C126.5,126 130,128.5 130,131 L125.5,132.5 C125,131 124,130 122,130 C119,130 117.5,132 117.5,134 C117.5,136.5 119,138.5 122,138.5 C124,138.5 125.5,137.5 125.5,136 L122,136 L122,133 L130,133 L130,137.5 C128,141 125,143 122,143 C116.5,143 113,140 113,134 Z" />
+    <!-- Số 4 -->
+    <path
+        android:fillColor="#FFF59D"
+        android:pathData="M138,126 L143,126 L143,135 L147.5,135 L147.5,126 L152.5,126 L152.5,142 L147.5,142 L147.5,138.5 L135.5,138.5 L135.5,134 Z M143,135 L143,131 L139.5,135 Z" />
+
+    <!-- DÒNG CHỮ: "HẢI QUÂN" -->
+    <!-- Chữ H -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M65,146 L69,146 L69,151 L74,151 L74,146 L78,146 L78,158 L74,158 L74,154 L69,154 L69,158 L65,158 Z" />
+    <!-- Chữ Ả -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M81,158 L86,146 L90,146 L95,158 L91,158 L90,155 L86,155 L85,158 Z M87,152.5 L89,152.5 L88,149 Z" />
+    <!-- Dấu hỏi trên chữ Ả -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M87,143 C86.5,143 86,143.5 86.5,144 C87,144.5 87.5,144.5 87.5,145 L87.5,145.5 L88.5,145.5 L88.5,145 C88.5,144 87.8,143.5 87,143 Z" />
+    <!-- Chữ I -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M98,146 L102,146 L102,158 L98,158 Z" />
+    <!-- Chữ Q -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M107,152 C107,148 109.5,146 113.5,146 C117.5,146 120,148 120,152 C120,155 118,157 115,157.5 L118,160 L115,160 L112.5,157.8 C109.5,157.3 107,155 107,152 Z M111,152 C111,154.5 112,155.5 113.5,155.5 C115,155.5 116,154.5 116,152 C116,149.5 115,148.5 113.5,148.5 C112,148.5 111,149.5 111,152 Z" />
+    <!-- Chữ U -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M123,146 L127,146 L127,154 C127,155.5 128,156 129.5,156 C131,156 132,155.5 132,154 L132,146 L136,146 L136,154 C136,157 133.5,158.5 129.5,158.5 C125.5,158.5 123,157 123,154 Z" />
+    <!-- Chữ Â -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M138,158 L143,146 L147,146 L152,158 L148,158 L147,155 L143,155 L142,158 Z M144,152.5 L146,152.5 L145,149 Z" />
+    <!-- Dấu mũ trên chữ Â -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M143,144.5 L145,143 L147,144.5 L146,144.5 L145,143.8 L144,144.5 Z" />
+    <!-- Chữ N -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M154,146 L158,146 L163,154 L163,146 L167,146 L167,158 L163,158 L158,150 L158,158 L154,158 Z" />
+
+    <!-- ================================================================= -->
+    <!-- 7. MỎ NEO VÀNG HẢI QUÂN VỚI DÂY XÍCH CUỘN TRÒN                    -->
+    <!-- ================================================================= -->
+    <!-- Dây xích vàng quấn quanh thân neo -->
+    <path
+        android:pathData="M98,172 C93,176 93,181 100,185 C107,189 107,194 100,199 C94,203 94,208 100,212"
+        android:strokeWidth="1.8"
+        android:strokeColor="#FFF59D"
+        android:fillColor="#00000000" />
+
+    <!-- Khuyên tròn đỉnh mỏ neo -->
+    <path
+        android:pathData="M100,166m-5.5,0a5.5,5.5 0,1 1,11 0a5.5,5.5 0,1 1,-11 0"
+        android:strokeWidth="2.6"
+        android:strokeColor="#FBC02D"
         android:fillColor="#00000000" />
     <path
-        android:pathData="M54,34m-2,0a2,2 0,1 1,4 0a2,2 0,1 1,-4 0"
-        android:fillColor="#7F1D1D" />
+        android:pathData="M100,166m-2.8,0a2.8,2.8 0,1 1,5.6 0a2.8,2.8 0,1 1,-5.6 0"
+        android:fillColor="#052857" />
 
     <!-- Thanh ngang mỏ neo (Stock) -->
     <path
-        android:fillColor="#D4AF37"
-        android:pathData="M40,40 L68,40 C69,40 70,41 70,42 C70,43 69,44 68,44 L40,44 C39,44 38,43 38,42 C38,41 39,40 40,40 Z" />
-    <!-- Chốt đầu thanh ngang -->
+        android:fillColor="#FBC02D"
+        android:pathData="M81,173 L119,173 C121,173 122,174 122,176 C122,178 121,179 119,179 L81,179 C79,179 78,178 78,176 C78,174 79,173 81,173 Z" />
     <path
-        android:fillColor="#FDE047"
-        android:pathData="M38,42m-2,0a2,2 0,1 1,4 0a2,2 0,1 1,-4 0" />
+        android:fillColor="#FFF59D"
+        android:pathData="M78,176m-2.5,0a2.5,2.5 0,1 1,5 0a2.5,2.5 0,1 1,-5 0" />
     <path
-        android:fillColor="#FDE047"
-        android:pathData="M70,42m-2,0a2,2 0,1 1,4 0a2,2 0,1 1,-4 0" />
+        android:fillColor="#FFF59D"
+        android:pathData="M122,176m-2.5,0a2.5,2.5 0,1 1,5 0a2.5,2.5 0,1 1,-5 0" />
 
-    <!-- Thân đứng mỏ neo (Shank) với hiệu ứng 3D khối vàng -->
-    <!-- Nửa trái thân (sáng) -->
+    <!-- Thân đứng mỏ neo (Shank) vàng kim khối -->
     <path
-        android:fillColor="#FDE047"
-        android:pathData="M52.2,38 L54,38 L54,75 L52.2,74 Z" />
-    <!-- Nửa phải thân (đổ bóng vàng sẫm) -->
+        android:fillColor="#FFF59D"
+        android:pathData="M97.5,172 L100,172 L100,213 L97.5,212 Z" />
     <path
-        android:fillColor="#B45309"
-        android:pathData="M54,38 L55.8,38 L55.8,74 L54,75 Z" />
+        android:fillColor="#E65100"
+        android:pathData="M100,172 L102.5,172 L102.5,212 L100,213 Z" />
 
-    <!-- Càng mỏ neo cong chữ U và hai lưỡi neo sắc bén -->
+    <!-- Càng cong mỏ neo (Arms) -->
     <path
-        android:fillColor="#D4AF37"
-        android:pathData="M36,60 L36,66 C40,77 47,81 54,81 C61,81 68,77 72,66 L72,60 L69,63 C65,72 59,76 54,76 C49,76 43,72 39,63 Z" />
-    <!-- Lưỡi neo trái (Fluke) -->
+        android:fillColor="#FBC02D"
+        android:pathData="M76,193 L76,199 C81,211 89,217 100,217 C111,217 119,211 124,199 L124,193 L120.5,197 C115.5,206 108.5,212.5 100,212.5 C91.5,212.5 84.5,206 79.5,197 Z" />
+
+    <!-- Mũi neo nhọn trái & phải (Flukes) -->
     <path
-        android:fillColor="#FDE047"
-        android:pathData="M33,63 L41,60 L37,68 Z" />
-    <!-- Lưỡi neo phải (Fluke) -->
+        android:fillColor="#FFF59D"
+        android:pathData="M72,195 L82,192 L77,202 Z" />
     <path
-        android:fillColor="#FDE047"
-        android:pathData="M75,63 L67,60 L71,68 Z" />
+        android:fillColor="#FFF59D"
+        android:pathData="M128,195 L118,192 L123,202 Z" />
 
     <!-- Đỉnh đáy neo tròn (Crown) -->
     <path
-        android:fillColor="#F59E0B"
-        android:pathData="M54,80m-2.5,0a2.5,2.5 0,1 1,5 0a2.5,2.5 0,1 1,-5 0" />
+        android:pathData="M100,216m-3,0a3,3 0,1 1,6 0a3,3 0,1 1,-6 0"
+        android:fillColor="#FFF59D" />
 
-    <!-- 5. NGÔI SAO VÀNG NĂM CÁNH RỰC RỠ TRÊN ĐỈNH -->
-    <!-- Ngôi sao năm cánh 3D cách điệu đỉnh cao -->
-    <!-- Cánh 1: Hướng lên đỉnh (54, 11) -->
+    <!-- ================================================================= -->
+    <!-- 8. HAI NHÁNH BÔNG LÚA / NGUYỆT QUẾ VÀNG KIM DỌC VIỀN KHIÊN         -->
+    <!-- ================================================================= -->
+    <!-- NHÁNH TRÁI -->
     <path
-        android:fillColor="#FEF08A"
-        android:pathData="M54,11 L54,23 L51,20 Z" />
-    <path
-        android:fillColor="#F59E0B"
-        android:pathData="M54,11 L57,20 L54,23 Z" />
-
-    <!-- Cánh 2: Hướng phải trên (64, 18) -->
-    <path
-        android:fillColor="#FEF08A"
-        android:pathData="M64,18 L54,23 L57,20 Z" />
-    <path
-        android:fillColor="#D97706"
-        android:pathData="M64,18 L59,25 L54,23 Z" />
-
-    <!-- Cánh 3: Hướng phải dưới (60, 30) -->
-    <path
-        android:fillColor="#FEF08A"
-        android:pathData="M60,30 L54,23 L59,25 Z" />
-    <path
-        android:fillColor="#B45309"
-        android:pathData="M60,30 L54,26 L54,23 Z" />
-
-    <!-- Cánh 4: Hướng trái dưới (48, 30) -->
-    <path
-        android:fillColor="#D97706"
-        android:pathData="M48,30 L54,26 L54,23 Z" />
-    <path
-        android:fillColor="#FEF08A"
-        android:pathData="M48,30 L54,23 L49,25 Z" />
-
-    <!-- Cánh 5: Hướng trái trên (44, 18) -->
-    <path
-        android:fillColor="#FEF08A"
-        android:pathData="M44,18 L49,25 L54,23 Z" />
-    <path
-        android:fillColor="#F59E0B"
-        android:pathData="M44,18 L54,23 L51,20 Z" />
-
-    <!-- 6. DẢI BĂNG DANH DỰ ĐỎ VIỀN VÀNG: "VÙNG 4 HẢI QUÂN" Ở DƯỚI -->
-    <path
-        android:fillColor="#991B1B"
-        android:pathData="M32,87 L76,87 C79,87 81,89 80,92 L78,95 C77,97 74,98 72,98 L36,98 C34,98 31,97 30,95 L28,92 C27,89 29,87 32,87 Z" />
-    <path
-        android:pathData="M32,87 L76,87 C79,87 81,89 80,92 L78,95 C77,97 74,98 72,98 L36,98 C34,98 31,97 30,95 L28,92 C27,89 29,87 32,87 Z"
-        android:strokeWidth="1.0"
-        android:strokeColor="#FDE68A"
+        android:pathData="M26,140 C24,162 35,188 77,214"
+        android:strokeWidth="1.4"
+        android:strokeColor="#FBC02D"
         android:fillColor="#00000000" />
+    <!-- Cặp hạt/lá 1 -->
+    <path android:fillColor="#FFF59D" android:pathData="M24,139 C20,135 22,130 27,133 C27,137 26,139 24,139 Z" />
+    <path android:fillColor="#F57F17" android:pathData="M27,142 C30,139 32,142 30,145 C27,144 26,142 27,142 Z" />
+    <!-- Cặp hạt/lá 2 -->
+    <path android:fillColor="#FFF9C4" android:pathData="M23,148 C19,144 21,139 26,142 C26,146 25,148 23,148 Z" />
+    <path android:fillColor="#E65100" android:pathData="M28,151 C31,148 33,151 31,154 C28,153 27,151 28,151 Z" />
+    <!-- Cặp hạt/lá 3 -->
+    <path android:fillColor="#FFF59D" android:pathData="M24,158 C20,154 23,149 28,152 C28,156 26,158 24,158 Z" />
+    <path android:fillColor="#F57F17" android:pathData="M31,161 C34,158 36,161 34,164 C31,163 30,161 31,161 Z" />
+    <!-- Cặp hạt/lá 4 -->
+    <path android:fillColor="#FFF9C4" android:pathData="M28,168 C24,164 27,159 32,162 C32,166 30,168 28,168 Z" />
+    <path android:fillColor="#E65100" android:pathData="M36,171 C39,168 42,171 40,174 C37,173 35,171 36,171 Z" />
+    <!-- Cặp hạt/lá 5 -->
+    <path android:fillColor="#FFF59D" android:pathData="M34,178 C30,174 34,169 39,172 C39,176 36,178 34,178 Z" />
+    <path android:fillColor="#F57F17" android:pathData="M43,181 C46,178 49,181 47,184 C44,183 42,181 43,181 Z" />
+    <!-- Cặp hạt/lá 6 -->
+    <path android:fillColor="#FFF9C4" android:pathData="M42,188 C38,184 42,179 47,182 C47,186 44,188 42,188 Z" />
+    <path android:fillColor="#E65100" android:pathData="M52,191 C55,188 58,191 56,194 C53,193 51,191 52,191 Z" />
+    <!-- Cặp hạt/lá 7 -->
+    <path android:fillColor="#FFF59D" android:pathData="M53,197 C49,193 54,188 59,191 C58,195 56,197 53,197 Z" />
+    <path android:fillColor="#F57F17" android:pathData="M63,199 C66,196 69,199 67,202 C64,201 62,199 63,199 Z" />
+    <!-- Cặp hạt/lá 8 (gần cuống neo) -->
+    <path android:fillColor="#FFF9C4" android:pathData="M67,204 C63,200 68,196 73,199 C72,203 70,204 67,204 Z" />
+    <path android:fillColor="#E65100" android:pathData="M77,205 C80,202 83,205 81,208 C78,207 76,205 77,205 Z" />
 
-    <!-- 3 ngôi sao nhỏ trên dải băng -->
-    <!-- Ngôi sao giữa -->
+    <!-- NHÁNH PHẢI -->
     <path
-        android:fillColor="#FDE047"
-        android:pathData="M54,90.5 L54.7,92 L56.3,92 L55,93 L55.5,94.5 L54,93.5 L52.5,94.5 L53,93 L51.7,92 L53.3,92 Z" />
-    <!-- Ngôi sao trái -->
-    <path
-        android:fillColor="#FDE047"
-        android:pathData="M44,90.5 L44.7,92 L46.3,92 L45,93 L45.5,94.5 L44,93.5 L42.5,94.5 L43,93 L41.7,92 L43.3,92 Z" />
-    <!-- Ngôi sao phải -->
-    <path
-        android:fillColor="#FDE047"
-        android:pathData="M64,90.5 L64.7,92 L66.3,92 L65,93 L65.5,94.5 L64,93.5 L62.5,94.5 L63,93 L61.7,92 L63.3,92 Z" />
+        android:pathData="M174,140 C176,162 165,188 123,214"
+        android:strokeWidth="1.4"
+        android:strokeColor="#FBC02D"
+        android:fillColor="#00000000" />
+    <!-- Cặp hạt/lá 1 -->
+    <path android:fillColor="#FFF59D" android:pathData="M176,139 C180,135 178,130 173,133 C173,137 174,139 176,139 Z" />
+    <path android:fillColor="#F57F17" android:pathData="M173,142 C170,139 168,142 170,145 C173,144 174,142 173,142 Z" />
+    <!-- Cặp hạt/lá 2 -->
+    <path android:fillColor="#FFF9C4" android:pathData="M177,148 C181,144 179,139 174,142 C174,146 175,148 177,148 Z" />
+    <path android:fillColor="#E65100" android:pathData="M172,151 C169,148 167,151 169,154 C172,153 173,151 172,151 Z" />
+    <!-- Cặp hạt/lá 3 -->
+    <path android:fillColor="#FFF59D" android:pathData="M176,158 C180,154 177,149 172,152 C172,156 174,158 176,158 Z" />
+    <path android:fillColor="#F57F17" android:pathData="M169,161 C166,158 164,161 166,164 C169,163 170,161 169,161 Z" />
+    <!-- Cặp hạt/lá 4 -->
+    <path android:fillColor="#FFF9C4" android:pathData="M172,168 C176,164 173,159 168,162 C168,166 170,168 172,168 Z" />
+    <path android:fillColor="#E65100" android:pathData="M164,171 C161,168 158,171 160,174 C163,173 165,171 164,171 Z" />
+    <!-- Cặp hạt/lá 5 -->
+    <path android:fillColor="#FFF59D" android:pathData="M166,178 C170,174 166,169 161,172 C161,176 164,178 166,178 Z" />
+    <path android:fillColor="#F57F17" android:pathData="M157,181 C154,178 151,181 153,184 C156,183 158,181 157,181 Z" />
+    <!-- Cặp hạt/lá 6 -->
+    <path android:fillColor="#FFF9C4" android:pathData="M158,188 C162,184 158,179 153,182 C153,186 156,188 158,188 Z" />
+    <path android:fillColor="#E65100" android:pathData="M148,191 C145,188 142,191 144,194 C147,193 149,191 148,191 Z" />
+    <!-- Cặp hạt/lá 7 -->
+    <path android:fillColor="#FFF59D" android:pathData="M147,197 C151,193 146,188 141,191 C142,195 144,197 147,197 Z" />
+    <path android:fillColor="#F57F17" android:pathData="M137,199 C134,196 131,199 133,202 C136,201 138,199 137,199 Z" />
+    <!-- Cặp hạt/lá 8 (gần cuống neo) -->
+    <path android:fillColor="#FFF9C4" android:pathData="M133,204 C137,200 132,196 127,199 C128,203 130,204 133,204 Z" />
+    <path android:fillColor="#E65100" android:pathData="M123,205 C120,202 117,205 119,208 C122,207 124,205 123,205 Z" />
 </vector>

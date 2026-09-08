@@ -171,6 +171,7 @@ fun ThongBaoScreen(
     }
 
     Scaffold(
+        containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
                 title = {
@@ -218,7 +219,7 @@ fun ThongBaoScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+                    containerColor = Color.Transparent
                 )
             )
         }
@@ -226,8 +227,7 @@ fun ThongBaoScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .background(MaterialTheme.colorScheme.background),
+                .padding(padding),
             contentPadding = PaddingValues(bottom = 24.dp)
         ) {
             // BANNER NHẮC NHỞ / CẤP QUYỀN VỀ ĐIỆN THOẠI (Chỉ hiển thị khi CHƯA cấp quyền trên máy, cấp xong lập tức ẩn đi)

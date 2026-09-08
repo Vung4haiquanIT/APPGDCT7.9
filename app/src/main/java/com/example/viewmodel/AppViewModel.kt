@@ -82,6 +82,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _banners = MutableStateFlow<List<BannerItem>>(BannerItem.getDefaultMilitaryBanners())
     val banners: StateFlow<List<BannerItem>> = _banners.asStateFlow()
 
+    private val _questions = MutableStateFlow<List<QuestionItem>>(QuestionItem.getDefaultQuestionBank())
+    val questions: StateFlow<List<QuestionItem>> = _questions.asStateFlow()
+
+    private val _examSessions = MutableStateFlow<List<ExamSessionDoc>>(emptyList())
+    val examSessions: StateFlow<List<ExamSessionDoc>> = _examSessions.asStateFlow()
+
+    private val _userExamResults = MutableStateFlow<List<ExamResultDoc>>(emptyList())
+    val userExamResults: StateFlow<List<ExamResultDoc>> = _userExamResults.asStateFlow()
+
     private val _unreadCount = MutableStateFlow(0)
     val unreadCount: StateFlow<Int> = _unreadCount.asStateFlow()
 
@@ -108,6 +117,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private var notificationsListener: ListenerRegistration? = null
     private var bannersListener: ListenerRegistration? = null
     private var postersListener: ListenerRegistration? = null
+    private var questionsListener: ListenerRegistration? = null
+    private var examSessionsListener: ListenerRegistration? = null
+    private var examResultsListener: ListenerRegistration? = null
     private var bannersFromBannersColl: List<BannerItem> = emptyList()
     private var bannersFromPostersColl: List<BannerItem> = emptyList()
 
@@ -175,6 +187,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 _userDoc.value = restored
                 _userDocStatus.value = "CONNECTED (${restored.name})"
                 fetchProgress(restored.id)
+                fetchExamResults(restored.id)
                 syncPendingGuestProgressToFirestore(restored.id)
                 Log.i(TAG, "[SESSION] Restored login session for ${restored.name}")
                 restored
@@ -447,6 +460,84 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
         } catch (e: Exception) {
             Log.w(TAG, "[POSTERS EXCEPTION] ${e.localizedMessage}")
+        }
+
+        // 8. questions / cauHoi / quizzes
+        try {
+            questionsListener?.remove()
+            questionsListener = db.collection("questions")
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        Log.w(TAG, "[QUESTIONS ERROR] ${error.code}: ${error.message}")
+                        return@addSnapshotListener
+                    }
+                    val defaultBank = QuestionItem.getDefaultQuestionBank()
+                    if (snapshot != null && !snapshot.isEmpty) {
+                        val remoteList = snapshot.documents.mapNotNull { 
+                            try { QuestionItem.fromDoc(it) } catch (e: Exception) { null }
+                        }
+                        val remoteIds = remoteList.map { it.id }.toSet()
+                        val combined = remoteList + defaultBank.filter { it.id !in remoteIds }
+                        _questions.value = combined
+                        Log.i(TAG, "[QUESTIONS] Synced: ${combined.size} questions (${remoteList.size} from Web Quản trị)")
+                    } else {
+                        _questions.value = defaultBank
+                    }
+                }
+        } catch (e: Exception) {
+            Log.w(TAG, "[QUESTIONS EXCEPTION] ${e.localizedMessage}")
+        }
+
+        // 9. exam_sessions / dot_thi từ Web Quản Trị
+        try {
+            examSessionsListener?.remove()
+            examSessionsListener = db.collection("exam_sessions")
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        Log.w(TAG, "[EXAM_SESSIONS ERROR] ${error.code}: ${error.message}")
+                        return@addSnapshotListener
+                    }
+                    if (snapshot != null) {
+                        val list = snapshot.documents.mapNotNull { 
+                            try { ExamSessionDoc.fromDoc(it) } catch (e: Exception) { null }
+                        }
+                        _examSessions.value = list
+                        Log.i(TAG, "[EXAM_SESSIONS] Realtime sync: ${list.size} exam sessions from Web Quản trị")
+                    }
+                }
+        } catch (e: Exception) {
+            Log.w(TAG, "[EXAM_SESSIONS EXCEPTION] ${e.localizedMessage}")
+        }
+    }
+
+    fun fetchExamResults(uid: String) {
+        if (db == null) return
+        try {
+            examResultsListener?.remove()
+            examResultsListener = db.collection("exam_results")
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        Log.w(TAG, "[EXAM_RESULTS ERROR] ${error.code}: ${error.message}")
+                        return@addSnapshotListener
+                    }
+                    if (snapshot != null) {
+                        val userEmail = _userDoc.value?.email ?: _currentUser.value?.email ?: ""
+                        val list = snapshot.documents.mapNotNull { doc ->
+                            try {
+                                val item = ExamResultDoc.fromDoc(doc)
+                                val docUserId = doc.getString("userId") ?: doc.getString("user_id") ?: ""
+                                val docEmail = doc.getString("userEmail") ?: doc.getString("email") ?: ""
+                                if (docUserId == uid || (userEmail.isNotBlank() && docEmail.equals(userEmail, ignoreCase = true))) {
+                                    item
+                                } else null
+                            } catch (e: Exception) { null }
+                        }.sortedByDescending { it.timestamp }
+                        _userExamResults.value = list
+                        Log.i(TAG, "[EXAM_RESULTS] Realtime sync: ${list.size} results for user $uid")
+                    }
+                }
+        } catch (e: Exception) {
+            Log.w(TAG, "[EXAM_RESULTS EXCEPTION] ${e.localizedMessage}")
         }
     }
 
@@ -1211,6 +1302,141 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun submitExamResult(
+        score: Int,
+        totalQuestions: Int,
+        timeSpentSeconds: Int,
+        examId: String = "",
+        examName: String = "Đề thi kiểm tra 20 câu ngẫu nhiên"
+    ) {
+        viewModelScope.launch {
+            val percent = if (totalQuestions > 0) (score * 100 / totalQuestions) else 0
+            val passed = percent >= 50
+            val user = _userDoc.value
+            val currentFbUser = _currentUser.value
+            val uid = user?.id ?: currentFbUser?.uid ?: "guest"
+            val userName = user?.name?.ifEmpty { currentFbUser?.displayName ?: currentFbUser?.email ?: "Chiến sĩ Vùng 4" } ?: "Chiến sĩ Vùng 4"
+            val userEmail = user?.email?.ifEmpty { currentFbUser?.email ?: "" } ?: ""
+            val userUnit = user?.unit?.ifEmpty { "Vùng 4 Hải Quân" } ?: "Vùng 4 Hải Quân"
+            val userRank = user?.rank ?: ""
+            val timestamp = System.currentTimeMillis()
+
+            val newResultDoc = ExamResultDoc(
+                id = "res_${timestamp}",
+                userId = uid,
+                userName = userName,
+                userEmail = userEmail,
+                userUnit = userUnit,
+                userRank = userRank,
+                examId = examId,
+                examName = examName,
+                score = score,
+                totalQuestions = totalQuestions,
+                scorePercentage = percent,
+                passed = passed,
+                timeSpentSeconds = timeSpentSeconds,
+                timestamp = timestamp
+            )
+
+            // Update local state immediately for instant feedback
+            val currentList = _userExamResults.value.toMutableList()
+            currentList.add(0, newResultDoc)
+            _userExamResults.value = currentList
+
+            val logData = hashMapOf<String, Any>(
+                "userId" to uid,
+                "user_id" to uid,
+                "nguoiDungId" to uid,
+                "userName" to userName,
+                "hoTen" to userName,
+                "userEmail" to userEmail,
+                "email" to userEmail,
+                "userUnit" to userUnit,
+                "unit" to userUnit,
+                "donVi" to userUnit,
+                "userRank" to userRank,
+                "rank" to userRank,
+                "capBac" to userRank,
+                "examId" to examId,
+                "dotThiId" to examId,
+                "examSessionId" to examId,
+                "examName" to examName,
+                "tenDotThi" to examName,
+                "tenBaiThi" to examName,
+                "score" to score,
+                "diem" to score,
+                "soCauDung" to score,
+                "totalQuestions" to totalQuestions,
+                "tongSoCau" to totalQuestions,
+                "soCauHoi" to totalQuestions,
+                "scorePercentage" to percent,
+                "phanTramDiem" to percent,
+                "passed" to passed,
+                "dat" to passed,
+                "timeSpentSeconds" to timeSpentSeconds,
+                "thoiGianLamBai" to timeSpentSeconds,
+                "timestamp" to timestamp,
+                "createdAt" to timestamp,
+                "thoiGianNop" to timestamp,
+                "type" to "exam_quiz",
+                "source" to "mobile_app",
+                "device" to "Android App Vùng 4"
+            )
+            
+            if (db != null) {
+                try {
+                    db.collection("exam_results").add(logData).await()
+                    db.collection("ket_qua_thi").add(logData).await()
+                    db.collection("study_logs").add(logData).await()
+                    Log.i(TAG, "[EXAM] Successfully synced exam result to Web Admin for $userName: $score/$totalQuestions ($percent%)")
+                } catch (e: Exception) {
+                    Log.e(TAG, "[EXAM SAVE ERROR] ${e.localizedMessage}", e)
+                }
+            }
+        }
+    }
+
+    fun sendExamFeedback(
+        examId: String,
+        examName: String,
+        feedbackContent: String,
+        onSuccess: () -> Unit,
+        onError: (String) -> Unit
+    ) {
+        viewModelScope.launch {
+            try {
+                val user = _userDoc.value
+                val currentFbUser = _currentUser.value
+                val uid = user?.id ?: currentFbUser?.uid ?: "guest"
+                val userName = user?.name?.ifEmpty { currentFbUser?.displayName ?: "Học viên Vùng 4" } ?: "Học viên Vùng 4"
+                val userEmail = user?.email?.ifEmpty { currentFbUser?.email ?: "" } ?: ""
+                val timestamp = System.currentTimeMillis()
+
+                val data = hashMapOf<String, Any>(
+                    "userId" to uid,
+                    "userName" to userName,
+                    "userEmail" to userEmail,
+                    "examId" to examId,
+                    "examName" to examName,
+                    "feedback" to feedbackContent,
+                    "content" to feedbackContent,
+                    "timestamp" to timestamp,
+                    "createdAt" to timestamp,
+                    "status" to "pending",
+                    "type" to "exam_feedback"
+                )
+
+                if (db != null) {
+                    db.collection("exam_feedbacks").add(data).await()
+                    db.collection("feedbacks").add(data).await()
+                }
+                onSuccess()
+            } catch (e: Exception) {
+                onError(e.localizedMessage ?: "Lỗi kết nối máy chủ")
+            }
+        }
+    }
+
     override fun onCleared() {
         super.onCleared()
         coursesListener?.remove()
@@ -1224,5 +1450,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         notificationsListener?.remove()
         bannersListener?.remove()
         postersListener?.remove()
+        questionsListener?.remove()
+        examSessionsListener?.remove()
+        examResultsListener?.remove()
     }
 }
