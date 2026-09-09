@@ -382,9 +382,14 @@ fun LessonPlayerScreen(
         }
     }
 
-    TrongDongBackground(watermarkAlpha = 0.08f) {
+    TrongDongBackground(
+        watermarkAlpha = 0.08f,
+        showCornerBorders = false,
+        showTopBottomBorders = false
+    ) {
         Scaffold(
             containerColor = Color.Transparent,
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
             snackbarHost = { SnackbarHost(snackbarHostState) },
             topBar = {
                 TopAppBar(
@@ -491,7 +496,7 @@ fun LessonPlayerScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(14.dp)
+                    .padding(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 4.dp)
             ) {
                 when (selectedTab) {
                     0 -> {
@@ -1119,6 +1124,8 @@ fun LessonPlayerScreen(
                                     }
                                 }
                             }
+
+                            Spacer(modifier = Modifier.height(16.dp))
                         }
                     }
 
