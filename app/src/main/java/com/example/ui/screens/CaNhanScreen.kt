@@ -299,37 +299,37 @@ fun CaNhanScreen(
                                         fontSize = 15.sp,
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
-                                    Text(
-                                        text = "Đồng bộ thời gian thực với Web Quản trị",
-                                        fontSize = 11.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+                                    // Text(
+                                    //     text = "Đồng bộ thời gian thực với Web Quản trị",
+                                    //     fontSize = 11.sp,
+                                    //     color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    // )
                                 }
                             }
 
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = Color(0xFFE8F5E9)
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(6.dp)
-                                            .clip(CircleShape)
-                                            .background(Color(0xFF2E7D32))
-                                    )
-                                    Text(
-                                        text = "Web Synced",
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF2E7D32)
-                                    )
-                                }
-                            }
+                            // Surface(
+                            //     shape = RoundedCornerShape(12.dp),
+                            //     color = Color(0xFFE8F5E9)
+                            // ) {
+                            //     Row(
+                            //         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            //         verticalAlignment = Alignment.CenterVertically,
+                            //         horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            //     ) {
+                            //         Box(
+                            //             modifier = Modifier
+                            //                 .size(6.dp)
+                            //                 .clip(CircleShape)
+                            //                 .background(Color(0xFF2E7D32))
+                            //         )
+                            //         Text(
+                            //             text = "Web Synced",
+                            //             fontSize = 10.sp,
+                            //             fontWeight = FontWeight.Bold,
+                            //             color = Color(0xFF2E7D32)
+                            //         )
+                            //     }
+                            // }
                         }
 
                         Spacer(modifier = Modifier.height(16.dp))
