@@ -651,145 +651,12 @@ fun LessonPlayerScreen(
                             }
                         }
 
-                        // Theo dõi cuộn nội dung: CHỈ CỘNG PHẦN TRĂM KHI LƯỚT XUỐNG TỪ TỪ, KHÔNG GIẢM KHI LƯỚT LÊN
-                        LaunchedEffect(contentScrollState.value, contentScrollState.maxValue) {
-                            val currentPos = contentScrollState.value
-                            val maxPos = contentScrollState.maxValue
-                            val now = System.currentTimeMillis()
-                            val timeDelta = (now - lastScrollTimeMillis).coerceAtLeast(1L)
-                            val posDelta = currentPos - lastScrollPosition
-
-                            if (maxPos > 0) {
-                                if (posDelta < 0) {
-                                    // LƯỚT NGƯỢC LÊN TRÊN: Giữ nguyên tỷ lệ tối đa đã đạt, tuyệt đối không giảm phần trăm!
-                                } else if (posDelta > 0) {
-                                    // LƯỚT XUỐNG DƯỚI: Kiểm tra tốc độ đọc
-                                    val speedPxPerSec = (posDelta.toFloat() / timeDelta) * 1000f
-
-                                    // Nếu lướt quá nhanh (vút nhanh hơn 1400px/s hoặc nhảy hơn 280px trong nháy mắt) -> Cảnh báo & Không tính
-                                    if ((posDelta > 280 && timeDelta < 200) || speedPxPerSec > 1400f) {
-                                        isScrollingTooFast = true
-                                        fastScrollWarningDismissTime = now + 3000L
-                                    } else {
-                                        // Cuộn từ từ theo đúng tốc độ đọc -> Cộng phần trăm
-                                        val ratio = (currentPos.toFloat() / maxPos).coerceIn(0f, 1f)
-                                        if (ratio > maxContentScrollRatio) {
-                                            maxContentScrollRatio = ratio
-                                        }
-                                        if (isScrollingTooFast && now > fastScrollWarningDismissTime) {
-                                            isScrollingTooFast = false
-                                        }
-                                    }
-                                }
-                            } else if (lessonContents.isEmpty()) {
-                                maxContentScrollRatio = 1f
-                            }
-
-                            lastScrollPosition = currentPos
-                            lastScrollTimeMillis = now
-                        }
-
                         Column(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .verticalScroll(contentScrollState),
                             verticalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
-                            // CẢNH BÁO KHI LƯỚT NỘI DUNG QUÁ NHANH
-                            AnimatedVisibility(
-                                visible = isScrollingTooFast,
-                                enter = fadeIn() + expandVertically(),
-                                exit = fadeOut() + shrinkVertically()
-                            ) {
-                                Card(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-                                    shape = RoundedCornerShape(12.dp)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(14.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Warning,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.error,
-                                            modifier = Modifier.size(26.dp)
-                                        )
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                text = "⚠️ BẠN ĐANG LƯỚT QUÁ NHANH!",
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 13.sp,
-                                                color = MaterialTheme.colorScheme.error
-                                            )
-                                            Text(
-                                                text = "Vui lòng cuộn từ từ và đọc kỹ tài liệu để hệ thống ghi nhận đúng tiến độ học tập.",
-                                                fontSize = 12.sp,
-                                                color = MaterialTheme.colorScheme.onErrorContainer,
-                                                lineHeight = 16.sp
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Thẻ trạng thái tiến độ đọc tài liệu
-                            Card(
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(10.dp),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = if (hasReadContent) Color(0xFFE8F5E9) else RedPrimary.copy(alpha = 0.08f)
-                                )
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = if (hasReadContent) Icons.Default.CheckCircle else Icons.Default.MenuBook,
-                                            contentDescription = null,
-                                            tint = if (hasReadContent) Color(0xFF2E7D32) else RedPrimary,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                        Column {
-                                            Text(
-                                                text = if (hasReadContent) "Đã hoàn thành đọc tài liệu" else "Đang đọc tài liệu bài học",
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 13.sp,
-                                                color = if (hasReadContent) Color(0xFF1B5E20) else RedPrimary
-                                            )
-                                            Text(
-                                                text = if (isScrollingTooFast) "Tạm dừng ghi nhận: Đang cuộn quá nhanh" else "Tiến độ đọc: ${(maxContentScrollRatio * 100).toInt()}% (chỉ tính khi lướt xuống từ từ)",
-                                                fontSize = 11.sp,
-                                                color = if (isScrollingTooFast) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                    }
-
-                                    Surface(
-                                        shape = RoundedCornerShape(8.dp),
-                                        color = if (hasReadContent) Color(0xFF2E7D32) else RedPrimary
-                                    ) {
-                                        Text(
-                                            text = "${(maxContentScrollRatio * 100).toInt()}%",
-                                            color = Color.White,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 12.sp,
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                        )
-                                    }
-                                }
-                            }
-
                             // 1. Nội dung bài học
                             Text(
                                 text = "Nội dung bài học",
@@ -1129,15 +996,17 @@ fun LessonPlayerScreen(
                             }
 
                             if (lessonQuestions.isNotEmpty()) {
+                                val isAnsweredCorrectly = lastAttemptResult == true || (lastAttemptResult == null && (existingProgress?.completed == true || (existingProgress?.scorePercentage ?: 0) >= 100))
+
                                 Column(
                                     modifier = Modifier.fillMaxWidth(),
                                     verticalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
-                                    if (isCurrentAttemptSubmitted) {
+                                    if (isAnsweredCorrectly) {
                                         Surface(
                                             shape = RoundedCornerShape(10.dp),
-                                            color = if (lastAttemptResult == true) Color(0xFFE8F5E9) else Color(0xFFFFEBEE),
-                                            border = androidx.compose.foundation.BorderStroke(1.dp, if (lastAttemptResult == true) Color(0xFF2E7D32) else RedPrimary),
+                                            color = Color(0xFFE8F5E9),
+                                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2E7D32)),
                                             modifier = Modifier.fillMaxWidth()
                                         ) {
                                             Row(
@@ -1146,18 +1015,40 @@ fun LessonPlayerScreen(
                                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                                             ) {
                                                 Icon(
-                                                    imageVector = if (lastAttemptResult == true) Icons.Default.CheckCircle else Icons.Default.Cancel,
+                                                    imageVector = Icons.Default.CheckCircle,
                                                     contentDescription = null,
-                                                    tint = if (lastAttemptResult == true) Color(0xFF2E7D32) else RedPrimary
+                                                    tint = Color(0xFF2E7D32)
                                                 )
                                                 Text(
-                                                    text = if (lastAttemptResult == true)
-                                                        "✓ ĐÃ TRẢ LỜI ĐÚNG (Tiến độ 100%)"
-                                                    else
-                                                        "❌ TRẢ LỜI SAI (Tiến độ 0%) - Cần học lại bài giảng",
+                                                    text = "✓ ĐÃ TRẢ LỜI ĐÚNG (Tiến độ 100% - Đã hoàn thành)",
                                                     fontSize = 13.sp,
                                                     fontWeight = FontWeight.Bold,
-                                                    color = if (lastAttemptResult == true) Color(0xFF1B5E20) else Color(0xFFB71C1C)
+                                                    color = Color(0xFF1B5E20)
+                                                )
+                                            }
+                                        }
+                                    } else if (lastAttemptResult == false) {
+                                        Surface(
+                                            shape = RoundedCornerShape(10.dp),
+                                            color = Color(0xFFFFEBEE),
+                                            border = androidx.compose.foundation.BorderStroke(1.dp, RedPrimary),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(12.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Cancel,
+                                                    contentDescription = null,
+                                                    tint = RedPrimary
+                                                )
+                                                Text(
+                                                    text = "❌ TRẢ LỜI CHƯA ĐÚNG - Vui lòng nhấn kiểm tra lại",
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color(0xFFB71C1C)
                                                 )
                                             }
                                         }
@@ -1165,16 +1056,15 @@ fun LessonPlayerScreen(
 
                                     Button(
                                         onClick = {
-                                            if (isCurrentAttemptSubmitted) {
-                                                // Đã làm bài: Bấm vào để học lại nội dung và chuẩn bị kiểm tra lại với câu hỏi ngẫu nhiên mới
-                                                selectedSingleOptionIndex = null
-                                                isCurrentAttemptSubmitted = false
-                                                lastAttemptResult = null
-                                                randomQuestionSeed++
-                                                coroutineScope.launch {
-                                                    contentScrollState.animateScrollTo(0)
-                                                }
+                                            if (isAnsweredCorrectly) {
+                                                android.widget.Toast.makeText(
+                                                    context,
+                                                    "Đồng chí đã hoàn thành bài kiểm tra đánh giá này!",
+                                                    android.widget.Toast.LENGTH_SHORT
+                                                ).show()
                                             } else {
+                                                selectedSingleOptionIndex = null
+                                                randomQuestionSeed++
                                                 isAnsweringQuizOverlayOpen = true
                                             }
                                         },
@@ -1182,17 +1072,17 @@ fun LessonPlayerScreen(
                                             .fillMaxWidth()
                                             .height(48.dp),
                                         colors = ButtonDefaults.buttonColors(
-                                            containerColor = if (isCurrentAttemptSubmitted && lastAttemptResult == true) Color(0xFF2E7D32) else RedPrimary
+                                            containerColor = if (isAnsweredCorrectly) Color(0xFF2E7D32) else RedPrimary
                                         ),
                                         shape = RoundedCornerShape(12.dp)
                                     ) {
                                         Icon(
-                                            imageVector = if (isCurrentAttemptSubmitted && lastAttemptResult == true) Icons.Default.CheckCircle else Icons.Default.Quiz,
+                                            imageVector = if (isAnsweredCorrectly) Icons.Default.CheckCircle else Icons.Default.Quiz,
                                             contentDescription = null
                                         )
                                         Spacer(modifier = Modifier.width(8.dp))
                                         Text(
-                                            text = if (isCurrentAttemptSubmitted) "HỌC LẠI NỘI DUNG VÀ KIỂM TRA LẠI" else "VÀO KIỂM TRA ĐÁNH GIÁ CUỐI BÀI",
+                                            text = if (isAnsweredCorrectly) "ĐÃ HOÀN THÀNH" else "VÀO KIỂM TRA ĐÁNH GIÁ CUỐI BÀI",
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 14.sp
                                         )
@@ -1794,9 +1684,9 @@ fun LessonPlayerScreen(
                 ) {
                     Text(
                         text = if (lastAttemptResult == true) {
-                            "Chúc mừng đồng chí! Đáp án hoàn toàn chính xác.\n\nTiến độ bài học đã đạt 100% HOÀN THÀNH."
+                            "Chúc mừng đồng chí! Đáp án hoàn toàn chính xác.\n\nTiến độ bài học đã đạt 100% (ĐÃ HOÀN THÀNH)."
                         } else {
-                            "Đáp án đồng chí lựa chọn chưa chính xác.\n\nTheo quy định, đồng chí phải xem học lại nội dung bài giảng mới được phép thực hiện lần kiểm tra tiếp theo."
+                            "Đáp án đồng chí lựa chọn chưa chính xác.\n\nĐồng chí có thể nhấn vào nút 'VÀO KIỂM TRA ĐÁNH GIÁ CUỐI BÀI' để thực hiện lại câu hỏi."
                         },
                         fontSize = 14.sp,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -1817,7 +1707,7 @@ fun LessonPlayerScreen(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
-                        text = if (lastAttemptResult == true) "ĐÃ HIỂU & HOÀN THÀNH" else "ĐÃ HIỂU - HỌC LẠI NỘI DUNG",
+                        text = if (lastAttemptResult == true) "ĐÃ HOÀN THÀNH" else "ĐÃ HIỂU",
                         fontWeight = FontWeight.Bold,
                         fontSize = 14.sp
                     )
