@@ -5,11 +5,13 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
 import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.automirrored.filled.Logout
@@ -29,6 +31,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.example.model.ExamResultDoc
 import com.example.ui.components.LoginDialog
 import com.example.ui.components.Vung4LogoBadge
@@ -54,6 +58,8 @@ fun CaNhanScreen(
     val authMessage by viewModel.authMessage.collectAsState()
 
     var showLoginDialog by remember { mutableStateOf(false) }
+    var showAllExamHistoryDialog by remember { mutableStateOf(false) }
+    val dateFormat = remember { SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()) }
 
     val isAuthenticated = currentUser != null || userDoc != null
 
@@ -248,7 +254,6 @@ fun CaNhanScreen(
 
             // THÀNH TÍCH ĐỢT THI & KIỂM TRA (ĐỒNG BỘ WEB QUẢN TRỊ)
             item {
-                val dateFormat = remember { SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()) }
                 val totalExams = userExamResults.size
                 val avgPercent = if (totalExams > 0) userExamResults.map { it.scorePercentage }.average().toInt() else 0
                 val passRate = if (totalExams > 0) (userExamResults.count { it.passed } * 100 / totalExams) else 0
@@ -429,7 +434,8 @@ fun CaNhanScreen(
                             }
                         } else {
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                userExamResults.take(5).forEach { res ->
+                                // Chỉ hiển thị tối đa 3 lần thi gần nhất
+                                userExamResults.take(3).forEach { res ->
                                     val isPassed = res.passed
                                     Card(
                                         modifier = Modifier.fillMaxWidth(),
@@ -481,6 +487,47 @@ fun CaNhanScreen(
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                                 )
                                             }
+                                        }
+                                    }
+                                }
+
+                                // Nút xem thêm nếu có nhiều hơn 3 lần thi
+                                if (userExamResults.size > 3) {
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    OutlinedButton(
+                                        onClick = { showAllExamHistoryDialog = true },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(10.dp),
+                                        colors = ButtonDefaults.outlinedButtonColors(
+                                            containerColor = RedPrimary.copy(alpha = 0.05f),
+                                            contentColor = RedPrimary
+                                        ),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, RedPrimary.copy(alpha = 0.35f))
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.History,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(16.dp),
+                                                tint = RedPrimary
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = "Xem thêm lịch sử thi (${userExamResults.size} bài thi)",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 13.sp,
+                                                color = RedPrimary
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Icon(
+                                                imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(12.dp),
+                                                tint = RedPrimary
+                                            )
                                         }
                                     }
                                 }
@@ -587,6 +634,196 @@ fun CaNhanScreen(
                 )
             }
         )
+    }
+
+    // HỘP THOẠI XEM TOÀN BỘ LỊCH SỬ THI & KIỂM TRA
+    if (showAllExamHistoryDialog) {
+        Dialog(
+            onDismissRequest = { showAllExamHistoryDialog = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding(),
+                color = MaterialTheme.colorScheme.background
+            ) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    TopAppBar(
+                        title = {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Vung4LogoBadge(size = 32.dp)
+                                Column {
+                                    Text(
+                                        text = "LỊCH SỬ THI & KIỂM TRA",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp,
+                                        color = Color.White
+                                    )
+                                    Text(
+                                        text = "Toàn bộ ${userExamResults.size} kết quả đã đồng bộ",
+                                        fontSize = 11.sp,
+                                        color = Color.White.copy(alpha = 0.85f)
+                                    )
+                                }
+                            }
+                        },
+                        navigationIcon = {
+                            IconButton(onClick = { showAllExamHistoryDialog = false }) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Quay lại",
+                                    tint = Color.White
+                                )
+                            }
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = RedPrimary,
+                            titleContentColor = Color.White,
+                            navigationIconContentColor = Color.White
+                        )
+                    )
+
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        contentPadding = PaddingValues(top = 16.dp, bottom = 32.dp)
+                    ) {
+                        // Thẻ tóm tắt thành tích tổng quan
+                        item {
+                            val totalExamsCount = userExamResults.size
+                            val passedCount = userExamResults.count { it.passed }
+                            val failedCount = totalExamsCount - passedCount
+                            val avgScore = if (totalExamsCount > 0) userExamResults.map { it.scorePercentage }.average().toInt() else 0
+
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(16.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                elevation = CardDefaults.cardElevation(2.dp)
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp)) {
+                                    Text(
+                                        text = "TỔNG HỢP KẾT QUẢ THI",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Column(
+                                            modifier = Modifier.weight(1f),
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            Text("$totalExamsCount", fontWeight = FontWeight.Black, fontSize = 20.sp, color = RedPrimary)
+                                            Text("Tổng bài thi", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                        Column(
+                                            modifier = Modifier.weight(1f),
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            Text("$avgScore%", fontWeight = FontWeight.Black, fontSize = 20.sp, color = NavySecondary)
+                                            Text("Điểm TB", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                        Column(
+                                            modifier = Modifier.weight(1f),
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            Text("$passedCount", fontWeight = FontWeight.Black, fontSize = 20.sp, color = Color(0xFF2E7D32))
+                                            Text("Đạt", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                        Column(
+                                            modifier = Modifier.weight(1f),
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            Text("$failedCount", fontWeight = FontWeight.Black, fontSize = 20.sp, color = RedPrimary)
+                                            Text("Chưa đạt", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Danh sách toàn bộ bài thi
+                        items(userExamResults) { res ->
+                            val isPassed = res.passed
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(14.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(14.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = res.examName.ifEmpty { "Bài thi kiểm tra trắc nghiệm" },
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.AccessTime,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.size(13.dp)
+                                            )
+                                            Text(
+                                                text = "Thời gian nộp: ${dateFormat.format(Date(res.timestamp))}",
+                                                fontSize = 11.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.width(10.dp))
+
+                                    Column(horizontalAlignment = Alignment.End) {
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = if (isPassed) Color(0xFFE8F5E9) else RedPrimary.copy(alpha = 0.12f)
+                                        ) {
+                                            Text(
+                                                text = if (isPassed) "ĐẠT (${res.scorePercentage}%)" else "CHƯA ĐẠT (${res.scorePercentage}%)",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (isPassed) Color(0xFF2E7D32) else RedPrimary,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.height(3.dp))
+                                        Text(
+                                            text = "${res.score}/${res.totalQuestions} câu",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
 import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -633,6 +634,7 @@ fun KiemTraScreen(
 // -------------------------------------------------------------
 // 1. OVERVIEW SCREEN (CHỌN CHẾ ĐỘ THI / TỔNG HỢP CÂU HỎI)
 // -------------------------------------------------------------
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ExamOverviewView(
     totalQuestionsCount: Int,
@@ -645,6 +647,7 @@ private fun ExamOverviewView(
 ) {
     // Only display exam sessions published by Web Admin from Firestore
     val displaySessions = examSessions
+    var showAllExamsDialog by remember { mutableStateOf(false) }
 
     LazyColumn(
         modifier = Modifier
@@ -730,108 +733,56 @@ private fun ExamOverviewView(
                 }
             }
         } else {
-            items(displaySessions) { session ->
-            val isOpen = session.status.equals("open", ignoreCase = true) || session.status.equals("active", ignoreCase = true)
-            
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .then(if (isOpen) Modifier.clickable { onStartSessionExam(session) } else Modifier),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                elevation = CardDefaults.cardElevation(4.dp),
-                border = CardDefaults.outlinedCardBorder().copy(
-                    brush = androidx.compose.ui.graphics.SolidColor(
-                        if (isOpen) RedPrimary.copy(alpha = 0.4f) else Color.Gray.copy(alpha = 0.2f)
-                    )
+            // Giới hạn hiển thị tối đa 2 bài kiểm tra gần nhất
+            items(displaySessions.take(2)) { session ->
+                ExamSessionCard(
+                    session = session,
+                    isAuthenticated = isAuthenticated,
+                    onStartSessionExam = onStartSessionExam
                 )
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(18.dp)
-                ) {
-                    Row(
+            }
+
+            // Nút xem thêm nếu có nhiều hơn 2 bài kiểm tra
+            if (displaySessions.size > 2) {
+                item {
+                    OutlinedButton(
+                        onClick = { showAllExamsDialog = true },
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.Top
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = session.title,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 15.sp,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                lineHeight = 20.sp
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(8.dp))
-
-                        // Badge status
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = if (isOpen) Color(0xFFE8F5E9) else MaterialTheme.colorScheme.surfaceVariant
-                        ) {
-                            Text(
-                                text = if (isOpen) "🟢 ĐANG MỞ" else "🔒 CHƯA MỞ",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (isOpen) Color(0xFF2E7D32) else Color.Gray,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Icon(Icons.Default.Timer, contentDescription = null, tint = RedPrimary, modifier = Modifier.size(16.dp))
-                            Text("${session.durationMinutes} phút", fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                        }
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = RedPrimary, modifier = Modifier.size(16.dp))
-                            Text("${session.totalQuestions} câu hỏi", fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                        }
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Icon(Icons.Default.MilitaryTech, contentDescription = null, tint = NavySecondary, modifier = Modifier.size(16.dp))
-                            Text("Báo cáo Web", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = NavySecondary)
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    Button(
-                        onClick = { if (isOpen) onStartSessionExam(session) },
-                        enabled = isOpen,
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (!isAuthenticated) RedPrimary.copy(alpha = 0.85f) else RedPrimary
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = RedPrimary.copy(alpha = 0.05f),
+                            contentColor = RedPrimary
                         ),
-                        shape = RoundedCornerShape(10.dp)
+                        border = androidx.compose.foundation.BorderStroke(1.dp, RedPrimary.copy(alpha = 0.35f))
                     ) {
-                        Icon(
-                            if (!isAuthenticated) Icons.Default.Lock else Icons.Default.PlayArrow,
-                            contentDescription = null,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = if (!isOpen) "ĐỢT THI CHƯA MỞ"
-                                   else if (!isAuthenticated) "ĐĂNG NHẬP ĐỂ VÀO THI"
-                                   else "VÀO LÀM BÀI THI NGAY",
-                            fontWeight = FontWeight.Bold
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.FormatListBulleted,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = RedPrimary
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Xem thêm bài kiểm tra (${displaySessions.size} đợt thi)",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                color = RedPrimary
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                                contentDescription = null,
+                                modifier = Modifier.size(12.dp),
+                                tint = RedPrimary
+                            )
+                        }
                     }
                 }
             }
-        }
         }
 
         // Section Title: Chế độ ôn luyện tự do
@@ -1004,6 +955,189 @@ private fun ExamOverviewView(
                         }
                     }
                 }
+            }
+        }
+    }
+
+    // HỘP THOẠI XEM TẤT CẢ CÁC ĐỢT THI & BÀI KIỂM TRA
+    if (showAllExamsDialog) {
+        Dialog(
+            onDismissRequest = { showAllExamsDialog = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding(),
+                color = MaterialTheme.colorScheme.background
+            ) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    TopAppBar(
+                        title = {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Vung4LogoBadge(size = 32.dp)
+                                Column {
+                                    Text(
+                                        text = "DANH SÁCH BÀI KIỂM TRA",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp,
+                                        color = Color.White
+                                    )
+                                    Text(
+                                        text = "Toàn bộ ${displaySessions.size} đợt thi từ Web Quản trị",
+                                        fontSize = 11.sp,
+                                        color = Color.White.copy(alpha = 0.85f)
+                                    )
+                                }
+                            }
+                        },
+                        navigationIcon = {
+                            IconButton(onClick = { showAllExamsDialog = false }) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Quay lại",
+                                    tint = Color.White
+                                )
+                            }
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = RedPrimary,
+                            titleContentColor = Color.White,
+                            navigationIconContentColor = Color.White
+                        )
+                    )
+
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp),
+                        contentPadding = PaddingValues(top = 16.dp, bottom = 32.dp)
+                    ) {
+                        items(displaySessions) { session ->
+                            ExamSessionCard(
+                                session = session,
+                                isAuthenticated = isAuthenticated,
+                                onStartSessionExam = { targetSession ->
+                                    showAllExamsDialog = false
+                                    onStartSessionExam(targetSession)
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ExamSessionCard(
+    session: ExamSessionDoc,
+    isAuthenticated: Boolean,
+    onStartSessionExam: (ExamSessionDoc) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val isOpen = session.status.equals("open", ignoreCase = true) || session.status.equals("active", ignoreCase = true)
+
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .then(if (isOpen) Modifier.clickable { onStartSessionExam(session) } else Modifier),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(4.dp),
+        border = CardDefaults.outlinedCardBorder().copy(
+            brush = androidx.compose.ui.graphics.SolidColor(
+                if (isOpen) RedPrimary.copy(alpha = 0.4f) else Color.Gray.copy(alpha = 0.2f)
+            )
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(18.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = session.title,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        lineHeight = 20.sp
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                // Badge status
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (isOpen) Color(0xFFE8F5E9) else MaterialTheme.colorScheme.surfaceVariant
+                ) {
+                    Text(
+                        text = if (isOpen) "🟢 ĐANG MỞ" else "🔒 CHƯA MỞ",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isOpen) Color(0xFF2E7D32) else Color.Gray,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Icon(Icons.Default.Timer, contentDescription = null, tint = RedPrimary, modifier = Modifier.size(16.dp))
+                    Text("${session.durationMinutes} phút", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = RedPrimary, modifier = Modifier.size(16.dp))
+                    Text("${session.totalQuestions} câu hỏi", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Icon(Icons.Default.MilitaryTech, contentDescription = null, tint = NavySecondary, modifier = Modifier.size(16.dp))
+                    Text("Báo cáo Web", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = NavySecondary)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            Button(
+                onClick = { if (isOpen) onStartSessionExam(session) },
+                enabled = isOpen,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (!isAuthenticated) RedPrimary.copy(alpha = 0.85f) else RedPrimary
+                ),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Icon(
+                    if (!isAuthenticated) Icons.Default.Lock else Icons.Default.PlayArrow,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = if (!isOpen) "ĐỢT THI CHƯA MỞ"
+                           else if (!isAuthenticated) "ĐĂNG NHẬP ĐỂ VÀO THI"
+                           else "VÀO LÀM BÀI THI NGAY",
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
     }
