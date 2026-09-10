@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -77,6 +78,11 @@ fun HocTapScreen(
 
     var searchQuery by remember { mutableStateOf("") }
     var activeLessonForPlayer by remember { mutableStateOf<Lesson?>(null) }
+
+    // Nếu người dùng đang tìm kiếm, phím Back trên thanh điều hướng sẽ xoá tìm kiếm trước
+    BackHandler(enabled = searchQuery.isNotEmpty()) {
+        searchQuery = ""
+    }
 
     if (activeLessonForPlayer != null) {
         LessonPlayerScreen(

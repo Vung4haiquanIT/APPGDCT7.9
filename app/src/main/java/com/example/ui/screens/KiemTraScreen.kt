@@ -180,6 +180,11 @@ fun KiemTraScreen(
         currentMode = ExamMode.TAKING_EXAM
     }
 
+    // Xử lý nút Back trên thanh điều hướng khi đang xem Ngân hàng câu hỏi hoặc Kết quả thi -> quay về Tổng quan
+    BackHandler(enabled = currentMode == ExamMode.QUESTION_BANK || currentMode == ExamMode.EXAM_RESULT) {
+        currentMode = ExamMode.OVERVIEW
+    }
+
     // GIAO DIỆN LÀM BÀI THI TOÀN MÀN HÌNH KHÔNG THỂ BẤM NHẦM TÙY CHỌN KHÁC
     if (currentMode == ExamMode.TAKING_EXAM) {
         Dialog(
@@ -965,6 +970,8 @@ private fun ExamOverviewView(
             onDismissRequest = { showAllExamsDialog = false },
             properties = DialogProperties(usePlatformDefaultWidth = false)
         ) {
+            BackHandler { showAllExamsDialog = false }
+
             Surface(
                 modifier = Modifier
                     .fillMaxSize()

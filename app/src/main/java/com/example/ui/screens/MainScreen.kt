@@ -1,5 +1,7 @@
 package com.example.ui.screens
 
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -8,6 +10,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import com.example.ui.components.TrongDongBackground
 import com.example.ui.theme.RedPrimary
 import com.example.viewmodel.AppViewModel
@@ -23,9 +26,45 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector)
 
 @Composable
 fun MainScreen(viewModel: AppViewModel) {
-    var currentRoute by remember { mutableStateOf<String>(Screen.TrangChu.route) }
+    val context = LocalContext.current
+    val backStack = remember { mutableStateListOf(Screen.TrangChu.route) }
+    val currentRoute = backStack.lastOrNull() ?: Screen.TrangChu.route
     var selectedCategoryForHocTap by remember { mutableStateOf<String?>(null) }
     var isExamTaking by remember { mutableStateOf(false) }
+    var lastBackPressTime by remember { mutableLongStateOf(0L) }
+
+    fun navigateTo(route: String) {
+        if (route == Screen.TrangChu.route) {
+            backStack.clear()
+            backStack.add(Screen.TrangChu.route)
+        } else {
+            if (backStack.lastOrNull() != route) {
+                backStack.remove(route)
+                backStack.add(route)
+            }
+        }
+    }
+
+    fun navigateBack() {
+        if (backStack.size > 1) {
+            backStack.removeAt(backStack.size - 1)
+        }
+    }
+
+    // Xử lý nút Back của hệ thống trên thanh điều hướng điện thoại
+    BackHandler(enabled = !isExamTaking) {
+        if (backStack.size > 1) {
+            navigateBack()
+        } else {
+            val currentTime = System.currentTimeMillis()
+            if (currentTime - lastBackPressTime < 2000L) {
+                (context as? android.app.Activity)?.finish()
+            } else {
+                lastBackPressTime = currentTime
+                Toast.makeText(context, "Nhấn trở lại lần nữa để thoát", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     val bottomNavItems = listOf(
         Screen.TrangChu,
@@ -52,7 +91,7 @@ fun MainScreen(viewModel: AppViewModel) {
                                     if (screen == Screen.HocTap && currentRoute != Screen.HocTap.route) {
                                         selectedCategoryForHocTap = null // reset filter when clicked from nav
                                     }
-                                    currentRoute = screen.route
+                                    navigateTo(screen.route)
                                 },
                                 colors = NavigationBarItemDefaults.colors(
                                     selectedIconColor = RedPrimary,
@@ -65,53 +104,53 @@ fun MainScreen(viewModel: AppViewModel) {
                 }
             }
         ) { padding ->
-        Box(modifier = Modifier.padding(padding)) {
-            when (currentRoute) {
-                Screen.TrangChu.route -> TrangChuScreen(
-                    viewModel = viewModel,
-                    onNavigateToHocTap = {
-                        selectedCategoryForHocTap = null
-                        currentRoute = Screen.HocTap.route
-                    },
-                    onNavigateToThongBao = { currentRoute = Screen.ThongBao.route },
-                    onNavigateToDebug = { currentRoute = Screen.Debug.route },
-                    onCategoryClick = { category ->
-                        if (category.equals("kiem_tra", ignoreCase = true) || category.equals("kiemtra", ignoreCase = true)) {
-                            currentRoute = Screen.KiemTra.route
-                        } else {
-                            selectedCategoryForHocTap = category
-                            currentRoute = Screen.HocTap.route
+            Box(modifier = Modifier.padding(padding)) {
+                when (currentRoute) {
+                    Screen.TrangChu.route -> TrangChuScreen(
+                        viewModel = viewModel,
+                        onNavigateToHocTap = {
+                            selectedCategoryForHocTap = null
+                            navigateTo(Screen.HocTap.route)
+                        },
+                        onNavigateToThongBao = { navigateTo(Screen.ThongBao.route) },
+                        onNavigateToDebug = { navigateTo(Screen.Debug.route) },
+                        onCategoryClick = { category ->
+                            if (category.equals("kiem_tra", ignoreCase = true) || category.equals("kiemtra", ignoreCase = true)) {
+                                navigateTo(Screen.KiemTra.route)
+                            } else {
+                                selectedCategoryForHocTap = category
+                                navigateTo(Screen.HocTap.route)
+                            }
                         }
-                    }
-                )
-                Screen.HocTap.route -> HocTapScreen(
-                    viewModel = viewModel,
-                    initialCategory = selectedCategoryForHocTap,
-                    onBack = { currentRoute = Screen.TrangChu.route }
-                )
-                Screen.KiemTra.route -> KiemTraScreen(
-                    viewModel = viewModel,
-                    onBack = { currentRoute = Screen.TrangChu.route },
-                    onExamTakingStateChange = { isTaking ->
-                        isExamTaking = isTaking
-                    }
-                )
-                Screen.CaNhan.route -> CaNhanScreen(
-                    viewModel = viewModel,
-                    onNavigateToThongBao = { currentRoute = Screen.ThongBao.route },
-                    onNavigateToDebug = { currentRoute = Screen.Debug.route }
-                )
-                Screen.ThongBao.route -> ThongBaoScreen(
-                    viewModel = viewModel,
-                    onBack = { currentRoute = Screen.TrangChu.route },
-                    onNavigateToHocTap = { currentRoute = Screen.HocTap.route }
-                )
-                Screen.Debug.route -> FirebaseDebugScreen(
-                    viewModel = viewModel,
-                    onBack = { currentRoute = Screen.TrangChu.route }
-                )
+                    )
+                    Screen.HocTap.route -> HocTapScreen(
+                        viewModel = viewModel,
+                        initialCategory = selectedCategoryForHocTap,
+                        onBack = { navigateBack() }
+                    )
+                    Screen.KiemTra.route -> KiemTraScreen(
+                        viewModel = viewModel,
+                        onBack = { navigateBack() },
+                        onExamTakingStateChange = { isTaking ->
+                            isExamTaking = isTaking
+                        }
+                    )
+                    Screen.CaNhan.route -> CaNhanScreen(
+                        viewModel = viewModel,
+                        onNavigateToThongBao = { navigateTo(Screen.ThongBao.route) },
+                        onNavigateToDebug = { navigateTo(Screen.Debug.route) }
+                    )
+                    Screen.ThongBao.route -> ThongBaoScreen(
+                        viewModel = viewModel,
+                        onBack = { navigateBack() },
+                        onNavigateToHocTap = { navigateTo(Screen.HocTap.route) }
+                    )
+                    Screen.Debug.route -> FirebaseDebugScreen(
+                        viewModel = viewModel,
+                        onBack = { navigateBack() }
+                    )
+                }
             }
         }
     }
-}
 }

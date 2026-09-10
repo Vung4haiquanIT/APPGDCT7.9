@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -36,6 +37,11 @@ fun FirebaseDebugScreen(viewModel: AppViewModel, onBack: () -> Unit) {
     val userDocStatus by viewModel.userDocStatus.collectAsState()
     val progressStatus by viewModel.progressStatus.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
+
+    // Xử lý nút Back trên thanh điều hướng điện thoại
+    BackHandler {
+        onBack()
+    }
 
     Scaffold(
         topBar = {

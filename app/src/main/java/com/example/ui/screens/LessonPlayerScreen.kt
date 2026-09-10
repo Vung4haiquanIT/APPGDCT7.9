@@ -5,6 +5,7 @@ import android.graphics.Color as AndroidColor
 import android.net.Uri
 import android.util.Log
 import android.widget.TextView
+import androidx.activity.compose.BackHandler
 import androidx.core.text.HtmlCompat
 import androidx.compose.animation.*
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -240,6 +241,15 @@ fun LessonPlayerScreen(
     var downloadingFileIds by remember { mutableStateOf(setOf<String>()) }
     var cachedFileIds by remember { mutableStateOf(setOf<String>()) }
     var savedToDeviceFileIds by remember { mutableStateOf(setOf<String>()) }
+
+    // Xử lý nút Back trên thanh điều hướng: đóng tài liệu nếu đang mở, nếu không thì quay lại danh sách bài học
+    BackHandler {
+        if (viewingFile != null) {
+            viewingFile = null
+        } else {
+            onBack()
+        }
+    }
 
     LaunchedEffect(lessonFiles) {
         withContext(Dispatchers.IO) {

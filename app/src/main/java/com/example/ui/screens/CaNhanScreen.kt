@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -642,6 +643,8 @@ fun CaNhanScreen(
             onDismissRequest = { showAllExamHistoryDialog = false },
             properties = DialogProperties(usePlatformDefaultWidth = false)
         ) {
+            BackHandler { showAllExamHistoryDialog = false }
+
             Surface(
                 modifier = Modifier
                     .fillMaxSize()
