@@ -129,6 +129,44 @@ fun sanitizeUrl(rawUrl: String): String {
     return buildCandidateUrls(rawUrl).firstOrNull() ?: rawUrl
 }
 
+private const val PREFS_DOWNLOADED_FILES = "vung4_downloaded_files_prefs"
+private const val KEY_DOWNLOADED_IDS = "downloaded_file_ids"
+private const val KEY_DOWNLOADED_URLS = "downloaded_file_urls"
+
+/**
+ * Đánh dấu một tài liệu đã được tải về máy thành công vào SharedPreferences
+ */
+fun markFileAsDownloaded(context: Context, fileId: String = "", fileUrl: String = "", fileName: String = "") {
+    try {
+        val prefs = context.getSharedPreferences(PREFS_DOWNLOADED_FILES, Context.MODE_PRIVATE)
+        val ids = prefs.getStringSet(KEY_DOWNLOADED_IDS, emptySet())?.toMutableSet() ?: mutableSetOf()
+        val urls = prefs.getStringSet(KEY_DOWNLOADED_URLS, emptySet())?.toMutableSet() ?: mutableSetOf()
+        if (fileId.isNotBlank()) ids.add(fileId)
+        if (fileUrl.isNotBlank()) urls.add(fileUrl)
+        if (fileName.isNotBlank()) urls.add(fileName)
+        prefs.edit()
+            .putStringSet(KEY_DOWNLOADED_IDS, ids)
+            .putStringSet(KEY_DOWNLOADED_URLS, urls)
+            .apply()
+    } catch (e: Exception) {
+        Log.e(TAG, "Error saving download state: ${e.message}")
+    }
+}
+
+/**
+ * Lấy tập hợp tất cả các fileId, fileUrl và tên tệp đã được tải về máy
+ */
+fun getDownloadedFileKeys(context: Context): Set<String> {
+    return try {
+        val prefs = context.getSharedPreferences(PREFS_DOWNLOADED_FILES, Context.MODE_PRIVATE)
+        val ids = prefs.getStringSet(KEY_DOWNLOADED_IDS, emptySet()) ?: emptySet()
+        val urls = prefs.getStringSet(KEY_DOWNLOADED_URLS, emptySet()) ?: emptySet()
+        ids + urls
+    } catch (_: Exception) {
+        emptySet()
+    }
+}
+
 /**
  * Kiểm tra xem tệp tài liệu đã được lưu trong bộ nhớ đệm (Internal Storage) của ứng dụng chưa
  */
@@ -136,8 +174,12 @@ fun isDocumentCachedInApp(context: Context, urlString: String, fileName: String,
     return try {
         val dir = File(context.filesDir, "documents")
         if (!dir.exists()) return false
-        val standardFileName = getStandardFileName(fileName, fileFormat, urlString)
         val urlHash = Math.abs(urlString.hashCode()).toString()
+        val files = dir.listFiles()
+        if (files != null && files.any { it.name.contains(urlHash) && it.length() > 100 }) {
+            return true
+        }
+        val standardFileName = getStandardFileName(fileName, fileFormat, urlString)
         val ext = if (standardFileName.contains(".")) standardFileName.substringAfterLast(".") else "bin"
         val baseName = standardFileName.substringBeforeLast(".")
         val cacheFileName = "${baseName}_$urlHash.$ext"
@@ -146,6 +188,61 @@ fun isDocumentCachedInApp(context: Context, urlString: String, fileName: String,
     } catch (_: Exception) {
         false
     }
+}
+
+/**
+ * Kiểm tra xem tài liệu đã tải về máy (Downloads) hoặc đã lưu trữ ngoại tuyến thành công chưa
+ */
+fun isDocumentSavedToDevice(
+    context: Context,
+    fileId: String = "",
+    fileUrl: String = "",
+    fileName: String = "",
+    fileTitle: String = ""
+): Boolean {
+    // 1. Kiểm tra SharedPreferences đã lưu tệp này trước đó
+    val downloadedKeys = getDownloadedFileKeys(context)
+    if (fileId.isNotBlank() && downloadedKeys.contains(fileId)) return true
+    if (fileUrl.isNotBlank() && downloadedKeys.contains(fileUrl)) return true
+    if (fileName.isNotBlank() && downloadedKeys.contains(fileName)) return true
+    if (fileTitle.isNotBlank() && downloadedKeys.contains(fileTitle)) return true
+
+    // 2. Kiểm tra bộ nhớ đệm offline nội bộ của ứng dụng
+    if (fileUrl.isNotBlank() && isDocumentCachedInApp(context, fileUrl, fileName)) {
+        return true
+    }
+
+    // 3. Kiểm tra tệp trong thư mục Downloads của thiết bị
+    try {
+        val stdName = getStandardFileName(fileTitle.ifBlank { fileName }, "", fileUrl)
+        val cleanName = getStandardFileName(fileName, "", fileUrl)
+        val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        if (downloadsDir.exists()) {
+            if (File(downloadsDir, stdName).exists() && File(downloadsDir, stdName).length() > 100) return true
+            if (File(downloadsDir, cleanName).exists() && File(downloadsDir, cleanName).length() > 100) return true
+            if (fileName.isNotBlank() && File(downloadsDir, fileName).exists() && File(downloadsDir, fileName).length() > 100) return true
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val projection = arrayOf(MediaStore.MediaColumns.DISPLAY_NAME, MediaStore.MediaColumns.SIZE)
+            val selection = "${MediaStore.MediaColumns.DISPLAY_NAME} = ? OR ${MediaStore.MediaColumns.DISPLAY_NAME} = ? OR ${MediaStore.MediaColumns.DISPLAY_NAME} = ?"
+            val selectionArgs = arrayOf(stdName, cleanName, fileName)
+            context.contentResolver.query(
+                MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                projection,
+                selection,
+                selectionArgs,
+                null
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val size = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.SIZE))
+                    if (size > 100) return true
+                }
+            }
+        }
+    } catch (_: Exception) {}
+
+    return false
 }
 
 /**
@@ -201,6 +298,7 @@ suspend fun downloadFileToAppStorage(
                                 }
                             }
                             if (file.exists() && file.length() > 50) {
+                                markFileAsDownloaded(context, "", urlString, fileName)
                                 return@withContext Pair(file, null)
                             }
                         }
@@ -252,12 +350,14 @@ fun saveToDeviceDownloads(context: Context, sourceFile: File, fileName: String):
                         input.copyTo(out)
                     }
                 }
+                markFileAsDownloaded(context, fileName = fileName)
                 true
             } else false
         } else {
             val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
             val destFile = File(downloadsDir, fileName)
             sourceFile.copyTo(destFile, overwrite = true)
+            markFileAsDownloaded(context, fileName = fileName)
             true
         }
     } catch (e: Exception) {
@@ -305,6 +405,7 @@ fun downloadFileViaSystemManager(
         }
 
         downloadManager.enqueue(request)
+        markFileAsDownloaded(context, fileId = fileTitle, fileUrl = validUrl, fileName = standardFileName)
         Toast.makeText(
             context,
             "Đang tải tệp '$standardFileName' từ máy chủ về thư mục Downloads...",
@@ -902,10 +1003,12 @@ fun InAppDocumentViewerDialog(
     var isWebLoading by remember { mutableStateOf(true) }
     var webProgress by remember { mutableStateOf(0) }
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
-    var isSavedToDeviceInDialog by remember { mutableStateOf(false) }
-
     val standardFileName = remember(fileTitle, fileFormat, fileUrl) {
         getStandardFileName(fileTitle, fileFormat, fileUrl)
+    }
+
+    var isSavedToDeviceInDialog by remember(fileUrl, standardFileName) {
+        mutableStateOf(isDocumentSavedToDevice(context, fileTitle, fileUrl, standardFileName, fileTitle))
     }
 
     val isPdf = standardFileName.endsWith(".pdf", ignoreCase = true)
@@ -944,6 +1047,9 @@ fun InAppDocumentViewerDialog(
     LaunchedEffect(fileUrl) {
         isLoading = true
         downloadError = null
+        if (!isSavedToDeviceInDialog) {
+            isSavedToDeviceInDialog = isDocumentSavedToDevice(context, fileTitle, fileUrl, standardFileName, fileTitle)
+        }
         val (downloaded, err) = downloadFileToAppStorage(context, fileUrl, standardFileName)
         if (downloaded != null && downloaded.exists()) {
             localFile = downloaded
@@ -1092,6 +1198,7 @@ fun InAppDocumentViewerDialog(
                                     localFile?.let { file ->
                                         saveToDeviceDownloads(context, file, standardFileName)
                                     }
+                                    markFileAsDownloaded(context, fileTitle, fileUrl, standardFileName)
                                     isSavedToDeviceInDialog = true
                                 },
                                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
@@ -1106,6 +1213,7 @@ fun InAppDocumentViewerDialog(
                             OutlinedButton(
                                 onClick = {
                                     downloadFileViaSystemManager(context, fileUrl, fileTitle, standardFileName)
+                                    markFileAsDownloaded(context, fileTitle, fileUrl, standardFileName)
                                     isSavedToDeviceInDialog = true
                                     coroutineScope.launch {
                                         val (downloaded, _) = downloadFileToAppStorage(context, fileUrl, standardFileName)

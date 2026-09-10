@@ -257,8 +257,20 @@ fun LessonPlayerScreen(
 
     LaunchedEffect(lessonFiles) {
         withContext(Dispatchers.IO) {
+            val downloadedKeys = com.example.ui.components.getDownloadedFileKeys(context)
+            val saved = lessonFiles.filter { f ->
+                downloadedKeys.contains(f.id) ||
+                downloadedKeys.contains(f.downloadUrl) ||
+                downloadedKeys.contains(f.fileName) ||
+                downloadedKeys.contains(f.title) ||
+                com.example.ui.components.isDocumentSavedToDevice(context, f.id, f.downloadUrl, f.fileName, f.title)
+            }.map { it.id }.toSet()
+            savedToDeviceFileIds = saved
+
             val cached = lessonFiles.filter { f ->
-                com.example.ui.components.isDocumentCachedInApp(context, f.downloadUrl, f.fileName, "")
+                saved.contains(f.id) ||
+                com.example.ui.components.isDocumentCachedInApp(context, f.downloadUrl, f.fileName, "") ||
+                com.example.ui.components.isDocumentCachedInApp(context, f.downloadUrl, f.title, "")
             }.map { it.id }.toSet()
             cachedFileIds = cached
         }
@@ -769,8 +781,8 @@ fun LessonPlayerScreen(
 
                             if (lessonFiles.isNotEmpty()) {
                                 lessonFiles.forEach { file ->
-                                    val isCached = cachedFileIds.contains(file.id) || com.example.ui.components.isDocumentCachedInApp(context, file.downloadUrl, file.fileName, "")
-                                    val isSavedToDevice = savedToDeviceFileIds.contains(file.id)
+                                    val isCached = cachedFileIds.contains(file.id) || com.example.ui.components.isDocumentCachedInApp(context, file.downloadUrl, file.fileName, "") || com.example.ui.components.isDocumentCachedInApp(context, file.downloadUrl, file.title, "")
+                                    val isSavedToDevice = savedToDeviceFileIds.contains(file.id) || com.example.ui.components.isDocumentSavedToDevice(context, file.id, file.downloadUrl, file.fileName, file.title)
                                     val isDownloading = downloadingFileIds.contains(file.id)
 
                                     Card(
@@ -910,7 +922,7 @@ fun LessonPlayerScreen(
                                                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                                                         shape = RoundedCornerShape(8.dp)
                                                     ) {
-                                                        Icon(Icons.Default.Folder, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color(0xFF2E7D32))
+                                                        Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color(0xFF2E7D32))
                                                         Spacer(modifier = Modifier.width(4.dp))
                                                         Text("Đã tải về máy", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
                                                     }
@@ -918,8 +930,9 @@ fun LessonPlayerScreen(
                                                     OutlinedButton(
                                                         onClick = {
                                                             if (isDownloading) return@OutlinedButton
-                                                            val stdName = com.example.ui.components.getStandardFileName(file.title, "", file.downloadUrl)
+                                                            val stdName = com.example.ui.components.getStandardFileName(file.title.ifBlank { file.fileName }, "", file.downloadUrl)
                                                             com.example.ui.components.downloadFileViaSystemManager(context, file.downloadUrl, file.title, stdName)
+                                                            com.example.ui.components.markFileAsDownloaded(context, file.id, file.downloadUrl, stdName)
                                                             savedToDeviceFileIds = savedToDeviceFileIds + file.id
                                                             downloadingFileIds = downloadingFileIds + file.id
                                                             coroutineScope.launch {
@@ -928,20 +941,13 @@ fun LessonPlayerScreen(
                                                                 if (downloadedFile != null && downloadedFile.exists()) {
                                                                     cachedFileIds = cachedFileIds + file.id
                                                                     val savedOk = com.example.ui.components.saveToDeviceDownloads(context, downloadedFile, stdName)
-                                                                    if (savedOk) {
-                                                                        savedToDeviceFileIds = savedToDeviceFileIds + file.id
-                                                                        android.widget.Toast.makeText(
-                                                                            context,
-                                                                            "Đã tải & lưu tài liệu vào thư mục Downloads trên máy! Bấm vào để mở vị trí tệp.",
-                                                                            android.widget.Toast.LENGTH_LONG
-                                                                        ).show()
-                                                                    } else {
-                                                                        android.widget.Toast.makeText(
-                                                                            context,
-                                                                            "Đã lưu đệm trong App thành công!",
-                                                                            android.widget.Toast.LENGTH_LONG
-                                                                        ).show()
-                                                                    }
+                                                                    com.example.ui.components.markFileAsDownloaded(context, file.id, file.downloadUrl, stdName)
+                                                                    savedToDeviceFileIds = savedToDeviceFileIds + file.id
+                                                                    android.widget.Toast.makeText(
+                                                                        context,
+                                                                        "Đã tải & lưu tài liệu vào thư mục Downloads trên máy! Bấm vào để mở vị trí tệp.",
+                                                                        android.widget.Toast.LENGTH_LONG
+                                                                    ).show()
                                                                 } else {
                                                                     android.widget.Toast.makeText(
                                                                         context,
@@ -977,7 +983,13 @@ fun LessonPlayerScreen(
                                         fileTitle = f.title.ifEmpty { f.fileName.ifEmpty { "Tài liệu" } },
                                         fileUrl = f.downloadUrl,
                                         fileFormat = ext,
-                                        onDismiss = { viewingFile = null }
+                                        onDismiss = {
+                                            viewingFile = null
+                                            if (com.example.ui.components.isDocumentSavedToDevice(context, f.id, f.downloadUrl, f.fileName, f.title)) {
+                                                savedToDeviceFileIds = savedToDeviceFileIds + f.id
+                                            }
+                                            cachedFileIds = cachedFileIds + f.id
+                                        }
                                     )
                                 }
                             } else {
