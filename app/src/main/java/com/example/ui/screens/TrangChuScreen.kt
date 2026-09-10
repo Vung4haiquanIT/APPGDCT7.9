@@ -53,6 +53,31 @@ fun TrangChuScreen(
     val currentUser by viewModel.currentUser.collectAsState()
     val unreadCount by viewModel.unreadCount.collectAsState()
     val progressList by viewModel.progressList.collectAsState()
+    val recentLessonIds by viewModel.recentLessonIds.collectAsState()
+
+    // Danh sách bài học xem gần đây (ghép từ recentLessonIds và lịch sử progressList)
+    val recentLessons = remember(recentLessonIds, progressList, lessons) {
+        val lessonMap = lessons.associateBy { it.id }
+        val orderedLessonIds = mutableListOf<String>()
+
+        // 1. Ưu tiên bài học vừa xem gần đây nhất
+        for (id in recentLessonIds) {
+            if (id !in orderedLessonIds && lessonMap.containsKey(id)) {
+                orderedLessonIds.add(id)
+            }
+        }
+
+        // 2. Kế tiếp là các bài học đã có tiến độ trong progressList (sắp xếp mới nhất trước)
+        val progressSorted = progressList.sortedByDescending { it.updatedAt }
+        for (p in progressSorted) {
+            if (p.lessonId !in orderedLessonIds && lessonMap.containsKey(p.lessonId)) {
+                orderedLessonIds.add(p.lessonId)
+            }
+        }
+
+        orderedLessonIds.mapNotNull { lessonMap[it] }
+    }
+
     val banners by viewModel.banners.collectAsState()
     val bannerList = remember(banners) {
         if (banners.isNotEmpty()) banners.take(5) else BannerItem.getDefaultMilitaryBanners()
@@ -482,7 +507,10 @@ fun TrangChuScreen(
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { activeLessonForPlayer = lesson },
+                            .clickable {
+                                viewModel.recordLessonViewed(lesson.id)
+                                activeLessonForPlayer = lesson
+                            },
                         shape = RoundedCornerShape(12.dp),
                         colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.94f)),
                         elevation = CardDefaults.cardElevation(2.dp)
@@ -527,37 +555,108 @@ fun TrangChuScreen(
                 }
             }
 
-            // Chuyên đề / Khóa học nổi bật (Real courses from Firestore)
-            if (courses.isNotEmpty()) {
-                item {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            // Mục "Xem gần đây" (Thay thế cho "Chuyên đề nổi bật")
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
+                            Icon(
+                                imageVector = Icons.Default.History,
+                                contentDescription = null,
+                                tint = RedPrimary,
+                                modifier = Modifier.size(22.dp)
+                            )
                             Text(
-                                text = "Chuyên đề nổi bật (${courses.size})",
+                                text = if (recentLessons.isNotEmpty()) "Xem gần đây (${recentLessons.size})" else "Xem gần đây",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 18.sp,
                                 color = MaterialTheme.colorScheme.onBackground
                             )
+                        }
+                        if (recentLessons.isNotEmpty()) {
                             TextButton(onClick = onNavigateToHocTap) {
                                 Text("Xem tất cả", color = RedPrimary, fontWeight = FontWeight.Bold)
                                 Icon(Icons.Default.ChevronRight, contentDescription = null, tint = RedPrimary)
                             }
                         }
+                    }
 
+                    if (recentLessons.isEmpty()) {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onNavigateToHocTap() },
+                            shape = RoundedCornerShape(14.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.94f)),
+                            elevation = CardDefaults.cardElevation(2.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(44.dp)
+                                        .clip(CircleShape)
+                                        .background(RedPrimary.copy(alpha = 0.12f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.HistoryEdu,
+                                        contentDescription = null,
+                                        tint = RedPrimary,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(14.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Chưa có bài học xem gần đây",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = "Nhấn để khám phá các bài học và bắt đầu học tập.",
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                                    contentDescription = null,
+                                    tint = RedPrimary,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            }
+                        }
+                    } else {
                         LazyRow(
                             horizontalArrangement = Arrangement.spacedBy(14.dp),
                             contentPadding = PaddingValues(horizontal = 2.dp)
                         ) {
-                            items(courses) { course ->
+                            items(recentLessons) { lesson ->
+                                val course = courses.find { it.id == lesson.courseId }
+                                val progress = progressList.find { it.lessonId == lesson.id }
+                                val isCompleted = progress?.completed == true
+
                                 Card(
                                     modifier = Modifier
-                                        .width(180.dp)
+                                        .width(220.dp)
                                         .height(195.dp)
-                                        .clickable { onNavigateToHocTap() },
+                                        .clickable {
+                                            viewModel.recordLessonViewed(lesson.id)
+                                            activeLessonForPlayer = lesson
+                                        },
                                     shape = RoundedCornerShape(16.dp),
                                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                                     elevation = CardDefaults.cardElevation(2.dp)
@@ -568,7 +667,7 @@ fun TrangChuScreen(
                                         Box(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .height(108.dp)
+                                                .height(98.dp)
                                                 .background(
                                                     Brush.verticalGradient(
                                                         listOf(RedPrimary, Color(0xFF192841))
@@ -576,8 +675,40 @@ fun TrangChuScreen(
                                                 ),
                                             contentAlignment = Alignment.Center
                                         ) {
-                                            Vung4LogoBadge(size = 64.dp)
+                                            Vung4LogoBadge(size = 56.dp)
+
+                                            // Huy hiệu trạng thái góc trên bên phải
+                                            Box(
+                                                modifier = Modifier
+                                                    .align(Alignment.TopEnd)
+                                                    .padding(8.dp)
+                                                    .clip(RoundedCornerShape(6.dp))
+                                                    .background(
+                                                        if (isCompleted) Color(0xFF2E7D32)
+                                                        else Color(0xFF0D47A1).copy(alpha = 0.85f)
+                                                    )
+                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                                            ) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = if (isCompleted) Icons.Default.CheckCircle else Icons.Default.PlayCircle,
+                                                        contentDescription = null,
+                                                        tint = Color.White,
+                                                        modifier = Modifier.size(10.dp)
+                                                    )
+                                                    Text(
+                                                        text = if (isCompleted) "Đã học" else "Đang học",
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = Color.White
+                                                    )
+                                                }
+                                            }
                                         }
+
                                         Column(
                                             modifier = Modifier
                                                 .fillMaxSize()
@@ -591,7 +722,7 @@ fun TrangChuScreen(
                                                 contentAlignment = Alignment.TopStart
                                             ) {
                                                 Text(
-                                                    text = course.title,
+                                                    text = lesson.title.ifEmpty { "Bài học chính trị" },
                                                     fontWeight = FontWeight.Bold,
                                                     fontSize = 13.sp,
                                                     lineHeight = 17.sp,
@@ -600,23 +731,36 @@ fun TrangChuScreen(
                                                     color = MaterialTheme.colorScheme.onSurface
                                                 )
                                             }
+
                                             Row(
                                                 verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
                                                 modifier = Modifier.fillMaxWidth()
                                             ) {
-                                                Icon(
-                                                    imageVector = Icons.AutoMirrored.Filled.MenuBook,
-                                                    contentDescription = null,
-                                                    tint = RedPrimary,
-                                                    modifier = Modifier.size(13.dp)
-                                                )
                                                 Text(
-                                                    text = "${lessons.count { it.courseId == course.id }} bài học",
+                                                    text = course?.title?.ifEmpty { "Chuyên đề Vùng 4" } ?: "Chuyên đề Vùng 4",
                                                     fontSize = 11.sp,
-                                                    fontWeight = FontWeight.Medium,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    modifier = Modifier.weight(1f, fill = false)
                                                 )
+
+                                                if (progress?.scorePercentage != null) {
+                                                    Text(
+                                                        text = "${progress.scorePercentage}%",
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = if (progress.scorePercentage >= 70) Color(0xFF2E7D32) else Color(0xFFE65100)
+                                                    )
+                                                } else {
+                                                    Icon(
+                                                        imageVector = Icons.Default.PlayArrow,
+                                                        contentDescription = null,
+                                                        tint = RedPrimary,
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                }
                                             }
                                         }
                                     }

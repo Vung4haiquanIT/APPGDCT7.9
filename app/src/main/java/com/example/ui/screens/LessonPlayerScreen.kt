@@ -251,6 +251,10 @@ fun LessonPlayerScreen(
         }
     }
 
+    LaunchedEffect(lesson.id) {
+        viewModel.recordLessonViewed(lesson.id)
+    }
+
     LaunchedEffect(lessonFiles) {
         withContext(Dispatchers.IO) {
             val cached = lessonFiles.filter { f ->

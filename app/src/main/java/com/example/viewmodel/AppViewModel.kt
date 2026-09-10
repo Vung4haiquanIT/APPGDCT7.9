@@ -99,6 +99,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _progressStatus = MutableStateFlow<String>("NOT AUTHENTICATED")
     val progressStatus: StateFlow<String> = _progressStatus.asStateFlow()
 
+    private val _recentLessonIds = MutableStateFlow<List<String>>(emptyList())
+    val recentLessonIds: StateFlow<List<String>> = _recentLessonIds.asStateFlow()
+
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
@@ -137,7 +140,37 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         restoreLocalUserSession()
+        loadRecentLessons()
         checkConnectionAndStartRealtime()
+    }
+
+    private fun loadRecentLessons() {
+        try {
+            val prefs = getApplication<Application>().getSharedPreferences("vung4_recent_prefs", Context.MODE_PRIVATE)
+            val raw = prefs.getString("recent_lesson_ids", "") ?: ""
+            if (raw.isNotBlank()) {
+                _recentLessonIds.value = raw.split(",").map { it.trim() }.filter { it.isNotBlank() }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "[RECENT LESSONS] Error loading recent lessons: ${e.message}")
+        }
+    }
+
+    fun recordLessonViewed(lessonId: String) {
+        if (lessonId.isBlank()) return
+        try {
+            val current = _recentLessonIds.value.toMutableList()
+            current.remove(lessonId)
+            current.add(0, lessonId)
+            val trimmed = current.take(20)
+            _recentLessonIds.value = trimmed
+
+            val prefs = getApplication<Application>().getSharedPreferences("vung4_recent_prefs", Context.MODE_PRIVATE)
+            prefs.edit().putString("recent_lesson_ids", trimmed.joinToString(",")).apply()
+            Log.i(TAG, "[RECENT LESSONS] Recorded viewed lesson $lessonId")
+        } catch (e: Exception) {
+            Log.e(TAG, "[RECENT LESSONS] Error saving recent lesson: ${e.message}")
+        }
     }
 
     private fun saveUserSession(user: UserDoc) {
