@@ -650,8 +650,10 @@ private fun ExamOverviewView(
     onStartExam: () -> Unit,
     onOpenQuestionBank: () -> Unit
 ) {
-    // Only display exam sessions published by Web Admin from Firestore
-    val displaySessions = examSessions
+    // Only display exam sessions published by Web Admin from Firestore, sorted by newest first
+    val displaySessions = remember(examSessions) {
+        examSessions.sortedByDescending { it.createdAt }
+    }
     var showAllExamsDialog by remember { mutableStateOf(false) }
 
     LazyColumn(
