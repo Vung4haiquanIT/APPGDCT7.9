@@ -125,6 +125,11 @@ fun KiemTraScreen(
         }
 
         if (session != null) {
+            val attempts = userExamResults.filter { it.examId == session.id || it.examName.equals(session.title, ignoreCase = true) }
+            if (session.maxAttempts > 0 && attempts.size >= session.maxAttempts) {
+                return
+            }
+
             isOfficialWebExam = true
             activeExamId = session.id
             activeExamName = session.title
@@ -213,6 +218,7 @@ fun KiemTraScreen(
                             .statusBarsPadding()
                     ) {
                         TopAppBar(
+                            windowInsets = WindowInsets(0, 0, 0, 0),
                             title = {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
@@ -302,6 +308,7 @@ fun KiemTraScreen(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
+                windowInsets = WindowInsets(0, 0, 0, 0),
                 title = {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -654,47 +661,51 @@ private fun ExamOverviewView(
 ) {
     // Only display exam sessions published by Web Admin from Firestore, sorted by newest first
     val displaySessions = remember(examSessions) {
-        examSessions.sortedByDescending { it.createdAt }
+        examSessions.sortedWith(
+            compareByDescending<ExamSessionDoc> { it.createdAt }
+                .thenByDescending { it.startTime }
+                .thenByDescending { it.id }
+        )
     }
     var showAllExamsDialog by remember { mutableStateOf(false) }
 
     LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         // Header Banner
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(14.dp),
                 colors = CardDefaults.cardColors(containerColor = RedPrimary.copy(alpha = 0.08f)),
                 border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(RedPrimary.copy(alpha = 0.3f)))
             ) {
-                Column(
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(20.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    Vung4LogoBadge(size = 64.dp)
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = "HỆ THỐNG KIỂM TRA TRỰC TUYẾN",
-                        fontWeight = FontWeight.Black,
-                        fontSize = 18.sp,
-                        color = RedPrimary,
-                        textAlign = TextAlign.Center
-                    )
-                    Text(
-                        text = "VÙNG 4 HẢI QUÂN NHÂN DÂN VIỆT NAM",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp,
-                        color = NavySecondary,
-                        textAlign = TextAlign.Center
-                    )
+                    Vung4LogoBadge(size = 46.dp)
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "HỆ THỐNG KIỂM TRA TRỰC TUYẾN",
+                            fontWeight = FontWeight.Black,
+                            fontSize = 15.sp,
+                            color = RedPrimary
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "VÙNG 4 HẢI QUÂN NHÂN DÂN VIỆT NAM",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp,
+                            color = NavySecondary
+                        )
+                    }
                 }
             }
         }
@@ -704,7 +715,7 @@ private fun ExamOverviewView(
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(14.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)),
                     border = CardDefaults.outlinedCardBorder().copy(
                         brush = androidx.compose.ui.graphics.SolidColor(Color.Gray.copy(alpha = 0.3f))
@@ -713,30 +724,30 @@ private fun ExamOverviewView(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(24.dp),
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Icon(
                             imageVector = Icons.Default.HourglassEmpty,
                             contentDescription = null,
                             tint = RedPrimary,
-                            modifier = Modifier.size(44.dp)
-                        )
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Text(
-                            text = "CHƯA CÓ ĐỢT THI NÀO TỪ WEB QUẢN TRỊ",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp,
-                            color = RedPrimary,
-                            textAlign = TextAlign.Center
+                            modifier = Modifier.size(32.dp)
                         )
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = "Hiện chưa có đợt thi chính thức nào được đăng tải. Đợt thi sẽ tự động hiển thị tại đây ngay khi Ban Quản trị Web phát hành đợt thi mới.",
+                            text = "CHƯA CÓ ĐỢT THI NÀO TỪ WEB QUẢN TRỊ",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp,
+                            color = RedPrimary,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Đợt thi chính thức sẽ tự động hiển thị tại đây khi Ban Quản trị Web phát hành.",
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center,
-                            lineHeight = 18.sp
+                            lineHeight = 16.sp
                         )
                     }
                 }
@@ -1111,7 +1122,7 @@ private fun ExamSessionCard(
                         color = if (hasCompleted) Color(0xFFE8F5E9) else if (isOpen) Color(0xFFE8F5E9) else MaterialTheme.colorScheme.surfaceVariant
                     ) {
                         Text(
-                            text = if (hasCompleted) "✅ HOÀN THÀNH" else if (isOpen) "🟢 ĐANG MỞ" else "🔒 CHƯA MỞ",
+                            text = if (hasCompleted) "✅ HOÀN THÀNH BÀI THI" else if (isOpen) "🟢 ĐANG MỞ" else "🔒 CHƯA MỞ",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = if (hasCompleted) Color(0xFF2E7D32) else if (isOpen) Color(0xFF2E7D32) else Color.Gray,
@@ -1121,7 +1132,7 @@ private fun ExamSessionCard(
                     if (isAuthenticated && session.maxAttempts > 0) {
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Đã thi: ${attempts.size}/${session.maxAttempts} lần",
+                            text = if (hasCompleted) "Đã hoàn thành (${attempts.size}/${session.maxAttempts} lượt)" else "Lượt thi: ${attempts.size}/${session.maxAttempts}",
                             fontSize = 10.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = if (hasCompleted) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSurfaceVariant
@@ -1177,7 +1188,7 @@ private fun ExamSessionCard(
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = if (hasCompleted) "BÀI THI ĐÃ HOÀN THÀNH"
+                    text = if (hasCompleted) "HOÀN THÀNH BÀI THI"
                            else if (!isOpen) "ĐỢT THI CHƯA MỞ"
                            else if (!isAuthenticated) "ĐĂNG NHẬP ĐỂ VÀO THI"
                            else "VÀO LÀM BÀI THI NGAY",
@@ -1511,16 +1522,15 @@ private fun ExamResultView(
     val spentSeconds = timeSpentSeconds % 60
 
     LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         // Result Summary Header Card
         item {
             Card(
-                modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+                modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(containerColor = ratingColor.copy(alpha = 0.08f)),
                 border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(ratingColor.copy(alpha = 0.35f)))

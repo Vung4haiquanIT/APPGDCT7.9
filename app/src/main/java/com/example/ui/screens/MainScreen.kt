@@ -11,6 +11,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import com.example.ui.components.TrongDongBackground
 import com.example.ui.theme.RedPrimary
 import com.example.viewmodel.AppViewModel
@@ -79,8 +80,9 @@ fun MainScreen(viewModel: AppViewModel) {
             bottomBar = {
                 if (currentRoute != Screen.Debug.route && currentRoute != Screen.ThongBao.route && !isExamTaking) {
                     NavigationBar(
-                        containerColor = Color.White.copy(alpha = 0.96f),
-                        contentColor = RedPrimary
+                        containerColor = Color.White.copy(alpha = 0.98f),
+                        contentColor = RedPrimary,
+                        tonalElevation = 3.dp
                     ) {
                         bottomNavItems.forEach { screen ->
                             NavigationBarItem(
@@ -104,7 +106,11 @@ fun MainScreen(viewModel: AppViewModel) {
                 }
             }
         ) { padding ->
-            Box(modifier = Modifier.padding(padding)) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+            ) {
                 when (currentRoute) {
                     Screen.TrangChu.route -> TrangChuScreen(
                         viewModel = viewModel,

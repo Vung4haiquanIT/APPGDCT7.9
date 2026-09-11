@@ -896,9 +896,9 @@ data class ExamSessionDoc(
 
             val finalQIds = if (qIdList.isNotEmpty()) qIdList else parsedQIds
 
-            val dur = (doc.getLong("durationMinutes") ?: doc.getLong("thoiGianLamBai") ?: doc.getLong("thoiGian") ?: 20L).toInt()
-            val totalQ = (doc.getLong("totalQuestions") ?: doc.getLong("soCauHoi") ?: doc.getLong("tongSoCau") ?: (if (embeddedQList.isNotEmpty()) embeddedQList.size.toLong() else 20L)).toInt()
-            val maxAtt = (doc.getLong("maxAttempts") ?: doc.getLong("soLuotThi") ?: doc.getLong("soLanThi") ?: doc.getLong("limitAttempts") ?: doc.getLong("soLuotKiemTra") ?: 1L).toInt()
+            val dur = parseNumber(doc.get("durationMinutes") ?: doc.get("thoiGianLamBai") ?: doc.get("thoiGian") ?: doc.get("thoiGianThi"), 20L).toInt()
+            val totalQ = parseNumber(doc.get("totalQuestions") ?: doc.get("soCauHoi") ?: doc.get("tongSoCau") ?: doc.get("soLuongCauHoi"), if (embeddedQList.isNotEmpty()) embeddedQList.size.toLong() else 20L).toInt()
+            val maxAtt = parseNumber(doc.get("maxAttempts") ?: doc.get("soLuotThi") ?: doc.get("soLanThi") ?: doc.get("limitAttempts") ?: doc.get("soLuotKiemTra") ?: doc.get("soLan") ?: doc.get("luotThi"), 1L).toInt()
 
             return ExamSessionDoc(
                 id = doc.id,
@@ -910,9 +910,18 @@ data class ExamSessionDoc(
                 totalQuestions = if (totalQ > 0) totalQ else (if (embeddedQList.isNotEmpty()) embeddedQList.size else 20),
                 questionIds = finalQIds,
                 questionsList = embeddedQList,
-                startTime = parseTime(doc.get("startTime") ?: doc.get("thoiGianBatDau") ?: doc.get("createdAt")),
-                endTime = parseTime(doc.get("endTime") ?: doc.get("thoiGianKetThuc") ?: (System.currentTimeMillis() + 86400000L * 30)),
-                createdAt = parseTime(doc.get("createdAt") ?: doc.get("thoiGianTao")),
+                startTime = parseTime(doc.get("startTime") ?: doc.get("thoiGianBatDau") ?: doc.get("batDau") ?: doc.get("createdAt")),
+                endTime = parseTime(doc.get("endTime") ?: doc.get("thoiGianKetThuc") ?: doc.get("ketThuc") ?: (System.currentTimeMillis() + 86400000L * 30)),
+                createdAt = parseTime(
+                    doc.get("createdAt")
+                        ?: doc.get("created_at")
+                        ?: doc.get("thoiGianTao")
+                        ?: doc.get("ngayTao")
+                        ?: doc.get("timestamp")
+                        ?: doc.get("date")
+                        ?: doc.get("startTime")
+                        ?: doc.get("thoiGianBatDau")
+                ),
                 maxAttempts = if (maxAtt > 0) maxAtt else 1
             )
         }
@@ -986,14 +995,33 @@ private fun parseBoolean(value: Any?): Boolean {
     }
 }
 
+private fun parseNumber(value: Any?, default: Long = 0L): Long {
+    return when (value) {
+        is Number -> value.toLong()
+        is String -> value.trim().toLongOrNull() ?: default
+        else -> default
+    }
+}
+
 private fun parseTime(value: Any?): Long {
     return when (value) {
         is Number -> value.toLong()
+        is Timestamp -> value.seconds * 1000L + (value.nanoseconds / 1_000_000L)
+        is java.util.Date -> value.time
         is String -> {
-            value.toLongOrNull() ?: System.currentTimeMillis()
+            val str = value.trim()
+            str.toLongOrNull() ?: try {
+                java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.getDefault()).parse(str)?.time
+                    ?: java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).parse(str)?.time
+                    ?: java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).parse(str)?.time
+                    ?: java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale.getDefault()).parse(str)?.time
+                    ?: java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.getDefault()).parse(str)?.time
+                    ?: 0L
+            } catch (e: Exception) {
+                0L
+            }
         }
-        is Timestamp -> value.seconds * 1000L
-        else -> System.currentTimeMillis()
+        else -> 0L
     }
 }
 
