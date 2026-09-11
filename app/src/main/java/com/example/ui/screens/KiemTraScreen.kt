@@ -315,23 +315,16 @@ fun KiemTraScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Vung4LogoBadge(size = 32.dp)
-                        Column {
-                            Text(
-                                text = when (currentMode) {
-                                    ExamMode.OVERVIEW -> "KIỂM TRA TRẮC NGHIỆM"
-                                    ExamMode.TAKING_EXAM -> "BÀI THI TRẮC NGHIỆM"
-                                    ExamMode.EXAM_RESULT -> "KẾT QUẢ KIỂM TRA"
-                                    ExamMode.QUESTION_BANK -> "TỔNG HỢP CÂU HỎI ĐÃ ĐĂNG"
-                                },
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 15.sp
-                            )
-                            Text(
-                                text = "Vùng 4 Hải quân - Hệ thống kiểm tra trực tuyến",
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f)
-                            )
-                        }
+                        Text(
+                            text = when (currentMode) {
+                                ExamMode.OVERVIEW -> "KIỂM TRA TRẮC NGHIỆM"
+                                ExamMode.TAKING_EXAM -> "BÀI THI TRẮC NGHIỆM"
+                                ExamMode.EXAM_RESULT -> "KẾT QUẢ KIỂM TRA"
+                                ExamMode.QUESTION_BANK -> "TỔNG HỢP CÂU HỎI ĐÃ ĐĂNG"
+                            },
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp
+                        )
                     }
                 },
                 navigationIcon = {
@@ -675,41 +668,6 @@ private fun ExamOverviewView(
         verticalArrangement = Arrangement.spacedBy(12.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Header Banner
-        item {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(containerColor = RedPrimary.copy(alpha = 0.08f)),
-                border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(RedPrimary.copy(alpha = 0.3f)))
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    Vung4LogoBadge(size = 46.dp)
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "HỆ THỐNG KIỂM TRA TRỰC TUYẾN",
-                            fontWeight = FontWeight.Black,
-                            fontSize = 15.sp,
-                            color = RedPrimary
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = "VÙNG 4 HẢI QUÂN NHÂN DÂN VIỆT NAM",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 11.sp,
-                            color = NavySecondary
-                        )
-                    }
-                }
-            }
-        }
-
         // List of Active Exam Sessions from Web Admin
         if (displaySessions.isEmpty()) {
             item {
@@ -1147,7 +1105,7 @@ private fun ExamSessionCard(
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.spacedBy(24.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     Icon(Icons.Default.Timer, contentDescription = null, tint = if (hasCompleted) Color(0xFF2E7D32) else RedPrimary, modifier = Modifier.size(16.dp))
@@ -1156,10 +1114,6 @@ private fun ExamSessionCard(
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     Icon(Icons.Default.CheckCircle, contentDescription = null, tint = if (hasCompleted) Color(0xFF2E7D32) else RedPrimary, modifier = Modifier.size(16.dp))
                     Text("${session.totalQuestions} câu hỏi", fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                }
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Icon(Icons.Default.MilitaryTech, contentDescription = null, tint = if (hasCompleted) Color(0xFF2E7D32) else NavySecondary, modifier = Modifier.size(16.dp))
-                    Text("Báo cáo Web", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = if (hasCompleted) Color(0xFF2E7D32) else NavySecondary)
                 }
             }
 

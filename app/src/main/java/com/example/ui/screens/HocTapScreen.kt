@@ -247,7 +247,10 @@ fun HocTapContent(
                 courseTitle.contains(searchQuery, ignoreCase = true)
 
             matchesFilter && matchesSearch
-        }
+        }.sortedWith(
+            compareByDescending<Lesson> { it.createdAt.coerceAtLeast(it.updatedAt) }
+                .thenByDescending { it.id }
+        )
     }
 
     // Helper function to check if a course belongs to fixed categories
