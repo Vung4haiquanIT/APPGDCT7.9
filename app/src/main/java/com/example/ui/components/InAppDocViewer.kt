@@ -132,11 +132,258 @@ fun sanitizeUrl(rawUrl: String): String {
 private const val PREFS_DOWNLOADED_FILES = "vung4_downloaded_files_prefs"
 private const val KEY_DOWNLOADED_IDS = "downloaded_file_ids"
 private const val KEY_DOWNLOADED_URLS = "downloaded_file_urls"
+private const val PREFS_SAVED_DOCS_META = "vung4_saved_docs_meta_list"
+private const val KEY_SAVED_DOCS_JSON = "saved_docs_json"
 
 /**
- * Đánh dấu một tài liệu đã được tải về máy thành công vào SharedPreferences
+ * Cấu trúc dữ liệu ghi nhận tài liệu đã lưu / tải về từ các bài học
  */
-fun markFileAsDownloaded(context: Context, fileId: String = "", fileUrl: String = "", fileName: String = "") {
+data class SavedDocumentItem(
+    val id: String = "",
+    val title: String = "",
+    val fileName: String = "",
+    val fileUrl: String = "",
+    val lessonId: String = "",
+    val lessonTitle: String = "",
+    val savedAt: Long = System.currentTimeMillis(),
+    val localFilePath: String = "",
+    val fileSize: Long = 0L
+)
+
+/**
+ * Đọc danh sách tài liệu đã lưu từ SharedPreferences
+ */
+fun getSavedDocumentRecords(context: Context): List<SavedDocumentItem> {
+    return try {
+        val prefs = context.getSharedPreferences(PREFS_SAVED_DOCS_META, Context.MODE_PRIVATE)
+        val jsonStr = prefs.getString(KEY_SAVED_DOCS_JSON, null) ?: return emptyList()
+        val array = org.json.JSONArray(jsonStr)
+        val list = mutableListOf<SavedDocumentItem>()
+        for (i in 0 until array.length()) {
+            val obj = array.getJSONObject(i)
+            list.add(
+                SavedDocumentItem(
+                    id = obj.optString("id", ""),
+                    title = obj.optString("title", ""),
+                    fileName = obj.optString("fileName", ""),
+                    fileUrl = obj.optString("fileUrl", ""),
+                    lessonId = obj.optString("lessonId", ""),
+                    lessonTitle = obj.optString("lessonTitle", ""),
+                    savedAt = obj.optLong("savedAt", 0L),
+                    localFilePath = obj.optString("localFilePath", ""),
+                    fileSize = obj.optLong("fileSize", 0L)
+                )
+            )
+        }
+        list
+    } catch (e: Exception) {
+        emptyList()
+    }
+}
+
+/**
+ * Lưu hoặc cập nhật bản ghi tài liệu vào SharedPreferences
+ */
+fun saveOrUpdateDocumentRecord(context: Context, item: SavedDocumentItem) {
+    try {
+        val currentList = getSavedDocumentRecords(context).toMutableList()
+        val index = currentList.indexOfFirst {
+            (item.fileUrl.isNotBlank() && it.fileUrl == item.fileUrl) ||
+            (item.id.isNotBlank() && it.id == item.id) ||
+            (item.fileName.isNotBlank() && it.fileName == item.fileName)
+        }
+        if (index >= 0) {
+            val old = currentList[index]
+            currentList[index] = old.copy(
+                title = item.title.ifBlank { old.title },
+                fileName = item.fileName.ifBlank { old.fileName },
+                lessonId = item.lessonId.ifBlank { old.lessonId },
+                lessonTitle = item.lessonTitle.ifBlank { old.lessonTitle },
+                localFilePath = item.localFilePath.ifBlank { old.localFilePath },
+                fileSize = if (item.fileSize > 0) item.fileSize else old.fileSize,
+                savedAt = if (item.savedAt > 0) item.savedAt else old.savedAt
+            )
+        } else {
+            currentList.add(0, item)
+        }
+        writeSavedDocumentRecords(context, currentList)
+    } catch (e: Exception) {
+        Log.e(TAG, "Error saving document record: ${e.message}")
+    }
+}
+
+/**
+ * Ghi đè toàn bộ danh sách tài liệu đã lưu
+ */
+fun writeSavedDocumentRecords(context: Context, list: List<SavedDocumentItem>) {
+    try {
+        val prefs = context.getSharedPreferences(PREFS_SAVED_DOCS_META, Context.MODE_PRIVATE)
+        val array = org.json.JSONArray()
+        list.forEach { item ->
+            val obj = org.json.JSONObject()
+            obj.put("id", item.id)
+            obj.put("title", item.title)
+            obj.put("fileName", item.fileName)
+            obj.put("fileUrl", item.fileUrl)
+            obj.put("lessonId", item.lessonId)
+            obj.put("lessonTitle", item.lessonTitle)
+            obj.put("savedAt", item.savedAt)
+            obj.put("localFilePath", item.localFilePath)
+            obj.put("fileSize", item.fileSize)
+            array.put(obj)
+        }
+        prefs.edit().putString(KEY_SAVED_DOCS_JSON, array.toString()).apply()
+    } catch (e: Exception) {
+        Log.e(TAG, "Error writing saved docs: ${e.message}")
+    }
+}
+
+/**
+ * Xóa một tài liệu khỏi danh sách đã lưu và xóa file cache nội bộ
+ */
+fun removeSavedDocument(context: Context, item: SavedDocumentItem) {
+    try {
+        val currentList = getSavedDocumentRecords(context).toMutableList()
+        currentList.removeAll { 
+            (item.id.isNotBlank() && it.id == item.id) || 
+            (item.fileUrl.isNotBlank() && it.fileUrl == item.fileUrl) || 
+            (item.fileName.isNotBlank() && it.fileName == item.fileName) 
+        }
+        writeSavedDocumentRecords(context, currentList)
+
+        val prefs = context.getSharedPreferences(PREFS_DOWNLOADED_FILES, Context.MODE_PRIVATE)
+        val ids = prefs.getStringSet(KEY_DOWNLOADED_IDS, emptySet())?.toMutableSet() ?: mutableSetOf()
+        val urls = prefs.getStringSet(KEY_DOWNLOADED_URLS, emptySet())?.toMutableSet() ?: mutableSetOf()
+        ids.remove(item.id)
+        ids.remove(item.fileName)
+        urls.remove(item.fileUrl)
+        prefs.edit().putStringSet(KEY_DOWNLOADED_IDS, ids).putStringSet(KEY_DOWNLOADED_URLS, urls).apply()
+
+        if (item.localFilePath.isNotBlank()) {
+            val f = File(item.localFilePath)
+            if (f.exists()) f.delete()
+        }
+    } catch (e: Exception) {
+        Log.e(TAG, "Error removing saved doc: ${e.message}")
+    }
+}
+
+/**
+ * Tìm tệp đã lưu trong bộ nhớ ứng dụng
+ */
+fun findCachedDocumentFile(context: Context, urlString: String, fileName: String, fileFormat: String = ""): File? {
+    return try {
+        val dir = File(context.filesDir, "documents")
+        if (!dir.exists()) return null
+        val urlHash = if (urlString.isNotBlank()) Math.abs(urlString.hashCode()).toString() else ""
+        val files = dir.listFiles() ?: return null
+        if (urlHash.isNotBlank()) {
+            val fileByHash = files.firstOrNull { it.name.contains(urlHash) && it.length() > 50 }
+            if (fileByHash != null) return fileByHash
+        }
+        val standardFileName = getStandardFileName(fileName, fileFormat, urlString)
+        val fileByName = File(dir, standardFileName)
+        if (fileByName.exists() && fileByName.length() > 50) return fileByName
+
+        val ext = if (standardFileName.contains(".")) standardFileName.substringAfterLast(".") else "bin"
+        val baseName = standardFileName.substringBeforeLast(".")
+        if (urlHash.isNotBlank()) {
+            val cacheFileName = "${baseName}_$urlHash.$ext"
+            val fileWithHash = File(dir, cacheFileName)
+            if (fileWithHash.exists() && fileWithHash.length() > 50) return fileWithHash
+        }
+        null
+    } catch (_: Exception) {
+        null
+    }
+}
+
+/**
+ * Lấy toàn bộ tài liệu đã lưu từ bài học:
+ * Kết hợp từ danh sách bản ghi, storageFiles hệ thống và quét tệp cache nội bộ
+ */
+fun getAllSavedDocuments(
+    context: Context,
+    lessons: List<com.example.model.Lesson> = emptyList(),
+    storageFiles: List<com.example.model.StorageFileItem> = emptyList()
+): List<SavedDocumentItem> {
+    val recorded = getSavedDocumentRecords(context).toMutableList()
+    val knownUrls = recorded.map { it.fileUrl }.filter { it.isNotBlank() }.toMutableSet()
+    val knownFileNames = recorded.map { it.fileName }.filter { it.isNotBlank() }.toMutableSet()
+
+    // 1. Quét storageFiles đính kèm các bài học đã tải/lưu
+    for (file in storageFiles) {
+        if (file.downloadUrl.isBlank() && file.fileName.isBlank()) continue
+        val isSaved = isDocumentSavedToDevice(context, file.id, file.downloadUrl, file.fileName, file.title)
+        if (isSaved) {
+            if (file.downloadUrl !in knownUrls && file.fileName !in knownFileNames) {
+                val lesson = lessons.find { it.id == file.lessonId || it.id == file.entityId }
+                val cachedFile = findCachedDocumentFile(context, file.downloadUrl, file.fileName)
+                val docItem = SavedDocumentItem(
+                    id = file.id,
+                    title = file.title.ifBlank { file.fileName },
+                    fileName = file.fileName,
+                    fileUrl = file.downloadUrl,
+                    lessonId = file.lessonId.ifBlank { file.entityId },
+                    lessonTitle = lesson?.title ?: "Tài liệu học tập",
+                    localFilePath = cachedFile?.absolutePath ?: "",
+                    fileSize = cachedFile?.length() ?: 0L,
+                    savedAt = if (file.createdAt > 0) file.createdAt else System.currentTimeMillis()
+                )
+                recorded.add(docItem)
+                if (file.downloadUrl.isNotBlank()) knownUrls.add(file.downloadUrl)
+                if (file.fileName.isNotBlank()) knownFileNames.add(file.fileName)
+                saveOrUpdateDocumentRecord(context, docItem)
+            }
+        }
+    }
+
+    // 2. Quét thư mục lưu trữ cache tệp nội bộ
+    try {
+        val dir = File(context.filesDir, "documents")
+        if (dir.exists()) {
+            val files = dir.listFiles() ?: emptyArray()
+            for (f in files) {
+                if (f.isFile && f.length() > 100) {
+                    val base = f.name.substringBeforeLast("_")
+                    if (f.name !in knownFileNames && base !in knownFileNames) {
+                        val matchingLesson = lessons.find { l -> f.name.contains(l.id, true) }
+                        val docItem = SavedDocumentItem(
+                            id = f.name,
+                            title = if (base.isNotBlank()) base else f.name,
+                            fileName = f.name,
+                            fileUrl = "",
+                            lessonId = matchingLesson?.id ?: "",
+                            lessonTitle = matchingLesson?.title ?: "Tài liệu học tập",
+                            localFilePath = f.absolutePath,
+                            fileSize = f.length(),
+                            savedAt = f.lastModified()
+                        )
+                        recorded.add(docItem)
+                        knownFileNames.add(f.name)
+                    }
+                }
+            }
+        }
+    } catch (_: Exception) {}
+
+    return recorded.sortedByDescending { it.savedAt }
+}
+
+/**
+ * Đánh dấu một tài liệu đã được tải về máy thành công vào SharedPreferences và cập nhật metadata
+ */
+fun markFileAsDownloaded(
+    context: Context,
+    fileId: String = "",
+    fileUrl: String = "",
+    fileName: String = "",
+    lessonId: String = "",
+    lessonTitle: String = "",
+    fileTitle: String = "",
+    localPath: String = "",
+    fileSize: Long = 0L
+) {
     try {
         val prefs = context.getSharedPreferences(PREFS_DOWNLOADED_FILES, Context.MODE_PRIVATE)
         val ids = prefs.getStringSet(KEY_DOWNLOADED_IDS, emptySet())?.toMutableSet() ?: mutableSetOf()
@@ -148,6 +395,19 @@ fun markFileAsDownloaded(context: Context, fileId: String = "", fileUrl: String 
             .putStringSet(KEY_DOWNLOADED_IDS, ids)
             .putStringSet(KEY_DOWNLOADED_URLS, urls)
             .apply()
+
+        val record = SavedDocumentItem(
+            id = fileId.ifBlank { System.currentTimeMillis().toString() },
+            title = fileTitle.ifBlank { fileName.ifBlank { "Tài liệu học tập" } },
+            fileName = fileName,
+            fileUrl = fileUrl,
+            lessonId = lessonId,
+            lessonTitle = lessonTitle,
+            localFilePath = localPath,
+            fileSize = fileSize,
+            savedAt = System.currentTimeMillis()
+        )
+        saveOrUpdateDocumentRecord(context, record)
     } catch (e: Exception) {
         Log.e(TAG, "Error saving download state: ${e.message}")
     }

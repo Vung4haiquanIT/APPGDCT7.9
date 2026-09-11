@@ -3,6 +3,7 @@ package com.example.ui.screens
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -23,8 +24,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -32,8 +36,10 @@ import coil.compose.AsyncImage
 import com.example.model.BannerItem
 import com.example.model.Course
 import com.example.model.Lesson
+import com.example.ui.components.SavedDocumentsDialog
 import com.example.ui.components.Vung4LogoBadge
 import com.example.ui.theme.GoldPrimary
+import com.example.ui.theme.NavySecondary
 import com.example.ui.theme.RedPrimary
 import com.example.viewmodel.AppViewModel
 import kotlinx.coroutines.delay
@@ -54,6 +60,14 @@ fun TrangChuScreen(
     val unreadCount by viewModel.unreadCount.collectAsState()
     val progressList by viewModel.progressList.collectAsState()
     val recentLessonIds by viewModel.recentLessonIds.collectAsState()
+    val storageFiles by viewModel.storageFiles.collectAsState()
+
+    val context = LocalContext.current
+    var showSavedDocsDialog by remember { mutableStateOf(false) }
+    val savedDocsList = remember(lessons, storageFiles, showSavedDocsDialog) {
+        com.example.ui.components.getAllSavedDocuments(context, lessons, storageFiles)
+    }
+    val savedDocsCount = savedDocsList.size
 
     // Danh sách bài học xem gần đây (ghép từ recentLessonIds và lịch sử progressList)
     val recentLessons = remember(recentLessonIds, progressList, lessons) {
@@ -382,74 +396,156 @@ fun TrangChuScreen(
             // Quản lý tiện ích
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(
-                        text = "Tiện ích",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp,
-                        color = MaterialTheme.colorScheme.onBackground
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Tiện ích",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp,
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
+
+                        if (savedDocsCount > 0) {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = Color(0xFFE8F5E9),
+                                border = BorderStroke(1.dp, Color(0xFF81C784).copy(alpha = 0.7f)),
+                                modifier = Modifier.clickable { showSavedDocsDialog = true }
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.DownloadDone,
+                                        contentDescription = null,
+                                        tint = Color(0xFF2E7D32),
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "$savedDocsCount tài liệu đã lưu",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF2E7D32)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    data class UtilityEntry(
+                        val title: String,
+                        val icon: ImageVector,
+                        val id: String,
+                        val color: Color,
+                        val badge: Int = 0
                     )
 
                     val utilities = listOf(
-                        Triple("GDCT", Icons.Default.Book, "gdct"),
-                        Triple("GDPL", Icons.Default.Balance, "gdpl"),
-                        Triple("TỦ SÁCH\nPHÁP LUẬT", Icons.Default.AutoStories, "tu_sach_phap_luat"),
-                        Triple("KIỂM TRA", Icons.AutoMirrored.Filled.Assignment, "kiem_tra"),
-                        Triple("LỊCH SỬ\nTRUYỀN THỐNG", Icons.Default.AccountBalance, "lich_su"),
-                        Triple("BIỂN ĐẢO\nVIỆT NAM", Icons.Default.Map, "bien_dao")
+                        UtilityEntry("GDCT", Icons.Default.Book, "gdct", RedPrimary),
+                        UtilityEntry("GDPL", Icons.Default.Balance, "gdpl", NavySecondary),
+                        UtilityEntry("TỦ SÁCH\nPHÁP LUẬT", Icons.Default.AutoStories, "tu_sach_phap_luat", Color(0xFF00695C)),
+                        UtilityEntry("KIỂM TRA", Icons.AutoMirrored.Filled.Assignment, "kiem_tra", Color(0xFFE65100)),
+                        UtilityEntry("LỊCH SỬ\nTRUYỀN THỐNG", Icons.Default.AccountBalance, "lich_su", Color(0xFF6A1B9A)),
+                        UtilityEntry("BIỂN ĐẢO\nVIỆT NAM", Icons.Default.Map, "bien_dao", Color(0xFF0277BD)),
+                        UtilityEntry("TÀI LIỆU\nĐÃ LƯU", Icons.Default.FolderSpecial, "tai_lieu_da_luu", Color(0xFF2E7D32), badge = savedDocsCount)
                     )
 
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        contentPadding = PaddingValues(horizontal = 2.dp)
-                    ) {
-                        items(utilities) { util ->
-                            Card(
-                                modifier = Modifier
-                                    .width(92.dp)
-                                    .height(116.dp)
-                                    .clickable { onCategoryClick(util.third) },
-                                shape = RoundedCornerShape(14.dp),
-                                colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.94f)),
-                                elevation = CardDefaults.cardElevation(3.dp)
+                    val utilityRows = utilities.chunked(4)
+
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        utilityRows.forEach { rowItems ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(horizontal = 6.dp, vertical = 10.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    Box(
+                                rowItems.forEach { util ->
+                                    Card(
                                         modifier = Modifier
-                                            .size(42.dp)
-                                            .clip(RoundedCornerShape(12.dp))
-                                            .background(RedPrimary.copy(alpha = 0.12f)),
-                                        contentAlignment = Alignment.Center
+                                            .weight(1f)
+                                            .height(106.dp)
+                                            .clickable {
+                                                if (util.id == "tai_lieu_da_luu") {
+                                                    showSavedDocsDialog = true
+                                                } else {
+                                                    onCategoryClick(util.id)
+                                                }
+                                            },
+                                        shape = RoundedCornerShape(14.dp),
+                                        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.96f)),
+                                        border = BorderStroke(1.dp, util.color.copy(alpha = 0.16f)),
+                                        elevation = CardDefaults.cardElevation(2.5.dp)
                                     ) {
-                                        Icon(
-                                            imageVector = util.second,
-                                            contentDescription = util.first.replace("\n", " "),
-                                            tint = RedPrimary,
-                                            modifier = Modifier.size(24.dp)
-                                        )
+                                        Box(modifier = Modifier.fillMaxSize()) {
+                                            Column(
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .padding(horizontal = 4.dp, vertical = 8.dp),
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.Center
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(38.dp)
+                                                        .clip(RoundedCornerShape(10.dp))
+                                                        .background(util.color.copy(alpha = 0.12f)),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Icon(
+                                                        imageVector = util.icon,
+                                                        contentDescription = util.title.replace("\n", " "),
+                                                        tint = util.color,
+                                                        modifier = Modifier.size(22.dp)
+                                                    )
+                                                }
+                                                Spacer(modifier = Modifier.height(6.dp))
+                                                Box(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .height(30.dp),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Text(
+                                                        text = util.title,
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 10.5.sp,
+                                                        lineHeight = 13.5.sp,
+                                                        maxLines = 2,
+                                                        textAlign = TextAlign.Center,
+                                                        color = MaterialTheme.colorScheme.onSurface
+                                                    )
+                                                }
+                                            }
+
+                                            if (util.badge > 0) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .align(Alignment.TopEnd)
+                                                        .padding(top = 5.dp, end = 5.dp)
+                                                        .size(18.dp)
+                                                        .clip(CircleShape)
+                                                        .background(Color(0xFF2E7D32)),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Text(
+                                                        text = if (util.badge > 99) "99+" else util.badge.toString(),
+                                                        fontSize = 9.sp,
+                                                        fontWeight = FontWeight.Black,
+                                                        color = Color.White
+                                                    )
+                                                }
+                                            }
+                                        }
                                     }
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(32.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            text = util.first,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 10.sp,
-                                            lineHeight = 13.sp,
-                                            maxLines = 2,
-                                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                            color = MaterialTheme.colorScheme.onSurface
-                                        )
-                                    }
+                                }
+
+                                val remainingSlots = 4 - rowItems.size
+                                repeat(remainingSlots) {
+                                    Spacer(modifier = Modifier.weight(1f))
                                 }
                             }
                         }
@@ -773,5 +869,15 @@ fun TrangChuScreen(
         }
     }
 
-
+    if (showSavedDocsDialog) {
+        SavedDocumentsDialog(
+            lessons = lessons,
+            storageFiles = storageFiles,
+            onNavigateToHocTap = {
+                showSavedDocsDialog = false
+                onNavigateToHocTap()
+            },
+            onDismiss = { showSavedDocsDialog = false }
+        )
+    }
 }

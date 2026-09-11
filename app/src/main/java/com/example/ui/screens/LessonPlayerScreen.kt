@@ -932,7 +932,15 @@ fun LessonPlayerScreen(
                                                             if (isDownloading) return@OutlinedButton
                                                             val stdName = com.example.ui.components.getStandardFileName(file.title.ifBlank { file.fileName }, "", file.downloadUrl)
                                                             com.example.ui.components.downloadFileViaSystemManager(context, file.downloadUrl, file.title, stdName)
-                                                            com.example.ui.components.markFileAsDownloaded(context, file.id, file.downloadUrl, stdName)
+                                                            com.example.ui.components.markFileAsDownloaded(
+                                                                context = context,
+                                                                fileId = file.id,
+                                                                fileUrl = file.downloadUrl,
+                                                                fileName = stdName,
+                                                                lessonId = lesson.id,
+                                                                lessonTitle = lesson.title,
+                                                                fileTitle = file.title.ifBlank { file.fileName }
+                                                            )
                                                             savedToDeviceFileIds = savedToDeviceFileIds + file.id
                                                             downloadingFileIds = downloadingFileIds + file.id
                                                             coroutineScope.launch {
@@ -941,7 +949,17 @@ fun LessonPlayerScreen(
                                                                 if (downloadedFile != null && downloadedFile.exists()) {
                                                                     cachedFileIds = cachedFileIds + file.id
                                                                     val savedOk = com.example.ui.components.saveToDeviceDownloads(context, downloadedFile, stdName)
-                                                                    com.example.ui.components.markFileAsDownloaded(context, file.id, file.downloadUrl, stdName)
+                                                                    com.example.ui.components.markFileAsDownloaded(
+                                                                        context = context,
+                                                                        fileId = file.id,
+                                                                        fileUrl = file.downloadUrl,
+                                                                        fileName = stdName,
+                                                                        lessonId = lesson.id,
+                                                                        lessonTitle = lesson.title,
+                                                                        fileTitle = file.title.ifBlank { file.fileName },
+                                                                        localPath = downloadedFile.absolutePath,
+                                                                        fileSize = downloadedFile.length()
+                                                                    )
                                                                     savedToDeviceFileIds = savedToDeviceFileIds + file.id
                                                                     android.widget.Toast.makeText(
                                                                         context,
