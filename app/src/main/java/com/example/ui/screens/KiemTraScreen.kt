@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -11,6 +12,8 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -28,6 +31,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -68,9 +72,15 @@ fun KiemTraScreen(
 
     var currentMode by remember { mutableStateOf(ExamMode.OVERVIEW) }
     
-    // Thông báo trạng thái làm bài thi cho MainScreen để ẩn BottomBar
+    // Thông báo trạng thái làm bài thi và xem kết quả thi cho MainScreen để ẩn BottomBar
     LaunchedEffect(currentMode) {
-        onExamTakingStateChange?.invoke(currentMode == ExamMode.TAKING_EXAM)
+        onExamTakingStateChange?.invoke(currentMode == ExamMode.TAKING_EXAM || currentMode == ExamMode.EXAM_RESULT)
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            onExamTakingStateChange?.invoke(false)
+        }
     }
     
     // Auth Dialog State
@@ -226,20 +236,14 @@ fun KiemTraScreen(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
                                     Vung4LogoBadge(size = 32.dp)
-                                    Column {
-                                        Text(
-                                            text = activeExamName,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 14.sp,
-                                            color = MaterialTheme.colorScheme.onPrimary,
-                                            maxLines = 1
-                                        )
-                                        Text(
-                                            text = "Vùng 4 Hải quân - Hệ thống kiểm tra trực tuyến",
-                                            fontSize = 11.sp,
-                                            color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f)
-                                        )
-                                    }
+                                    Text(
+                                        text = activeExamName,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp,
+                                        color = MaterialTheme.colorScheme.onPrimary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
                                 }
                             },
                             navigationIcon = {
@@ -441,11 +445,31 @@ fun KiemTraScreen(
                         )
                     }
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Bài làm và điểm số sẽ được tự động đồng bộ và lưu trên trang Web Quản trị.",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.45f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Warning,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Text(
+                                text = "Cảnh báo: Kết quả sẽ được tính 1 lượt thi và lưu lại trên hệ thống!",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.error,
+                                lineHeight = 17.sp
+                            )
+                        }
+                    }
                 }
             },
             confirmButton = {
@@ -1182,6 +1206,7 @@ private fun ExamSessionCard(
 // -------------------------------------------------------------
 // 2. TAKING EXAM VIEW (GIAO DIỆN LÀM ĐỀ THI 20 CÂU)
 // -------------------------------------------------------------
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ExamTakingView(
     examQuestions: List<QuestionItem>,
@@ -1204,6 +1229,23 @@ private fun ExamTakingView(
     LaunchedEffect(currentIndex) {
         if (currentIndex in examQuestions.indices) {
             questionListState.animateScrollToItem(currentIndex)
+        }
+    }
+
+    // Pager cho phép chuyển câu hỏi mượt mà bằng thao tác vuốt sang trái hoặc phải
+    val pagerState = rememberPagerState(initialPage = currentIndex.coerceIn(0, maxOf(0, examQuestions.size - 1)), pageCount = { examQuestions.size })
+
+    // Đồng bộ khi currentIndex thay đổi từ bên ngoài (nút số câu, nút Câu trước / Câu sau)
+    LaunchedEffect(currentIndex) {
+        if (pagerState.currentPage != currentIndex && currentIndex in examQuestions.indices) {
+            pagerState.animateScrollToPage(currentIndex)
+        }
+    }
+
+    // Đồng bộ khi người dùng vuốt tay sang trái hoặc phải
+    LaunchedEffect(pagerState.currentPage) {
+        if (pagerState.currentPage != currentIndex) {
+            onJumpToQuestion(pagerState.currentPage)
         }
     }
 
@@ -1312,104 +1354,114 @@ private fun ExamTakingView(
             }
         }
 
-        // Question & Options Container
-        LazyColumn(
+        // Question & Options Container: Hỗ trợ vuốt sang trái/phải để chuyển câu hỏi
+        HorizontalPager(
+            state = pagerState,
             modifier = Modifier
                 .weight(1f)
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            item {
-                // Category Chip
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = RedPrimary.copy(alpha = 0.12f)
-                ) {
-                    Text(
-                        text = currentQuestion.categoryName.ifEmpty { "Chuyên đề Vùng 4" },
-                        color = RedPrimary,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 11.sp,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Question Text
-                Text(
-                    text = "Câu ${currentIndex + 1}: ${currentQuestion.question}",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp,
-                    lineHeight = 22.sp,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-            }
-
-            // Options A, B, C, D
-            itemsIndexed(currentQuestion.options) { optIndex, optionText ->
-                val isOptionSelected = userAnswers[currentIndex] == optIndex
-                val optionLetter = when (optIndex) {
-                    0 -> "A"
-                    1 -> "B"
-                    2 -> "C"
-                    3 -> "D"
-                    else -> "${optIndex + 1}"
-                }
-
-                Card(
+                .fillMaxWidth()
+        ) { pageIndex ->
+            val pageQuestion = examQuestions.getOrNull(pageIndex)
+            if (pageQuestion != null) {
+                LazyColumn(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .clickable { onSelectAnswer(currentIndex, optIndex) },
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (isOptionSelected) RedPrimary.copy(alpha = 0.12f)
-                        else MaterialTheme.colorScheme.surfaceVariant
-                    ),
-                    border = if (isOptionSelected) CardDefaults.outlinedCardBorder().copy(
-                        brush = androidx.compose.ui.graphics.SolidColor(RedPrimary)
-                    ) else null
+                        .fillMaxSize()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(32.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    if (isOptionSelected) RedPrimary
-                                    else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
-                                ),
-                            contentAlignment = Alignment.Center
+                    item {
+                        // Category Chip
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = RedPrimary.copy(alpha = 0.12f)
                         ) {
                             Text(
-                                text = optionLetter,
+                                text = pageQuestion.categoryName.ifEmpty { "Chuyên đề Vùng 4" },
+                                color = RedPrimary,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp,
-                                color = if (isOptionSelected) Color.White else MaterialTheme.colorScheme.onSurface
+                                fontSize = 11.sp,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                             )
                         }
 
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Question Text
                         Text(
-                            text = optionText,
-                            fontSize = 14.sp,
-                            lineHeight = 20.sp,
-                            fontWeight = if (isOptionSelected) FontWeight.SemiBold else FontWeight.Normal,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.weight(1f)
+                            text = "Câu ${pageIndex + 1}: ${pageQuestion.question}",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp,
+                            lineHeight = 22.sp,
+                            color = MaterialTheme.colorScheme.onBackground
                         )
+                    }
+
+                    // Options A, B, C, D
+                    itemsIndexed(pageQuestion.options) { optIndex, optionText ->
+                        val isOptionSelected = userAnswers[pageIndex] == optIndex
+                        val optionLetter = when (optIndex) {
+                            0 -> "A"
+                            1 -> "B"
+                            2 -> "C"
+                            3 -> "D"
+                            else -> "${optIndex + 1}"
+                        }
+
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable { onSelectAnswer(pageIndex, optIndex) },
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isOptionSelected) RedPrimary.copy(alpha = 0.12f)
+                                else MaterialTheme.colorScheme.surfaceVariant
+                            ),
+                            border = if (isOptionSelected) CardDefaults.outlinedCardBorder().copy(
+                                brush = androidx.compose.ui.graphics.SolidColor(RedPrimary)
+                            ) else null
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .clip(CircleShape)
+                                        .background(
+                                            if (isOptionSelected) RedPrimary
+                                            else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = optionLetter,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp,
+                                        color = if (isOptionSelected) Color.White else MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+
+                                Text(
+                                    text = optionText,
+                                    fontSize = 14.sp,
+                                    lineHeight = 20.sp,
+                                    fontWeight = if (isOptionSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
                     }
                 }
             }
         }
 
-        // Bottom Navigation & Submit Bar
+        // Bottom Navigation Bar (Chỉ giữ lại Câu trước / Câu sau, nút Nộp bài đã đưa lên góc trên bên phải)
         Surface(
             color = MaterialTheme.colorScheme.surface,
             shadowElevation = 8.dp,
@@ -1421,37 +1473,31 @@ private fun ExamTakingView(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                        .padding(horizontal = 20.dp, vertical = 12.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     OutlinedButton(
                         onClick = onPrev,
                         enabled = currentIndex > 0,
-                        shape = RoundedCornerShape(10.dp)
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.weight(1f)
                     ) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Câu trước")
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Câu trước", fontWeight = FontWeight.SemiBold)
                     }
 
-                    Button(
-                        onClick = onSubmit,
-                        colors = ButtonDefaults.buttonColors(containerColor = RedPrimary),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Nộp bài", fontWeight = FontWeight.Bold)
-                    }
+                    Spacer(modifier = Modifier.width(16.dp))
 
                     OutlinedButton(
                         onClick = onNext,
                         enabled = currentIndex < examQuestions.size - 1,
-                        shape = RoundedCornerShape(10.dp)
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.weight(1f)
                     ) {
-                        Text("Câu sau")
-                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Câu sau", fontWeight = FontWeight.SemiBold)
+                        Spacer(modifier = Modifier.width(6.dp))
                         Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, modifier = Modifier.size(16.dp))
                     }
                 }
