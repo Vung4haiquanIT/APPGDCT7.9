@@ -823,7 +823,8 @@ data class ExamSessionDoc(
     val questionsList: List<QuestionItem> = emptyList(),
     val startTime: Long = System.currentTimeMillis(),
     val endTime: Long = System.currentTimeMillis() + 86400000L * 30,
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    val maxAttempts: Int = 1
 ) {
     companion object {
         fun fromDoc(doc: DocumentSnapshot): ExamSessionDoc {
@@ -897,6 +898,7 @@ data class ExamSessionDoc(
 
             val dur = (doc.getLong("durationMinutes") ?: doc.getLong("thoiGianLamBai") ?: doc.getLong("thoiGian") ?: 20L).toInt()
             val totalQ = (doc.getLong("totalQuestions") ?: doc.getLong("soCauHoi") ?: doc.getLong("tongSoCau") ?: (if (embeddedQList.isNotEmpty()) embeddedQList.size.toLong() else 20L)).toInt()
+            val maxAtt = (doc.getLong("maxAttempts") ?: doc.getLong("soLuotThi") ?: doc.getLong("soLanThi") ?: doc.getLong("limitAttempts") ?: doc.getLong("soLuotKiemTra") ?: 1L).toInt()
 
             return ExamSessionDoc(
                 id = doc.id,
@@ -910,7 +912,8 @@ data class ExamSessionDoc(
                 questionsList = embeddedQList,
                 startTime = parseTime(doc.get("startTime") ?: doc.get("thoiGianBatDau") ?: doc.get("createdAt")),
                 endTime = parseTime(doc.get("endTime") ?: doc.get("thoiGianKetThuc") ?: (System.currentTimeMillis() + 86400000L * 30)),
-                createdAt = parseTime(doc.get("createdAt") ?: doc.get("thoiGianTao"))
+                createdAt = parseTime(doc.get("createdAt") ?: doc.get("thoiGianTao")),
+                maxAttempts = if (maxAtt > 0) maxAtt else 1
             )
         }
     }
