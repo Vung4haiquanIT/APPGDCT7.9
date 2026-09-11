@@ -22,13 +22,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.model.Course
 import com.example.model.Lesson
+import com.example.model.ProgressDoc
 import com.example.ui.components.Vung4LogoBadge
+import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.theme.RedPrimary
 import com.example.ui.theme.NavySecondary
 import com.example.viewmodel.AppViewModel
+import androidx.compose.ui.tooling.preview.Preview
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HocTapScreen(
     viewModel: AppViewModel,
@@ -39,6 +42,36 @@ fun HocTapScreen(
     val lessons by viewModel.lessons.collectAsState()
     val progressList by viewModel.progressList.collectAsState()
     
+    var activeLessonForPlayer by remember { mutableStateOf<Lesson?>(null) }
+
+    if (activeLessonForPlayer != null) {
+        LessonPlayerScreen(
+            lesson = activeLessonForPlayer!!,
+            viewModel = viewModel,
+            onBack = { activeLessonForPlayer = null }
+        )
+    } else {
+        HocTapContent(
+            courses = courses,
+            lessons = lessons,
+            progressList = progressList,
+            initialCategory = initialCategory,
+            onBack = onBack,
+            onLessonSelect = { activeLessonForPlayer = it }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun HocTapContent(
+    courses: List<Course>,
+    lessons: List<Lesson>,
+    progressList: List<ProgressDoc>,
+    initialCategory: String? = null,
+    onBack: (() -> Unit)? = null,
+    onLessonSelect: (Lesson) -> Unit
+) {
     // Category or Course filter state
     var selectedFilterKey by remember(initialCategory) {
         mutableStateOf(
@@ -77,20 +110,10 @@ fun HocTapScreen(
     }
 
     var searchQuery by remember { mutableStateOf("") }
-    var activeLessonForPlayer by remember { mutableStateOf<Lesson?>(null) }
 
     // Nếu người dùng đang tìm kiếm, phím Back trên thanh điều hướng sẽ xoá tìm kiếm trước
     BackHandler(enabled = searchQuery.isNotEmpty()) {
         searchQuery = ""
-    }
-
-    if (activeLessonForPlayer != null) {
-        LessonPlayerScreen(
-            lesson = activeLessonForPlayer!!,
-            viewModel = viewModel,
-            onBack = { activeLessonForPlayer = null }
-        )
-        return
     }
 
     // Map course id to course title for easy filtering
@@ -436,7 +459,7 @@ fun HocTapScreen(
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { activeLessonForPlayer = lesson },
+                                .clickable { onLessonSelect(lesson) },
                             shape = RoundedCornerShape(14.dp),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                             elevation = CardDefaults.cardElevation(2.dp)
@@ -497,25 +520,10 @@ fun HocTapScreen(
                                                     color = Color(0xFFC8E6C9)
                                                 ) {
                                                     Text(
-                                                        text = "Đã hoàn thành 100%",
+                                                        text = "Đã hoàn thành",
                                                         fontSize = 10.sp,
                                                         fontWeight = FontWeight.Bold,
                                                         color = Color(0xFF1B5E20),
-                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                                    )
-                                                }
-                                            }
-                                            if (hasScore) {
-                                                val percent = progress?.scorePercentage ?: 0
-                                                Surface(
-                                                    shape = RoundedCornerShape(4.dp),
-                                                    color = NavySecondary.copy(alpha = 0.15f)
-                                                ) {
-                                                    Text(
-                                                        text = "Điểm: ${progress?.score}/${progress?.totalQuestions} ($percent%)",
-                                                        fontSize = 10.sp,
-                                                        fontWeight = FontWeight.Bold,
-                                                        color = NavySecondary,
                                                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                                     )
                                                 }
@@ -534,6 +542,36 @@ fun HocTapScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun HocTapScreenPreview() {
+    val sampleCourses = listOf(
+        Course(id = "c1", title = "Giáo dục chính trị cơ bản", category = "gdct"),
+        Course(id = "c2", title = "Luật biển Việt Nam 2012", category = "gdpl"),
+        Course(id = "c3", title = "Lịch sử Hải quân Vùng 4", category = "lichsu")
+    )
+    val sampleLessons = listOf(
+        Lesson(id = "l1", courseId = "c1", title = "Bài 1: Tư tưởng Hồ Chí Minh về bảo vệ Tổ quốc", category = "gdct", description = "Tìm hiểu về tư tưởng Bác Hồ..."),
+        Lesson(id = "l2", courseId = "c2", title = "Bài 2: Quy định về đường cơ sở và lãnh hải", category = "gdpl", description = "Các quy định pháp lý về biển..."),
+        Lesson(id = "l3", courseId = "c3", title = "Bài 3: Truyền thống Đoàn tàu Không số", category = "lichsu", description = "Lịch sử đường Hồ Chí Minh trên biển...")
+    )
+    val sampleProgress = listOf(
+        ProgressDoc(lessonId = "l1", completed = true, score = 10, totalQuestions = 10, scorePercentage = 100),
+        ProgressDoc(lessonId = "l2", completed = false, score = 7, totalQuestions = 10, scorePercentage = 70)
+    )
+
+    MyApplicationTheme {
+        Surface(color = MaterialTheme.colorScheme.background) {
+            HocTapContent(
+                courses = sampleCourses,
+                lessons = sampleLessons,
+                progressList = sampleProgress,
+                onLessonSelect = {}
+            )
         }
     }
 }
