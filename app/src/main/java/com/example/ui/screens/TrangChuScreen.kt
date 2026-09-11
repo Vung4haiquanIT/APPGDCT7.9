@@ -407,34 +407,6 @@ fun TrangChuScreen(
                             fontSize = 18.sp,
                             color = MaterialTheme.colorScheme.onBackground
                         )
-
-                        if (savedDocsCount > 0) {
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = Color(0xFFE8F5E9),
-                                border = BorderStroke(1.dp, Color(0xFF81C784).copy(alpha = 0.7f)),
-                                modifier = Modifier.clickable { showSavedDocsDialog = true }
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Default.DownloadDone,
-                                        contentDescription = null,
-                                        tint = Color(0xFF2E7D32),
-                                        modifier = Modifier.size(13.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = "$savedDocsCount tài liệu đã lưu",
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF2E7D32)
-                                    )
-                                }
-                            }
-                        }
                     }
 
                     data class UtilityEntry(
