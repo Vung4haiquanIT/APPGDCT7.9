@@ -17,6 +17,10 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.tooling.preview.Preview
+import com.example.ui.theme.MyApplicationTheme
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import com.example.R
 import com.example.ui.theme.CreamBackground
 import com.example.ui.theme.GoldDark
@@ -181,5 +185,23 @@ fun TrongDongBackground(
 
         // 4. LỚP NỘI DUNG CHÍNH CỦA MÀN HÌNH
         content()
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun TrongDongBackgroundPreview() {
+    MyApplicationTheme {
+        TrongDongBackground {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+
+            }
+        }
     }
 }
