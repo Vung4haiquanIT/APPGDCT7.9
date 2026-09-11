@@ -23,7 +23,7 @@ fun Vung4LogoBadge(
         contentAlignment = Alignment.Center
     ) {
         Image(
-            painter = painterResource(id = R.drawable.ic_app_logo),
+            painter = painterResource(id = R.drawable.logov4),
             contentDescription = "Huy hiệu Vùng 4 Hải quân",
             modifier = Modifier.fillMaxSize(),
             contentScale = ContentScale.Fit
