@@ -74,13 +74,49 @@ fun getStandardFileName(title: String, format: String, urlString: String): Strin
         format.lowercase().contains("pdf") || urlString.contains(".pdf", ignoreCase = true) -> "pdf"
         format.lowercase().contains("docx") || urlString.contains(".docx", ignoreCase = true) -> "docx"
         format.lowercase().contains("doc") || urlString.contains(".doc", ignoreCase = true) -> "doc"
+        format.lowercase().contains("xlsx") || urlString.contains(".xlsx", ignoreCase = true) -> "xlsx"
+        format.lowercase().contains("xls") || urlString.contains(".xls", ignoreCase = true) -> "xls"
+        format.lowercase().contains("pptx") || urlString.contains(".pptx", ignoreCase = true) -> "pptx"
+        format.lowercase().contains("ppt") || urlString.contains(".ppt", ignoreCase = true) -> "ppt"
         else -> if (format.isNotBlank()) format.lowercase() else "docx"
     }
-    var cleanTitle = title.ifBlank { "TaiLieu_HocTap" }
-        .replace(Regex("[^a-zA-Z0-9_\\-\\s\u00C0-\u024F\u1EA0-\u1EF9]"), "_")
-        .trim()
+    var raw = title.ifBlank { "TaiLieu_HocTap" }
+    // Bỏ đuôi mở rộng đã có nếu có sẵn ở tiêu đề (tránh nhân đôi như .docx.docx)
+    val knownExtensions = listOf(".pdf", ".docx", ".doc", ".xlsx", ".xls", ".pptx", ".ppt")
+    for (knownExt in knownExtensions) {
+        if (raw.endsWith(knownExt, ignoreCase = true)) {
+            raw = raw.substring(0, raw.length - knownExt.length)
+            break
+        }
+    }
+    // Chỉ loại bỏ các ký tự thực sự cấm trong hệ thống tệp: \ / : * ? " < > |
+    // Giữ nguyên dấu chấm (.), chữ tiếng Việt, khoảng trắng, gạch nối
+    var cleanTitle = raw.replace(Regex("[\\\\/:*?\"<>|]"), "_").trim()
     if (cleanTitle.isEmpty()) cleanTitle = "TaiLieu_HocTap"
-    return if (cleanTitle.endsWith(".$ext", ignoreCase = true)) cleanTitle else "$cleanTitle.$ext"
+    return "$cleanTitle.$ext"
+}
+
+/**
+ * Chuẩn hóa khóa nhận diện tài liệu để chống nhân đôi (deduplication)
+ */
+fun normalizeDocKey(titleOrFileName: String, url: String = ""): String {
+    val clean = titleOrFileName.trim().lowercase()
+    var noExt = clean
+    val knownSuffixes = listOf(
+        ".pdf", ".docx", ".doc", ".xlsx", ".xls", ".pptx", ".ppt",
+        "_pdf", "_docx", "_doc", "_xlsx", "_xls", "_pptx", "_ppt"
+    )
+    for (suf in knownSuffixes) {
+        if (noExt.endsWith(suf)) {
+            noExt = noExt.substring(0, noExt.length - suf.length)
+            break
+        }
+    }
+    // Loại bỏ toàn bộ dấu chấm, gạch dưới, gạch ngang, khoảng trắng, ngoặc đơn
+    val key = noExt.replace(Regex("[_\\.\\-\\s\\(\\)\\[\\]]"), "")
+    if (key.isNotBlank()) return key
+    if (url.isNotBlank()) return Math.abs(url.hashCode()).toString()
+    return clean
 }
 
 /**
@@ -187,18 +223,41 @@ fun getSavedDocumentRecords(context: Context): List<SavedDocumentItem> {
 fun saveOrUpdateDocumentRecord(context: Context, item: SavedDocumentItem) {
     try {
         val currentList = getSavedDocumentRecords(context).toMutableList()
+        val itemKey = normalizeDocKey(item.title.ifBlank { item.fileName }, item.fileUrl)
         val index = currentList.indexOfFirst {
             (item.fileUrl.isNotBlank() && it.fileUrl == item.fileUrl) ||
             (item.id.isNotBlank() && it.id == item.id) ||
-            (item.fileName.isNotBlank() && it.fileName == item.fileName)
+            (item.fileName.isNotBlank() && it.fileName == item.fileName) ||
+            (itemKey.isNotBlank() && normalizeDocKey(it.title.ifBlank { it.fileName }, it.fileUrl) == itemKey)
         }
         if (index >= 0) {
             val old = currentList[index]
+            val preferOldLesson = old.lessonTitle.isNotBlank() && old.lessonTitle != "Tài liệu học tập"
+            val preferNewLesson = item.lessonTitle.isNotBlank() && item.lessonTitle != "Tài liệu học tập"
+            val finalLessonTitle = when {
+                preferNewLesson -> item.lessonTitle
+                preferOldLesson -> old.lessonTitle
+                else -> item.lessonTitle.ifBlank { old.lessonTitle }
+            }
+            val finalLessonId = when {
+                preferNewLesson -> item.lessonId
+                preferOldLesson -> old.lessonId
+                else -> item.lessonId.ifBlank { old.lessonId }
+            }
+            // Ưu tiên tiêu đề sạch có dấu chấm
+            val oldHasDot = old.title.contains(".")
+            val newHasDot = item.title.contains(".")
+            val finalTitle = when {
+                newHasDot && !oldHasDot -> item.title
+                oldHasDot && !newHasDot -> old.title
+                item.title.isNotBlank() -> item.title
+                else -> old.title
+            }
             currentList[index] = old.copy(
-                title = item.title.ifBlank { old.title },
-                fileName = item.fileName.ifBlank { old.fileName },
-                lessonId = item.lessonId.ifBlank { old.lessonId },
-                lessonTitle = item.lessonTitle.ifBlank { old.lessonTitle },
+                title = finalTitle,
+                fileName = if (item.fileName.contains(".") && !item.fileName.endsWith("_docx")) item.fileName else old.fileName,
+                lessonId = finalLessonId,
+                lessonTitle = finalLessonTitle,
                 localFilePath = item.localFilePath.ifBlank { old.localFilePath },
                 fileSize = if (item.fileSize > 0) item.fileSize else old.fileSize,
                 savedAt = if (item.savedAt > 0) item.savedAt else old.savedAt
@@ -243,11 +302,13 @@ fun writeSavedDocumentRecords(context: Context, list: List<SavedDocumentItem>) {
  */
 fun removeSavedDocument(context: Context, item: SavedDocumentItem) {
     try {
+        val targetKey = normalizeDocKey(item.title.ifBlank { item.fileName }, item.fileUrl)
         val currentList = getSavedDocumentRecords(context).toMutableList()
         currentList.removeAll { 
             (item.id.isNotBlank() && it.id == item.id) || 
             (item.fileUrl.isNotBlank() && it.fileUrl == item.fileUrl) || 
-            (item.fileName.isNotBlank() && it.fileName == item.fileName) 
+            (item.fileName.isNotBlank() && it.fileName == item.fileName) ||
+            (targetKey.isNotBlank() && normalizeDocKey(it.title.ifBlank { it.fileName }, it.fileUrl) == targetKey)
         }
         writeSavedDocumentRecords(context, currentList)
 
@@ -256,6 +317,7 @@ fun removeSavedDocument(context: Context, item: SavedDocumentItem) {
         val urls = prefs.getStringSet(KEY_DOWNLOADED_URLS, emptySet())?.toMutableSet() ?: mutableSetOf()
         ids.remove(item.id)
         ids.remove(item.fileName)
+        ids.remove(targetKey)
         urls.remove(item.fileUrl)
         prefs.edit().putStringSet(KEY_DOWNLOADED_IDS, ids).putStringSet(KEY_DOWNLOADED_URLS, urls).apply()
 
@@ -300,7 +362,8 @@ fun findCachedDocumentFile(context: Context, urlString: String, fileName: String
 
 /**
  * Lấy toàn bộ tài liệu đã lưu từ bài học:
- * Kết hợp từ danh sách bản ghi, storageFiles hệ thống và quét tệp cache nội bộ
+ * Kết hợp từ danh sách bản ghi, storageFiles hệ thống và quét tệp cache nội bộ.
+ * Tự động loại bỏ trùng lặp triệt để và dọn dẹp các bản ghi rác.
  */
 fun getAllSavedDocuments(
     context: Context,
@@ -308,66 +371,129 @@ fun getAllSavedDocuments(
     storageFiles: List<com.example.model.StorageFileItem> = emptyList()
 ): List<SavedDocumentItem> {
     val recorded = getSavedDocumentRecords(context).toMutableList()
-    val knownUrls = recorded.map { it.fileUrl }.filter { it.isNotBlank() }.toMutableSet()
-    val knownFileNames = recorded.map { it.fileName }.filter { it.isNotBlank() }.toMutableSet()
 
-    // 1. Quét storageFiles đính kèm các bài học đã tải/lưu
+    // Sử dụng LinkedHashMap với key chuẩn hóa để khử trùng lặp triệt để
+    val resultMap = mutableMapOf<String, SavedDocumentItem>()
+
+    fun mergeItem(item: SavedDocumentItem) {
+        val key = normalizeDocKey(item.title.ifBlank { item.fileName }, item.fileUrl)
+        val existing = resultMap[key]
+        if (existing == null) {
+            resultMap[key] = item
+        } else {
+            // Gộp 2 bản ghi: ưu tiên thông tin chính xác, đầy đủ nhất
+            val preferExistingLesson = existing.lessonTitle.isNotBlank() && existing.lessonTitle != "Tài liệu học tập"
+            val preferNewLesson = item.lessonTitle.isNotBlank() && item.lessonTitle != "Tài liệu học tập"
+
+            val finalLessonId = when {
+                preferExistingLesson -> existing.lessonId
+                preferNewLesson -> item.lessonId
+                else -> existing.lessonId.ifBlank { item.lessonId }
+            }
+            val finalLessonTitle = when {
+                preferExistingLesson -> existing.lessonTitle
+                preferNewLesson -> item.lessonTitle
+                else -> existing.lessonTitle.ifBlank { item.lessonTitle }
+            }
+
+            // Tiêu đề: ưu tiên tiêu đề sạch có dấu chấm, không bị biến dạng _docx
+            val existingHasDot = existing.title.contains(".")
+            val newHasDot = item.title.contains(".")
+            val finalTitle = when {
+                existingHasDot && !newHasDot -> existing.title
+                newHasDot && !existingHasDot -> item.title
+                existing.title.length >= item.title.length -> existing.title
+                else -> item.title
+            }
+
+            val finalFileName = if (existing.fileName.contains(".") && !existing.fileName.endsWith("_docx")) existing.fileName else item.fileName
+            val finalUrl = existing.fileUrl.ifBlank { item.fileUrl }
+            val finalPath = if (existing.localFilePath.isNotBlank() && File(existing.localFilePath).exists()) {
+                existing.localFilePath
+            } else if (item.localFilePath.isNotBlank() && File(item.localFilePath).exists()) {
+                item.localFilePath
+            } else {
+                existing.localFilePath.ifBlank { item.localFilePath }
+            }
+            val finalSize = maxOf(existing.fileSize, item.fileSize)
+            val finalSavedAt = maxOf(existing.savedAt, item.savedAt)
+
+            resultMap[key] = existing.copy(
+                title = finalTitle,
+                fileName = finalFileName,
+                fileUrl = finalUrl,
+                lessonId = finalLessonId,
+                lessonTitle = finalLessonTitle,
+                localFilePath = finalPath,
+                fileSize = finalSize,
+                savedAt = finalSavedAt
+            )
+        }
+    }
+
+    // 1. Thêm các bản ghi đã lưu trước đó
+    recorded.forEach { mergeItem(it) }
+
+    // 2. Bổ sung từ storageFiles đính kèm các bài học đã tải/lưu
     for (file in storageFiles) {
         if (file.downloadUrl.isBlank() && file.fileName.isBlank()) continue
         val isSaved = isDocumentSavedToDevice(context, file.id, file.downloadUrl, file.fileName, file.title)
         if (isSaved) {
-            if (file.downloadUrl !in knownUrls && file.fileName !in knownFileNames) {
-                val lesson = lessons.find { it.id == file.lessonId || it.id == file.entityId }
-                val cachedFile = findCachedDocumentFile(context, file.downloadUrl, file.fileName)
-                val docItem = SavedDocumentItem(
-                    id = file.id,
-                    title = file.title.ifBlank { file.fileName },
-                    fileName = file.fileName,
-                    fileUrl = file.downloadUrl,
-                    lessonId = file.lessonId.ifBlank { file.entityId },
-                    lessonTitle = lesson?.title ?: "Tài liệu học tập",
-                    localFilePath = cachedFile?.absolutePath ?: "",
-                    fileSize = cachedFile?.length() ?: 0L,
-                    savedAt = if (file.createdAt > 0) file.createdAt else System.currentTimeMillis()
-                )
-                recorded.add(docItem)
-                if (file.downloadUrl.isNotBlank()) knownUrls.add(file.downloadUrl)
-                if (file.fileName.isNotBlank()) knownFileNames.add(file.fileName)
-                saveOrUpdateDocumentRecord(context, docItem)
-            }
+            val lesson = lessons.find { it.id == file.lessonId || it.id == file.entityId }
+            val cachedFile = findCachedDocumentFile(context, file.downloadUrl, file.fileName)
+            val docItem = SavedDocumentItem(
+                id = file.id,
+                title = file.title.ifBlank { file.fileName },
+                fileName = file.fileName,
+                fileUrl = file.downloadUrl,
+                lessonId = file.lessonId.ifBlank { file.entityId },
+                lessonTitle = lesson?.title ?: "Tài liệu học tập",
+                localFilePath = cachedFile?.absolutePath ?: "",
+                fileSize = cachedFile?.length() ?: 0L,
+                savedAt = if (file.createdAt > 0) file.createdAt else System.currentTimeMillis()
+            )
+            mergeItem(docItem)
         }
     }
 
-    // 2. Quét thư mục lưu trữ cache tệp nội bộ
+    // 3. Quét tệp trong thư mục cache nội bộ "documents"
+    // Chỉ cập nhật localFilePath & fileSize cho các tài liệu tương ứng, KHÔNG tạo thêm bản sao
     try {
         val dir = File(context.filesDir, "documents")
         if (dir.exists()) {
             val files = dir.listFiles() ?: emptyArray()
             for (f in files) {
                 if (f.isFile && f.length() > 100) {
-                    val base = f.name.substringBeforeLast("_")
-                    if (f.name !in knownFileNames && base !in knownFileNames) {
-                        val matchingLesson = lessons.find { l -> f.name.contains(l.id, true) }
-                        val docItem = SavedDocumentItem(
-                            id = f.name,
-                            title = if (base.isNotBlank()) base else f.name,
-                            fileName = f.name,
-                            fileUrl = "",
-                            lessonId = matchingLesson?.id ?: "",
-                            lessonTitle = matchingLesson?.title ?: "Tài liệu học tập",
-                            localFilePath = f.absolutePath,
-                            fileSize = f.length(),
-                            savedAt = f.lastModified()
-                        )
-                        recorded.add(docItem)
-                        knownFileNames.add(f.name)
+                    val fileKey = normalizeDocKey(f.name)
+                    // Kiểm tra xem file cache này có khớp với tài liệu nào đã có không
+                    val matchingEntry = resultMap.entries.find { (k, item) ->
+                        k == fileKey ||
+                        (item.fileUrl.isNotBlank() && f.name.contains(Math.abs(item.fileUrl.hashCode()).toString())) ||
+                        normalizeDocKey(item.fileName) == fileKey ||
+                        normalizeDocKey(item.title) == fileKey
+                    }
+                    if (matchingEntry != null) {
+                        val item = matchingEntry.value
+                        if (item.localFilePath.isBlank() || !File(item.localFilePath).exists()) {
+                            resultMap[matchingEntry.key] = item.copy(
+                                localFilePath = f.absolutePath,
+                                fileSize = if (item.fileSize <= 0L) f.length() else item.fileSize
+                            )
+                        }
                     }
                 }
             }
         }
     } catch (_: Exception) {}
 
-    return recorded.sortedByDescending { it.savedAt }
+    val cleanList = resultMap.values.sortedByDescending { it.savedAt }
+
+    // Đồng bộ ngược lại vào SharedPreferences để loại bỏ triệt để các bản ghi rác trùng lặp
+    if (cleanList.size != recorded.size) {
+        writeSavedDocumentRecords(context, cleanList)
+    }
+
+    return cleanList
 }
 
 /**
@@ -1454,12 +1580,12 @@ fun InAppDocumentViewerDialog(
                         } else if (localFile != null && localFile!!.exists()) {
                             OutlinedButton(
                                 onClick = {
-                                    val okSystem = downloadFileViaSystemManager(context, fileUrl, fileTitle, standardFileName)
                                     localFile?.let { file ->
                                         saveToDeviceDownloads(context, file, standardFileName)
                                     }
-                                    markFileAsDownloaded(context, fileTitle, fileUrl, standardFileName)
+                                    markFileAsDownloaded(context, fileTitle, fileUrl, standardFileName, localPath = localFile!!.absolutePath, fileSize = localFile!!.length())
                                     isSavedToDeviceInDialog = true
+                                    Toast.makeText(context, "Đã lưu tệp vào thư mục Downloads của máy", Toast.LENGTH_SHORT).show()
                                 },
                                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                                 shape = RoundedCornerShape(20.dp),
@@ -1472,14 +1598,19 @@ fun InAppDocumentViewerDialog(
                         } else {
                             OutlinedButton(
                                 onClick = {
-                                    downloadFileViaSystemManager(context, fileUrl, fileTitle, standardFileName)
-                                    markFileAsDownloaded(context, fileTitle, fileUrl, standardFileName)
-                                    isSavedToDeviceInDialog = true
                                     coroutineScope.launch {
                                         val (downloaded, _) = downloadFileToAppStorage(context, fileUrl, standardFileName)
                                         if (downloaded != null && downloaded.exists()) {
                                             localFile = downloaded
                                             isWebViewMode = false
+                                            saveToDeviceDownloads(context, downloaded, standardFileName)
+                                            markFileAsDownloaded(context, fileTitle, fileUrl, standardFileName, localPath = downloaded.absolutePath, fileSize = downloaded.length())
+                                            isSavedToDeviceInDialog = true
+                                            Toast.makeText(context, "Đã tải & lưu tệp vào thư mục Downloads của máy", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            downloadFileViaSystemManager(context, fileUrl, fileTitle, standardFileName)
+                                            markFileAsDownloaded(context, fileTitle, fileUrl, standardFileName)
+                                            isSavedToDeviceInDialog = true
                                         }
                                     }
                                 },
@@ -1489,7 +1620,7 @@ fun InAppDocumentViewerDialog(
                             ) {
                                 Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(15.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("Tải tệp về máy", fontSize = 12.sp)
+                                Text("Tải về máy", fontSize = 12.sp)
                             }
                         }
 

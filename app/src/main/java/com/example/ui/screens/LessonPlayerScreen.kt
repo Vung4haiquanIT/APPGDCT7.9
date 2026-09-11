@@ -931,24 +931,13 @@ fun LessonPlayerScreen(
                                                         onClick = {
                                                             if (isDownloading) return@OutlinedButton
                                                             val stdName = com.example.ui.components.getStandardFileName(file.title.ifBlank { file.fileName }, "", file.downloadUrl)
-                                                            com.example.ui.components.downloadFileViaSystemManager(context, file.downloadUrl, file.title, stdName)
-                                                            com.example.ui.components.markFileAsDownloaded(
-                                                                context = context,
-                                                                fileId = file.id,
-                                                                fileUrl = file.downloadUrl,
-                                                                fileName = stdName,
-                                                                lessonId = lesson.id,
-                                                                lessonTitle = lesson.title,
-                                                                fileTitle = file.title.ifBlank { file.fileName }
-                                                            )
-                                                            savedToDeviceFileIds = savedToDeviceFileIds + file.id
                                                             downloadingFileIds = downloadingFileIds + file.id
                                                             coroutineScope.launch {
                                                                 val (downloadedFile, err) = com.example.ui.components.downloadFileToAppStorage(context, file.downloadUrl, stdName)
                                                                 downloadingFileIds = downloadingFileIds - file.id
                                                                 if (downloadedFile != null && downloadedFile.exists()) {
                                                                     cachedFileIds = cachedFileIds + file.id
-                                                                    val savedOk = com.example.ui.components.saveToDeviceDownloads(context, downloadedFile, stdName)
+                                                                    com.example.ui.components.saveToDeviceDownloads(context, downloadedFile, stdName)
                                                                     com.example.ui.components.markFileAsDownloaded(
                                                                         context = context,
                                                                         fileId = file.id,
@@ -967,11 +956,26 @@ fun LessonPlayerScreen(
                                                                         android.widget.Toast.LENGTH_LONG
                                                                     ).show()
                                                                 } else {
-                                                                    android.widget.Toast.makeText(
-                                                                        context,
-                                                                        "Lỗi tải tài liệu: ${err ?: "Không thể kết nối"}",
-                                                                        android.widget.Toast.LENGTH_SHORT
-                                                                    ).show()
+                                                                    // Fallback nếu tải qua AppStorage thất bại
+                                                                    val okSystem = com.example.ui.components.downloadFileViaSystemManager(context, file.downloadUrl, file.title, stdName)
+                                                                    if (okSystem) {
+                                                                        com.example.ui.components.markFileAsDownloaded(
+                                                                            context = context,
+                                                                            fileId = file.id,
+                                                                            fileUrl = file.downloadUrl,
+                                                                            fileName = stdName,
+                                                                            lessonId = lesson.id,
+                                                                            lessonTitle = lesson.title,
+                                                                            fileTitle = file.title.ifBlank { file.fileName }
+                                                                        )
+                                                                        savedToDeviceFileIds = savedToDeviceFileIds + file.id
+                                                                    } else {
+                                                                        android.widget.Toast.makeText(
+                                                                            context,
+                                                                            "Lỗi tải tài liệu: ${err ?: "Không thể kết nối"}",
+                                                                            android.widget.Toast.LENGTH_SHORT
+                                                                        ).show()
+                                                                    }
                                                                 }
                                                             }
                                                         },
