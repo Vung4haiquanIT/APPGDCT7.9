@@ -17,6 +17,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
+import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -668,6 +669,30 @@ private fun ExamOverviewView(
         verticalArrangement = Arrangement.spacedBy(12.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        // Tiêu đề danh sách bài kiểm tra
+        item {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp, bottom = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.Assignment,
+                    contentDescription = null,
+                    tint = RedPrimary,
+                    modifier = Modifier.size(22.dp)
+                )
+                Text(
+                    text = "DANH SÁCH BÀI KIỂM TRA",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp,
+                    color = RedPrimary
+                )
+            }
+        }
+
         // List of Active Exam Sessions from Web Admin
         if (displaySessions.isEmpty()) {
             item {
