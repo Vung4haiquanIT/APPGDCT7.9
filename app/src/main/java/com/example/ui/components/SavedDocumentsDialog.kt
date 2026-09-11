@@ -77,11 +77,7 @@ fun SavedDocumentsDialog(
                                 fontSize = 18.sp,
                                 color = RedPrimary
                             )
-                            Text(
-                                text = "${savedDocs.size} tài liệu tải từ các bài học",
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+//
                         }
                     },
                     navigationIcon = {
@@ -150,7 +146,7 @@ fun SavedDocumentsDialog(
                                 )
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
-                                    text = "Tài liệu tải về từ các bài học được lưu an toàn trên máy, cho phép đọc và ôn luyện mọi lúc mọi nơi ngay cả khi không có mạng.",
+                                    text = "Tài liệu tải về từ các bài học, cho phép xem ngay cả khi ngoại tuyến.",
                                     fontSize = 11.5.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     lineHeight = 16.sp
@@ -227,7 +223,7 @@ fun SavedDocumentsDialog(
                                 Spacer(modifier = Modifier.height(6.dp))
                                 Text(
                                     text = if (searchQuery.isNotBlank()) "Vui lòng thử tìm kiếm bằng từ khóa khác."
-                                    else "Khi học các bài học, bạn có thể nhấn 'Xem ngay' hoặc 'Tải về máy' để lưu tài liệu đọc ngoại tuyến không cần mạng.",
+                                    else "Khi học các bài học, có thể nhấn 'Xem ngay' hoặc 'Tải về máy' để lưu tài liệu đọc ngoại tuyến.",
                                     fontSize = 12.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     textAlign = TextAlign.Center,
