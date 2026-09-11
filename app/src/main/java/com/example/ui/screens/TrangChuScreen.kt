@@ -92,6 +92,14 @@ fun TrangChuScreen(
         orderedLessonIds.mapNotNull { lessonMap[it] }
     }
 
+    // Danh sách bài học mới nhất (hiển thị tối đa 3 bài học)
+    val latestLessons = remember(lessons) {
+        lessons.sortedWith(
+            compareByDescending<Lesson> { it.createdAt.coerceAtLeast(it.updatedAt) }
+                .thenByDescending { it.id }
+        ).take(3)
+    }
+
     val banners by viewModel.banners.collectAsState()
     val bannerList = remember(banners) {
         if (banners.isNotEmpty()) banners.take(5) else BannerItem.getDefaultMilitaryBanners()
@@ -525,7 +533,7 @@ fun TrangChuScreen(
                 }
             }
 
-            // Danh sách bài học đã đăng tải (Real uploaded lessons)
+            // Danh sách bài học mới nhất
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -533,7 +541,7 @@ fun TrangChuScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Bài học đã đăng tải (${lessons.size})",
+                        text = "Bài học mới nhất",
                         fontWeight = FontWeight.Bold,
                         fontSize = 18.sp,
                         color = MaterialTheme.colorScheme.onBackground
@@ -545,7 +553,7 @@ fun TrangChuScreen(
                 }
             }
 
-            if (lessons.isEmpty()) {
+            if (latestLessons.isEmpty()) {
                 item {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
@@ -571,7 +579,7 @@ fun TrangChuScreen(
                     }
                 }
             } else {
-                items(lessons.take(5)) { lesson ->
+                items(latestLessons) { lesson ->
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
