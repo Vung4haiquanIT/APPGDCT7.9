@@ -1,6 +1,12 @@
 package com.example.ui.screens
 
+import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -24,6 +30,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -34,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import coil.compose.AsyncImage
 import com.example.model.ExamResultDoc
 import com.example.ui.components.LoginDialog
 import com.example.ui.components.Vung4LogoBadge
@@ -52,6 +61,7 @@ fun CaNhanScreen(
     onNavigateToThongBao: () -> Unit = {},
     onNavigateToDebug: () -> Unit = {}
 ) {
+    val context = LocalContext.current
     val currentUser by viewModel.currentUser.collectAsState()
     val userDoc by viewModel.userDoc.collectAsState()
     val userExamResults by viewModel.userExamResults.collectAsState()
@@ -59,16 +69,32 @@ fun CaNhanScreen(
     val authMessage by viewModel.authMessage.collectAsState()
 
     var showLoginDialog by remember { mutableStateOf(false) }
+    var showAvatarOptionsDialog by remember { mutableStateOf(false) }
     var showAllExamHistoryDialog by remember { mutableStateOf(false) }
     val dateFormat = remember { SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()) }
 
-    val isAuthenticated = currentUser != null || userDoc != null
+    val photoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            viewModel.updateUserAvatar(uri) { success, error ->
+                if (success) {
+                    Toast.makeText(context, "Đã cập nhật ảnh đại diện thành công!", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(context, "Không thể cập nhật ảnh: ${error ?: "Lỗi không xác định"}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    val isAuthenticated = currentUser != null || (userDoc != null && !userDoc?.id.isNullOrBlank())
 
     Scaffold(
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
+                windowInsets = WindowInsets(0, 0, 0, 0),
                 title = {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -111,24 +137,82 @@ fun CaNhanScreen(
                             .padding(24.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        // Avatar Huy hiệu
+                        // Avatar Huy hiệu hoặc Ảnh đại diện tùy chọn
                         Box(contentAlignment = Alignment.BottomEnd) {
-                            Vung4LogoBadge(size = 84.dp)
-                            Box(
+                            Surface(
                                 modifier = Modifier
-                                    .size(24.dp)
+                                    .size(92.dp)
                                     .clip(CircleShape)
-                                    .background(if (isAuthenticated) Color(0xFF16A34A) else Color(0xFFEAB308))
-                                    .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape),
-                                contentAlignment = Alignment.Center
+                                    .clickable { showAvatarOptionsDialog = true },
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.surface,
+                                border = BorderStroke(2.5.dp, GoldPrimary),
+                                shadowElevation = 3.dp
                             ) {
-                                Icon(
-                                    imageVector = if (isAuthenticated) Icons.Default.Check else Icons.Default.Person,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(14.dp)
-                                )
+                                val hasCustomAvatar = !userDoc?.avatarUrl.isNullOrEmpty()
+                                if (hasCustomAvatar) {
+                                    AsyncImage(
+                                        model = userDoc?.avatarUrl,
+                                        contentDescription = "Ảnh đại diện cá nhân",
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .clip(CircleShape),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                } else {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(6.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Vung4LogoBadge(size = 76.dp)
+                                    }
+                                }
                             }
+
+                            // Nút Camera nhỏ góc dưới bên phải
+                            Surface(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .offset(x = 2.dp, y = 2.dp)
+                                    .clickable { showAvatarOptionsDialog = true },
+                                shape = CircleShape,
+                                color = RedPrimary,
+                                border = BorderStroke(2.dp, MaterialTheme.colorScheme.surface),
+                                shadowElevation = 3.dp
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.CameraAlt,
+                                        contentDescription = "Đổi ảnh đại diện",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        // Nút bấm "Đổi ảnh đại diện"
+                        TextButton(
+                            onClick = { showAvatarOptionsDialog = true },
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CameraAlt,
+                                contentDescription = null,
+                                modifier = Modifier.size(15.dp),
+                                tint = RedPrimary
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Đổi ảnh đại diện",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = RedPrimary
+                            )
                         }
 
                         Spacer(modifier = Modifier.height(16.dp))
@@ -175,38 +259,20 @@ fun CaNhanScreen(
                                 color = MaterialTheme.colorScheme.onSurface
                             )
 
-                            Spacer(modifier = Modifier.height(6.dp))
-
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
+                            // Cấp bậc
+                            if (!userDoc?.rank.isNullOrEmpty()) {
+                                Spacer(modifier = Modifier.height(6.dp))
                                 Surface(
                                     shape = RoundedCornerShape(8.dp),
-                                    color = RedPrimary.copy(alpha = 0.12f)
+                                    color = GoldPrimary.copy(alpha = 0.2f)
                                 ) {
                                     Text(
-                                        text = userDoc?.role?.ifEmpty { "Học viên" } ?: "Học viên",
+                                        text = userDoc?.rank ?: "",
                                         fontSize = 12.sp,
-                                        color = RedPrimary,
-                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFFB45309),
+                                        fontWeight = FontWeight.SemiBold,
                                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                                     )
-                                }
-
-                                if (!userDoc?.rank.isNullOrEmpty()) {
-                                    Surface(
-                                        shape = RoundedCornerShape(8.dp),
-                                        color = GoldPrimary.copy(alpha = 0.2f)
-                                    ) {
-                                        Text(
-                                            text = userDoc?.rank ?: "",
-                                            fontSize = 12.sp,
-                                            color = Color(0xFFB45309),
-                                            fontWeight = FontWeight.SemiBold,
-                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                                        )
-                                    }
                                 }
                             }
 
@@ -256,7 +322,13 @@ fun CaNhanScreen(
             // THÀNH TÍCH ĐỢT THI & KIỂM TRA (ĐỒNG BỘ WEB QUẢN TRỊ)
             item {
                 val totalExams = userExamResults.size
-                val avgPercent = if (totalExams > 0) userExamResults.map { it.scorePercentage }.average().toInt() else 0
+                val avgScore10 = if (totalExams > 0) {
+                    userExamResults.map {
+                        if (it.totalQuestions > 0) (it.score.toDouble() * 10.0 / it.totalQuestions.toDouble())
+                        else (it.scorePercentage.toDouble() / 10.0)
+                    }.average()
+                } else 0.0
+                val avgScoreStr = String.format(Locale.US, "%.2f", avgScore10)
                 val passRate = if (totalExams > 0) (userExamResults.count { it.passed } * 100 / totalExams) else 0
 
                 Card(
@@ -365,7 +437,7 @@ fun CaNhanScreen(
                                     modifier = Modifier.padding(12.dp),
                                     horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
-                                    Text("$avgPercent%", fontWeight = FontWeight.Black, fontSize = 20.sp, color = NavySecondary)
+                                    Text(avgScoreStr, fontWeight = FontWeight.Black, fontSize = 20.sp, color = NavySecondary)
                                     Text("Điểm trung bình", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
@@ -467,13 +539,16 @@ fun CaNhanScreen(
 
                                             Spacer(modifier = Modifier.width(8.dp))
 
+                                            val examScore10 = if (res.totalQuestions > 0) (res.score.toDouble() * 10.0 / res.totalQuestions.toDouble()) else (res.scorePercentage.toDouble() / 10.0)
+                                            val examScoreStr = String.format(Locale.US, "%.2f", examScore10)
+
                                             Column(horizontalAlignment = Alignment.End) {
                                                 Surface(
                                                     shape = RoundedCornerShape(8.dp),
                                                     color = if (isPassed) Color(0xFFE8F5E9) else RedPrimary.copy(alpha = 0.12f)
                                                 ) {
                                                     Text(
-                                                        text = if (isPassed) "ĐẠT (${res.scorePercentage}%)" else "CHƯA ĐẠT (${res.scorePercentage}%)",
+                                                        text = if (isPassed) "ĐẠT ($examScoreStr điểm)" else "CHƯA ĐẠT ($examScoreStr điểm)",
                                                         fontSize = 11.sp,
                                                         fontWeight = FontWeight.Bold,
                                                         color = if (isPassed) Color(0xFF2E7D32) else RedPrimary,
@@ -538,57 +613,6 @@ fun CaNhanScreen(
                 }
             }
 
-            // THÔNG BÁO & NHẮC NHỞ HỌC TẬP
-            item {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onNavigateToThongBao() },
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(CircleShape)
-                                .background(RedPrimary.copy(alpha = 0.1f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Notifications,
-                                contentDescription = null,
-                                tint = RedPrimary,
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Thông báo & Nhắc nhở",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Text(
-                                text = "Thông báo từ Web Quản trị và nhắc nhở tiến độ học tập",
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-
 
             // THÔNG TIN ỨNG DỤNG GỌN GÀNG
             item {
@@ -633,6 +657,108 @@ fun CaNhanScreen(
                         onErrorCallback(err)
                     }
                 )
+            }
+        )
+    }
+
+    // HỘP THOẠI LỰA CHỌN ĐỔI ẢNH ĐẠI DIỆN
+    if (showAvatarOptionsDialog) {
+        AlertDialog(
+            onDismissRequest = { showAvatarOptionsDialog = false },
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AccountCircle,
+                        contentDescription = null,
+                        tint = RedPrimary
+                    )
+                    Text(
+                        text = "Ảnh đại diện",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 17.sp
+                    )
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "Chọn hình ảnh từ thiết bị để làm ảnh đại diện hoặc dùng huy hiệu mặc định của Vùng 4 Hải quân.",
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        lineHeight = 18.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    // Nút Chọn ảnh từ thư viện
+                    Button(
+                        onClick = {
+                            showAvatarOptionsDialog = false
+                            photoPickerLauncher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = RedPrimary,
+                            contentColor = Color.White
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PhotoLibrary,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Chọn ảnh từ thiết bị",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
+                        )
+                    }
+
+                    // Nút Khôi phục huy hiệu mặc định
+                    if (!userDoc?.avatarUrl.isNullOrEmpty()) {
+                        OutlinedButton(
+                            onClick = {
+                                showAvatarOptionsDialog = false
+                                viewModel.resetUserAvatar {
+                                    Toast.makeText(context, "Đã dùng lại huy hiệu mặc định", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Dùng huy hiệu Vùng 4 mặc định",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontWeight = FontWeight.Medium,
+                                fontSize = 13.sp
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showAvatarOptionsDialog = false }) {
+                    Text("Đóng", fontWeight = FontWeight.SemiBold)
+                }
             }
         )
     }
@@ -702,7 +828,13 @@ fun CaNhanScreen(
                             val totalExamsCount = userExamResults.size
                             val passedCount = userExamResults.count { it.passed }
                             val failedCount = totalExamsCount - passedCount
-                            val avgScore = if (totalExamsCount > 0) userExamResults.map { it.scorePercentage }.average().toInt() else 0
+                            val avgScoreDouble = if (totalExamsCount > 0) {
+                                userExamResults.map {
+                                    if (it.totalQuestions > 0) (it.score.toDouble() * 10.0 / it.totalQuestions.toDouble())
+                                    else (it.scorePercentage.toDouble() / 10.0)
+                                }.average()
+                            } else 0.0
+                            val avgScoreStr = String.format(Locale.US, "%.2f", avgScoreDouble)
 
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
@@ -733,7 +865,7 @@ fun CaNhanScreen(
                                             modifier = Modifier.weight(1f),
                                             horizontalAlignment = Alignment.CenterHorizontally
                                         ) {
-                                            Text("$avgScore%", fontWeight = FontWeight.Black, fontSize = 20.sp, color = NavySecondary)
+                                            Text(avgScoreStr, fontWeight = FontWeight.Black, fontSize = 20.sp, color = NavySecondary)
                                             Text("Điểm TB", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
                                         Column(
@@ -799,13 +931,16 @@ fun CaNhanScreen(
 
                                     Spacer(modifier = Modifier.width(10.dp))
 
+                                    val examScore10 = if (res.totalQuestions > 0) (res.score.toDouble() * 10.0 / res.totalQuestions.toDouble()) else (res.scorePercentage.toDouble() / 10.0)
+                                    val examScoreStr = String.format(Locale.US, "%.2f", examScore10)
+
                                     Column(horizontalAlignment = Alignment.End) {
                                         Surface(
                                             shape = RoundedCornerShape(8.dp),
                                             color = if (isPassed) Color(0xFFE8F5E9) else RedPrimary.copy(alpha = 0.12f)
                                         ) {
                                             Text(
-                                                text = if (isPassed) "ĐẠT (${res.scorePercentage}%)" else "CHƯA ĐẠT (${res.scorePercentage}%)",
+                                                text = if (isPassed) "ĐẠT ($examScoreStr điểm)" else "CHƯA ĐẠT ($examScoreStr điểm)",
                                                 fontSize = 11.sp,
                                                 fontWeight = FontWeight.Bold,
                                                 color = if (isPassed) Color(0xFF2E7D32) else RedPrimary,

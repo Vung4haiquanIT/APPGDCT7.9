@@ -185,6 +185,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 .putString("user_unit", user.unit)
                 .putString("user_rank", user.rank)
                 .putString("user_phone", user.phone)
+                .putString("user_avatar", user.avatarUrl)
+                .putString("user_avatar_${user.id}", user.avatarUrl)
                 .apply()
             Log.i(TAG, "[SESSION] Saved login session for ${user.name} (${user.id})")
         } catch (e: Exception) {
@@ -207,6 +209,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             val prefs = getApplication<Application>().getSharedPreferences("vung4_auth_prefs", Context.MODE_PRIVATE)
             val isLoggedIn = prefs.getBoolean("is_logged_in", false)
             val id = prefs.getString("user_id", "") ?: ""
+            val localAvatar = prefs.getString("user_avatar_${id}", "")?.ifEmpty {
+                prefs.getString("user_avatar", "")
+            } ?: ""
             if (isLoggedIn && id.isNotBlank()) {
                 val restored = UserDoc(
                     id = id,
@@ -215,7 +220,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     role = prefs.getString("user_role", "Học viên") ?: "Học viên",
                     unit = prefs.getString("user_unit", "Vùng 4 Hải Quân") ?: "Vùng 4 Hải Quân",
                     rank = prefs.getString("user_rank", "") ?: "",
-                    phone = prefs.getString("user_phone", "") ?: ""
+                    phone = prefs.getString("user_phone", "") ?: "",
+                    avatarUrl = localAvatar
                 )
                 _userDoc.value = restored
                 _userDocStatus.value = "CONNECTED (${restored.name})"
@@ -224,12 +230,106 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 syncPendingGuestProgressToFirestore(restored.id)
                 Log.i(TAG, "[SESSION] Restored login session for ${restored.name}")
                 restored
+            } else if (localAvatar.isNotEmpty()) {
+                // Khôi phục ảnh đại diện cho chế độ khách nếu có
+                val guestDoc = UserDoc(name = "Học viên", avatarUrl = localAvatar)
+                _userDoc.value = guestDoc
+                null
             } else {
                 null
             }
         } catch (e: Exception) {
             Log.e(TAG, "[SESSION RESTORE ERROR] ${e.localizedMessage}", e)
             null
+        }
+    }
+
+    fun updateUserAvatar(uri: android.net.Uri, onComplete: ((Boolean, String?) -> Unit)? = null) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val context = getApplication<Application>()
+                val avatarDir = java.io.File(context.filesDir, "avatars")
+                if (!avatarDir.exists()) avatarDir.mkdirs()
+
+                val userId = _userDoc.value?.id.takeIf { !it.isNullOrBlank() } ?: "local_user"
+                val targetFile = java.io.File(avatarDir, "avatar_${userId}_${System.currentTimeMillis()}.jpg")
+
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    targetFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+
+                val avatarPath = targetFile.absolutePath
+
+                // Lưu vào SharedPreferences để ghi nhớ dài hạn
+                val prefs = context.getSharedPreferences("vung4_auth_prefs", Context.MODE_PRIVATE)
+                prefs.edit()
+                    .putString("user_avatar_${userId}", avatarPath)
+                    .putString("user_avatar", avatarPath)
+                    .apply()
+
+                // Cập nhật state in-memory
+                val current = _userDoc.value
+                val updated = if (current != null) {
+                    current.copy(avatarUrl = avatarPath)
+                } else {
+                    UserDoc(name = "Học viên", avatarUrl = avatarPath)
+                }
+                _userDoc.value = updated
+
+                // Đồng bộ lên Firestore nếu tài khoản đã đăng nhập
+                if (db != null && current != null && current.id.isNotBlank()) {
+                    try {
+                        db.collection("users").document(current.id)
+                            .update("avatarUrl", avatarPath)
+                        Log.i(TAG, "[AVATAR] Updated avatarUrl in Firestore for ${current.id}")
+                    } catch (dbEx: Exception) {
+                        Log.w(TAG, "[AVATAR FIRESTORE SYNC] Notice: ${dbEx.localizedMessage}")
+                    }
+                }
+
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    onComplete?.invoke(true, null)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "[AVATAR ERROR] Failed to save avatar: ${e.message}", e)
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    onComplete?.invoke(false, e.localizedMessage)
+                }
+            }
+        }
+    }
+
+    fun resetUserAvatar(onComplete: (() -> Unit)? = null) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val context = getApplication<Application>()
+                val userId = _userDoc.value?.id.takeIf { !it.isNullOrBlank() } ?: "local_user"
+                val prefs = context.getSharedPreferences("vung4_auth_prefs", Context.MODE_PRIVATE)
+                prefs.edit()
+                    .remove("user_avatar_${userId}")
+                    .remove("user_avatar")
+                    .apply()
+
+                val current = _userDoc.value
+                if (current != null) {
+                    _userDoc.value = current.copy(avatarUrl = "")
+                    if (db != null && current.id.isNotBlank()) {
+                        try {
+                            db.collection("users").document(current.id)
+                                .update("avatarUrl", "")
+                        } catch (e: Exception) {
+                            Log.w(TAG, "[AVATAR RESET FIRESTORE] Notice: ${e.message}")
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "[AVATAR RESET ERROR] ${e.message}")
+            }
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                onComplete?.invoke()
+            }
         }
     }
 
@@ -679,12 +779,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 val doc = db.collection("users").document(uid).get().await()
                 if (doc.exists()) {
                     val userDocObj = UserDoc.fromDoc(doc)
-                    _userDoc.value = userDocObj
-                    _userDocStatus.value = "CONNECTED (${userDocObj.name})"
-                    saveUserSession(userDocObj)
-                    fetchProgress(userDocObj.id)
-                    fetchExamResults(userDocObj.id)
-                    syncPendingGuestProgressToFirestore(userDocObj.id)
+                    val prefs = getApplication<Application>().getSharedPreferences("vung4_auth_prefs", Context.MODE_PRIVATE)
+                    val localAvatar = prefs.getString("user_avatar_${userDocObj.id}", "")?.ifEmpty {
+                        prefs.getString("user_avatar", "")
+                    } ?: ""
+                    val finalUserDoc = if (userDocObj.avatarUrl.isEmpty() && localAvatar.isNotEmpty()) {
+                        userDocObj.copy(avatarUrl = localAvatar)
+                    } else userDocObj
+                    _userDoc.value = finalUserDoc
+                    _userDocStatus.value = "CONNECTED (${finalUserDoc.name})"
+                    saveUserSession(finalUserDoc)
+                    fetchProgress(finalUserDoc.id)
+                    fetchExamResults(finalUserDoc.id)
+                    syncPendingGuestProgressToFirestore(finalUserDoc.id)
                     Log.i(TAG, "[USERS] User doc found for UID: $uid")
                 } else {
                     _userDocStatus.value = "NOT FOUND (Document does not exist)"
@@ -1146,9 +1253,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
                             // Xác thực thành công tài khoản từ Web Quản Trị!
                             val userDocObj = UserDoc.fromDoc(matchedDoc)
-                            _userDoc.value = userDocObj
-                            _userDocStatus.value = "CONNECTED (${userDocObj.name})"
-                            saveUserSession(userDocObj)
+                            val prefs = getApplication<Application>().getSharedPreferences("vung4_auth_prefs", Context.MODE_PRIVATE)
+                            val localAvatar = prefs.getString("user_avatar_${userDocObj.id}", "")?.ifEmpty {
+                                prefs.getString("user_avatar", "")
+                            } ?: ""
+                            val finalUserDoc = if (userDocObj.avatarUrl.isEmpty() && localAvatar.isNotEmpty()) {
+                                userDocObj.copy(avatarUrl = localAvatar)
+                            } else userDocObj
+                            _userDoc.value = finalUserDoc
+                            _userDocStatus.value = "CONNECTED (${finalUserDoc.name})"
+                            saveUserSession(finalUserDoc)
                             fetchProgress(matchedDoc.id)
                             fetchExamResults(matchedDoc.id)
                             syncPendingGuestProgressToFirestore(matchedDoc.id)

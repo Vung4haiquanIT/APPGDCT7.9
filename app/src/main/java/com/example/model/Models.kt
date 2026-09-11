@@ -200,6 +200,7 @@ data class UserDoc(
     val unit: String = "Vùng 4 Hải Quân",
     val rank: String = "",
     val phone: String = "",
+    val avatarUrl: String = "",
     val permissions: List<String> = emptyList(),
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
@@ -219,6 +220,7 @@ data class UserDoc(
                 unit = doc.getString("unit") ?: doc.getString("donVi") ?: "Vùng 4 Hải Quân",
                 rank = doc.getString("rank") ?: doc.getString("capBac") ?: doc.getString("chucVu") ?: "",
                 phone = doc.getString("phone") ?: doc.getString("soDienThoai") ?: "",
+                avatarUrl = doc.getString("avatarUrl") ?: doc.getString("avatar") ?: doc.getString("photoUrl") ?: doc.getString("hinhDaiDien") ?: "",
                 permissions = permsList,
                 createdAt = parseTime(doc.get("createdAt")),
                 updatedAt = parseTime(doc.get("updatedAt"))

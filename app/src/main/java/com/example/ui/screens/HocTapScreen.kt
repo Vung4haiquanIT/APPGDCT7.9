@@ -305,24 +305,18 @@ fun HocTapContent(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
+                windowInsets = WindowInsets(0, 0, 0, 0),
                 title = {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Vung4LogoBadge(size = 32.dp)
-                        Column {
-                            Text(
-                                text = "HỌC TẬP CHUYÊN ĐỀ",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 16.sp
-                            )
-                            Text(
-                                text = "Vùng 4 Hải quân - Hệ thống bài giảng",
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f)
-                            )
-                        }
+                        Text(
+                            text = "HỌC TẬP CHUYÊN ĐỀ",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp
+                        )
                     }
                 },
                 navigationIcon = {
