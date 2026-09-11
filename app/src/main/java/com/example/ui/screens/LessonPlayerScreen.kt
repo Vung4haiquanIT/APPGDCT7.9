@@ -30,6 +30,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -63,6 +64,14 @@ fun LessonPlayerScreen(
     viewModel: AppViewModel,
     onBack: () -> Unit
 ) {
+    // Ẩn thanh điều hướng dưới đáy khi xem bài học để tránh bấm nhầm
+    DisposableEffect(Unit) {
+        viewModel.setViewingLesson(true)
+        onDispose {
+            viewModel.setViewingLesson(false)
+        }
+    }
+
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val contents by viewModel.contents.collectAsState()
@@ -419,6 +428,7 @@ fun LessonPlayerScreen(
             snackbarHost = { SnackbarHost(snackbarHostState) },
             topBar = {
                 TopAppBar(
+                    windowInsets = WindowInsets(0, 0, 0, 0),
                     navigationIcon = {
                         IconButton(onClick = onBack) {
                             Icon(
@@ -431,45 +441,20 @@ fun LessonPlayerScreen(
                     title = {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(end = 8.dp)
                         ) {
-                            Vung4LogoBadge(size = 36.dp)
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = lesson.title.ifEmpty { "Chi tiết bài học" },
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 15.sp,
-                                    maxLines = 2,
-                                    lineHeight = 19.sp,
-                                    color = Color.White
-                                )
-                                if (isLoggedIn) {
-                                    Text(
-                                        text = "${userDoc?.name ?: currentUser?.email ?: ""} • ${userDoc?.unit ?: "Vùng 4 Hải Quân"}",
-                                        fontSize = 12.sp,
-                                        color = Color.White.copy(alpha = 0.9f),
-                                        maxLines = 1
-                                    )
-                                }
-                            }
-
-                            // Hiển thị phần trăm tiến độ bài học gọn gàng trên thanh tiêu đề
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = if (progressPercentage == 100) Color(0xFF2E7D32) else GoldPrimary,
-                                shadowElevation = 2.dp
-                            ) {
-                                Text(
-                                    text = "$progressPercentage%",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp,
-                                    color = if (progressPercentage == 100) Color.White else Color(0xFF8B0000),
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                                )
-                            }
+                            Vung4LogoBadge(size = 32.dp)
+                            Text(
+                                text = lesson.title.ifEmpty { "Chi tiết bài học" },
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                color = Color.White
+                            )
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
@@ -484,15 +469,6 @@ fun LessonPlayerScreen(
                     .fillMaxSize()
                     .padding(padding)
             ) {
-            // Thanh chỉ báo phần trăm tiến độ thanh mảnh, hiện đại
-            LinearProgressIndicator(
-                progress = { progressPercentage / 100f },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(3.dp),
-                color = if (progressPercentage == 100) Color(0xFF2E7D32) else GoldPrimary,
-                trackColor = MaterialTheme.colorScheme.surfaceVariant
-            )
 
             // Tabs học tập
             ScrollableTabRow(

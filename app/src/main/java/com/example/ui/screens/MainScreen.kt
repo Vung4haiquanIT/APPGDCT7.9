@@ -32,6 +32,7 @@ fun MainScreen(viewModel: AppViewModel) {
     val currentRoute = backStack.lastOrNull() ?: Screen.TrangChu.route
     var selectedCategoryForHocTap by remember { mutableStateOf<String?>(null) }
     var isExamTaking by remember { mutableStateOf(false) }
+    val isViewingLesson by viewModel.isViewingLesson.collectAsState()
     var lastBackPressTime by remember { mutableLongStateOf(0L) }
 
     fun navigateTo(route: String) {
@@ -53,7 +54,7 @@ fun MainScreen(viewModel: AppViewModel) {
     }
 
     // Xử lý nút Back của hệ thống trên thanh điều hướng điện thoại
-    BackHandler(enabled = !isExamTaking) {
+    BackHandler(enabled = !isExamTaking && !isViewingLesson) {
         if (backStack.size > 1) {
             navigateBack()
         } else {
@@ -78,7 +79,7 @@ fun MainScreen(viewModel: AppViewModel) {
         Scaffold(
             containerColor = Color.Transparent,
             bottomBar = {
-                if (currentRoute != Screen.Debug.route && currentRoute != Screen.ThongBao.route && !isExamTaking) {
+                if (currentRoute != Screen.Debug.route && currentRoute != Screen.ThongBao.route && !isExamTaking && !isViewingLesson) {
                     NavigationBar(
                         containerColor = Color.White.copy(alpha = 0.98f),
                         contentColor = RedPrimary,

@@ -108,6 +108,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
+    private val _isViewingLesson = MutableStateFlow(false)
+    val isViewingLesson: StateFlow<Boolean> = _isViewingLesson.asStateFlow()
+
+    fun setViewingLesson(isViewing: Boolean) {
+        _isViewingLesson.value = isViewing
+    }
+
     // Listeners
     private var coursesListener: ListenerRegistration? = null
     private var lessonsListener: ListenerRegistration? = null
