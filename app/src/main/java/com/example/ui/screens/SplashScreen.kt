@@ -144,7 +144,7 @@ fun SplashScreen(
 
                 // Logo chính hình chiếc khiên Vùng 4 Hải quân
                 Image(
-                    painter = painterResource(id = R.drawable.ic_app_logo),
+                    painter = painterResource(id = R.drawable.logov4),
                     contentDescription = "Huy hiệu Vùng 4 Hải quân",
                     modifier = Modifier
                         .width(162.dp)

@@ -98,9 +98,9 @@ fun CaNhanScreen(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(20.dp),
                     colors = CardDefaults.cardColors(
-                        containerColor = if (isAuthenticated) 
-                            MaterialTheme.colorScheme.surfaceVariant 
-                        else 
+                        containerColor = if (isAuthenticated)
+                            MaterialTheme.colorScheme.surfaceVariant
+                        else
                             MaterialTheme.colorScheme.surface
                     ),
                     elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
@@ -829,4 +829,3 @@ fun CaNhanScreen(
         }
     }
 }
-
