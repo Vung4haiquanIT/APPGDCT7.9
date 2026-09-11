@@ -383,7 +383,7 @@ fun TrangChuScreen(
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
-                        text = "Quản lý tiện ích",
+                        text = "Tiện ích",
                         fontWeight = FontWeight.Bold,
                         fontSize = 18.sp,
                         color = MaterialTheme.colorScheme.onBackground
