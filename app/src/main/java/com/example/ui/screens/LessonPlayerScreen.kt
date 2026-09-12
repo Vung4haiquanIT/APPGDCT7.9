@@ -1,12 +1,18 @@
 package com.example.ui.screens
 
+import android.app.Activity
+import android.content.ContextWrapper
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.graphics.Color as AndroidColor
 import android.net.Uri
 import android.util.Log
 import android.widget.TextView
 import androidx.activity.compose.BackHandler
 import androidx.core.text.HtmlCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.animation.*
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -229,6 +235,42 @@ fun LessonPlayerScreen(
 
     var selectedVideoUrl by remember { mutableStateOf(lessonVideos.firstOrNull()?.videoUrl) }
     var videoErrorMessage by remember { mutableStateOf<String?>(null) }
+    var isVideoFullScreen by remember { mutableStateOf(false) }
+
+    val activity = remember(context) {
+        var ctx = context
+        while (ctx is ContextWrapper) {
+            if (ctx is Activity) return@remember ctx
+            ctx = ctx.baseContext
+        }
+        null
+    }
+
+    LaunchedEffect(isVideoFullScreen) {
+        val window = activity?.window
+        if (window != null) {
+            val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+            if (isVideoFullScreen) {
+                activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                insetsController.hide(WindowInsetsCompat.Type.systemBars())
+                insetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            } else {
+                activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                insetsController.show(WindowInsetsCompat.Type.systemBars())
+            }
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            activity?.window?.let { win ->
+                WindowCompat.getInsetsController(win, win.decorView)
+                    .show(WindowInsetsCompat.Type.systemBars())
+            }
+        }
+    }
+
     val exoPlayer = remember {
         ExoPlayer.Builder(context).build().apply {
             playWhenReady = false
@@ -252,9 +294,11 @@ fun LessonPlayerScreen(
     var cachedFileIds by remember { mutableStateOf(setOf<String>()) }
     var savedToDeviceFileIds by remember { mutableStateOf(setOf<String>()) }
 
-    // Xử lý nút Back trên thanh điều hướng: đóng tài liệu nếu đang mở, nếu không thì quay lại danh sách bài học
+    // Xử lý nút Back trên thanh điều hướng: thoát toàn màn hình video trước, hoặc đóng tài liệu nếu đang mở, nếu không thì quay lại danh sách bài học
     BackHandler {
-        if (viewingFile != null) {
+        if (isVideoFullScreen) {
+            isVideoFullScreen = false
+        } else if (viewingFile != null) {
             viewingFile = null
         } else {
             onBack()
@@ -418,11 +462,101 @@ fun LessonPlayerScreen(
         }
     }
 
-    TrongDongBackground(
-        watermarkAlpha = 0.08f,
-        showCornerBorders = false,
-        showTopBottomBorders = false
-    ) {
+    if (isVideoFullScreen) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+        ) {
+            AndroidView(
+                factory = { ctx ->
+                    PlayerView(ctx).apply {
+                        player = exoPlayer
+                        useController = true
+                        setFullscreenButtonClickListener { isFullScreen ->
+                            isVideoFullScreen = isFullScreen
+                        }
+                    }
+                },
+                update = { pv ->
+                    if (pv.player != exoPlayer) pv.player = exoPlayer
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+
+            // Thanh điều khiển phía trên màn hình video toàn màn hình
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.TopStart)
+                    .statusBarsPadding()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.weight(1f, fill = false)
+                ) {
+                    IconButton(
+                        onClick = { isVideoFullScreen = false },
+                        modifier = Modifier
+                            .size(40.dp)
+                            .background(Color.Black.copy(alpha = 0.6f), CircleShape)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.FullscreenExit,
+                            contentDescription = "Thu nhỏ màn hình",
+                            tint = Color.White,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color.Black.copy(alpha = 0.6f)
+                    ) {
+                        Text(
+                            text = lessonVideos.firstOrNull { it.videoUrl == selectedVideoUrl }?.title.takeIf { !it.isNullOrBlank() } ?: lesson.title,
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                        )
+                    }
+                }
+
+                if (lessonVideos.size > 1) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        lessonVideos.forEachIndexed { idx, vid ->
+                            val isSelected = selectedVideoUrl == vid.videoUrl
+                            Surface(
+                                shape = RoundedCornerShape(14.dp),
+                                color = if (isSelected) RedPrimary else Color.Black.copy(alpha = 0.6f),
+                                modifier = Modifier.clickable { selectedVideoUrl = vid.videoUrl }
+                            ) {
+                                Text(
+                                    text = vid.title.ifEmpty { "Video ${idx + 1}" },
+                                    color = Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        TrongDongBackground(
+            watermarkAlpha = 0.08f,
+            showCornerBorders = false,
+            showTopBottomBorders = false
+        ) {
         Scaffold(
             containerColor = Color.Transparent,
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -1199,15 +1333,40 @@ fun LessonPlayerScreen(
                                         .height(240.dp),
                                     shape = RoundedCornerShape(16.dp)
                                 ) {
-                                    AndroidView(
-                                        factory = { ctx ->
-                                            PlayerView(ctx).apply {
-                                                player = exoPlayer
-                                                useController = true
-                                            }
-                                        },
-                                        modifier = Modifier.fillMaxSize()
-                                    )
+                                    Box(modifier = Modifier.fillMaxSize()) {
+                                        AndroidView(
+                                            factory = { ctx ->
+                                                PlayerView(ctx).apply {
+                                                    player = exoPlayer
+                                                    useController = true
+                                                    setFullscreenButtonClickListener { isFullScreen ->
+                                                        isVideoFullScreen = isFullScreen
+                                                    }
+                                                }
+                                            },
+                                            update = { pv ->
+                                                if (pv.player != exoPlayer) pv.player = exoPlayer
+                                            },
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+
+                                        // Nút xem toàn màn hình tiện lợi ở góc trên bên phải video
+                                        IconButton(
+                                            onClick = { isVideoFullScreen = true },
+                                            modifier = Modifier
+                                                .align(Alignment.TopEnd)
+                                                .padding(8.dp)
+                                                .size(36.dp)
+                                                .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(8.dp))
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Fullscreen,
+                                                contentDescription = "Xem toàn màn hình",
+                                                tint = Color.White,
+                                                modifier = Modifier.size(22.dp)
+                                            )
+                                        }
+                                    }
                                 }
 
                                 if (lessonVideos.size > 1) {
@@ -1758,6 +1917,7 @@ fun LessonPlayerScreen(
             }
         )
     }
+}
 }
 }
 

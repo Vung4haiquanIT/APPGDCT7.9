@@ -37,6 +37,7 @@ import com.example.model.BannerItem
 import com.example.model.Course
 import com.example.model.Lesson
 import com.example.ui.components.SavedDocumentsDialog
+import com.example.ui.components.TruyenThanhNoiBoDialog
 import com.example.ui.components.Vung4LogoBadge
 import com.example.ui.theme.GoldPrimary
 import com.example.ui.theme.NavySecondary
@@ -64,6 +65,7 @@ fun TrangChuScreen(
 
     val context = LocalContext.current
     var showSavedDocsDialog by remember { mutableStateOf(false) }
+    var showTruyenThanhDialog by remember { mutableStateOf(false) }
     val savedDocsList = remember(lessons, storageFiles, showSavedDocsDialog) {
         com.example.ui.components.getAllSavedDocuments(context, lessons, storageFiles)
     }
@@ -432,7 +434,8 @@ fun TrangChuScreen(
                         UtilityEntry("KIỂM TRA", Icons.AutoMirrored.Filled.Assignment, "kiem_tra", Color(0xFFE65100)),
                         UtilityEntry("LỊCH SỬ\nTRUYỀN THỐNG", Icons.Default.AccountBalance, "lich_su", Color(0xFF6A1B9A)),
                         UtilityEntry("BIỂN ĐẢO\nVIỆT NAM", Icons.Default.Map, "bien_dao", Color(0xFF0277BD)),
-                        UtilityEntry("TÀI LIỆU\nĐÃ LƯU", Icons.Default.FolderSpecial, "tai_lieu_da_luu", Color(0xFF2E7D32), badge = savedDocsCount)
+                        UtilityEntry("TÀI LIỆU\nĐÃ LƯU", Icons.Default.FolderSpecial, "tai_lieu_da_luu", Color(0xFF2E7D32), badge = savedDocsCount),
+                        UtilityEntry("TRUYỀN THANH\nNỘI BỘ", Icons.Default.Radio, "truyen_thanh", Color(0xFF00838F))
                     )
 
                     val utilityRows = utilities.chunked(4)
@@ -451,6 +454,8 @@ fun TrangChuScreen(
                                             .clickable {
                                                 if (util.id == "tai_lieu_da_luu") {
                                                     showSavedDocsDialog = true
+                                                } else if (util.id == "truyen_thanh") {
+                                                    showTruyenThanhDialog = true
                                                 } else {
                                                     onCategoryClick(util.id)
                                                 }
@@ -858,6 +863,13 @@ fun TrangChuScreen(
                 onNavigateToHocTap()
             },
             onDismiss = { showSavedDocsDialog = false }
+        )
+    }
+
+    if (showTruyenThanhDialog) {
+        TruyenThanhNoiBoDialog(
+            viewModel = viewModel,
+            onDismiss = { showTruyenThanhDialog = false }
         )
     }
 }
