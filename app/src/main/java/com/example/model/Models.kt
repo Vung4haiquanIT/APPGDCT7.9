@@ -997,6 +997,108 @@ data class ExamResultDoc(
     }
 }
 
+data class InternalBroadcastItem(
+    val id: String = "",
+    val title: String = "",
+    val description: String = "",
+    val audioUrl: String = "",
+    val category: String = "Bản tin phát thanh",
+    val durationText: String = "",
+    val dateText: String = "",
+    val broadcaster: String = "",
+    val status: String = "PUBLISHED",
+    val createdAt: Long = System.currentTimeMillis()
+) {
+    companion object {
+        fun fromDoc(doc: DocumentSnapshot): InternalBroadcastItem {
+            val title = doc.getString("title") 
+                ?: doc.getString("tieuDe") 
+                ?: doc.getString("name") 
+                ?: doc.getString("tenBanTin") 
+                ?: "Bản tin truyền thanh nội bộ"
+
+            val broadcaster = doc.getString("broadcaster") 
+                ?: doc.getString("coQuanPhat") 
+                ?: doc.getString("nguoiDang") 
+                ?: doc.getString("createdBy") 
+                ?: ""
+
+            var desc = doc.getString("description") 
+                ?: doc.getString("moTa") 
+                ?: doc.getString("noiDung") 
+                ?: doc.getString("content") 
+                ?: ""
+            if (desc.isBlank() && broadcaster.isNotBlank()) {
+                desc = broadcaster
+            }
+
+            val audioUrl = doc.getString("audioUrl") 
+                ?: doc.getString("url") 
+                ?: doc.getString("link") 
+                ?: doc.getString("fileUrl") 
+                ?: doc.getString("downloadUrl") 
+                ?: doc.getString("audio") 
+                ?: ""
+
+            val catLabel = doc.getString("categoryLabel")
+            val catRaw = doc.getString("category") ?: doc.getString("chuyenMuc") ?: doc.getString("theLoai") ?: ""
+            val cat = when {
+                !catLabel.isNullOrBlank() -> catLabel
+                catRaw.equals("BAN_TIN_THOI_SU", ignoreCase = true) -> "Bản tin Thời sự Vùng"
+                catRaw.equals("CHUYEN_MUC", ignoreCase = true) -> "Chuyên mục phát thanh"
+                catRaw.equals("LOI_BAC_DAY", ignoreCase = true) -> "Lời Bác dạy ngày này năm xưa"
+                catRaw.equals("KE_CHUYEN", ignoreCase = true) -> "Kể chuyện Truyền thống"
+                catRaw.isNotBlank() -> catRaw
+                else -> "Bản tin phát thanh"
+            }
+
+            val durationFormatted = doc.getString("durationFormatted")
+            val durationSecs = doc.getLong("durationSeconds")
+            val duration = when {
+                !durationFormatted.isNullOrBlank() -> durationFormatted
+                durationSecs != null && durationSecs > 0 -> {
+                    val m = durationSecs / 60
+                    val s = durationSecs % 60
+                    String.format(java.util.Locale.US, "%02d:%02d", m, s)
+                }
+                else -> doc.getString("durationText") 
+                    ?: doc.getString("thoiLuong") 
+                    ?: doc.getString("duration") 
+                    ?: "Phát thanh"
+            }
+
+            val broadcastDate = doc.getString("broadcastDate")
+            val date = when {
+                !broadcastDate.isNullOrBlank() -> {
+                    try {
+                        val parts = broadcastDate.split("-")
+                        if (parts.size == 3) "${parts[2]}/${parts[1]}/${parts[0]}" else broadcastDate
+                    } catch (_: Exception) { broadcastDate }
+                }
+                else -> doc.getString("dateText") 
+                    ?: doc.getString("ngayPhat") 
+                    ?: doc.getString("date") 
+                    ?: "Chính thức"
+            }
+
+            val time = parseTime(doc.get("createdAt") ?: doc.get("updatedAt") ?: doc.get("date") ?: doc.get("timestamp"))
+
+            return InternalBroadcastItem(
+                id = doc.id,
+                title = title,
+                description = desc,
+                audioUrl = audioUrl,
+                category = cat,
+                durationText = duration,
+                dateText = date,
+                broadcaster = broadcaster,
+                status = doc.getString("status") ?: "PUBLISHED",
+                createdAt = time
+            )
+        }
+    }
+}
+
 private fun parseLong(value: Any?): Long {
     return when (value) {
         is Number -> value.toLong()

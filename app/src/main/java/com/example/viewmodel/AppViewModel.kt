@@ -88,6 +88,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _examSessions = MutableStateFlow<List<ExamSessionDoc>>(emptyList())
     val examSessions: StateFlow<List<ExamSessionDoc>> = _examSessions.asStateFlow()
 
+    private val _broadcasts = MutableStateFlow<List<InternalBroadcastItem>>(emptyList())
+    val broadcasts: StateFlow<List<InternalBroadcastItem>> = _broadcasts.asStateFlow()
+
     private val _userExamResults = MutableStateFlow<List<ExamResultDoc>>(emptyList())
     val userExamResults: StateFlow<List<ExamResultDoc>> = _userExamResults.asStateFlow()
 
@@ -130,6 +133,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private var questionsListener: ListenerRegistration? = null
     private var examSessionsListener: ListenerRegistration? = null
     private var examResultsListener: ListenerRegistration? = null
+    private var broadcastsListener: ListenerRegistration? = null
     private var bannersFromBannersColl: List<BannerItem> = emptyList()
     private var bannersFromPostersColl: List<BannerItem> = emptyList()
 
@@ -717,6 +721,77 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
         } catch (e: Exception) {
             Log.w(TAG, "[EXAM_SESSIONS EXCEPTION] ${e.localizedMessage}")
+        }
+
+        // 10. radio_broadcasts / broadcasts / truyen_thanh / ban_tin từ Web Quản Trị
+        try {
+            broadcastsListener?.remove()
+            broadcastsListener = db.collection("radio_broadcasts")
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        Log.w(TAG, "[RADIO_BROADCASTS ERROR] ${error.code}: ${error.message}")
+                        // Thử fallback sang broadcasts nếu radio_broadcasts có lỗi quyền
+                        db.collection("broadcasts").get().addOnSuccessListener { bSnap ->
+                            if (bSnap != null && !bSnap.isEmpty) {
+                                val bList = bSnap.documents.mapNotNull {
+                                    try { InternalBroadcastItem.fromDoc(it) } catch (e: Exception) { null }
+                                }.sortedByDescending { it.createdAt }
+                                if (bList.isNotEmpty()) {
+                                    _broadcasts.value = bList
+                                }
+                            }
+                        }
+                        return@addSnapshotListener
+                    }
+                    if (snapshot != null && !snapshot.isEmpty) {
+                        val list = snapshot.documents.mapNotNull { 
+                            try { InternalBroadcastItem.fromDoc(it) } catch (e: Exception) { null }
+                        }.sortedByDescending { it.createdAt }
+                        if (list.isNotEmpty()) {
+                            _broadcasts.value = list
+                            Log.i(TAG, "[RADIO_BROADCASTS] Realtime sync: ${list.size} broadcasts from Web Quản trị (radio_broadcasts)")
+                            return@addSnapshotListener
+                        }
+                    }
+                    // Thử các collection dự phòng nếu radio_broadcasts trống: broadcasts, truyen_thanh, ban_tin
+                    db.collection("broadcasts").get().addOnSuccessListener { snapBc ->
+                        if (snapBc != null && !snapBc.isEmpty) {
+                            val bcList = snapBc.documents.mapNotNull { 
+                                try { InternalBroadcastItem.fromDoc(it) } catch (e: Exception) { null }
+                            }.sortedByDescending { it.createdAt }
+                            if (bcList.isNotEmpty()) {
+                                _broadcasts.value = bcList
+                                Log.i(TAG, "[BROADCASTS] Realtime sync: ${bcList.size} broadcasts from broadcasts")
+                                return@addOnSuccessListener
+                            }
+                        }
+                        db.collection("truyen_thanh").get().addOnSuccessListener { snapTt ->
+                            if (snapTt != null && !snapTt.isEmpty) {
+                                val ttList = snapTt.documents.mapNotNull { 
+                                    try { InternalBroadcastItem.fromDoc(it) } catch (e: Exception) { null }
+                                }.sortedByDescending { it.createdAt }
+                                if (ttList.isNotEmpty()) {
+                                    _broadcasts.value = ttList
+                                    Log.i(TAG, "[BROADCASTS] Realtime sync: ${ttList.size} broadcasts from truyen_thanh")
+                                    return@addOnSuccessListener
+                                }
+                            }
+                            db.collection("ban_tin").get().addOnSuccessListener { snapBt ->
+                                if (snapBt != null && !snapBt.isEmpty) {
+                                    val btList = snapBt.documents.mapNotNull { 
+                                        try { InternalBroadcastItem.fromDoc(it) } catch (e: Exception) { null }
+                                    }.sortedByDescending { it.createdAt }
+                                    if (btList.isNotEmpty()) {
+                                        _broadcasts.value = btList
+                                        Log.i(TAG, "[BROADCASTS] Realtime sync: ${btList.size} broadcasts from ban_tin")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+        } catch (e: Exception) {
+            Log.w(TAG, "[RADIO_BROADCASTS EXCEPTION] ${e.localizedMessage}")
         }
     }
 
@@ -1731,5 +1806,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         questionsListener?.remove()
         examSessionsListener?.remove()
         examResultsListener?.remove()
+        broadcastsListener?.remove()
     }
 }

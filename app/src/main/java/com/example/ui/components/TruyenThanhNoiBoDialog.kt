@@ -6,9 +6,11 @@ import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -60,106 +62,30 @@ fun TruyenThanhNoiBoDialog(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
-    val audiosFromDb by viewModel.audios.collectAsState()
-    val lessons by viewModel.lessons.collectAsState()
+    val broadcastsFromDb by viewModel.broadcasts.collectAsState()
 
-    // Danh sách bài học để map tên bài học với audio nếu cần
-    val lessonMap = remember(lessons) { lessons.associateBy { it.id } }
-
-    // Danh sách phát thanh mặc định đặc sắc kết hợp cùng dữ liệu Firebase
-    val allBroadcasts = remember(audiosFromDb, lessons) {
-        val list = mutableListOf<BroadcastAudio>()
-
-        // 1. Thêm các file audio thực tế từ cơ sở dữ liệu Firebase Firestore
-        audiosFromDb.forEach { dbAudio ->
-            val linkedLesson = lessonMap[dbAudio.lessonId]
-            val cat = if (linkedLesson != null) "Ghi âm bài giảng" else "Phát thanh nội bộ"
-            list.add(
-                BroadcastAudio(
-                    id = dbAudio.id,
-                    title = dbAudio.title.ifEmpty { linkedLesson?.title ?: "Chương trình phát thanh nội bộ" },
-                    category = cat,
-                    description = linkedLesson?.description ?: "Nội dung truyền thanh chính trị - tuyên truyền giáo dục",
-                    audioUrl = dbAudio.audioUrl,
-                    durationText = "Audio",
-                    dateText = "Chính thức"
-                )
+    // Danh sách bản tin truyền thanh nội bộ đã đăng trên web quản trị (KHÔNG lấy audio bài giảng)
+    val allBroadcasts = remember(broadcastsFromDb) {
+        broadcastsFromDb.map { b ->
+            BroadcastAudio(
+                id = b.id,
+                title = b.title,
+                category = b.category.ifEmpty { "Bản tin phát thanh" },
+                description = b.description.ifEmpty { b.broadcaster },
+                audioUrl = b.audioUrl,
+                durationText = b.durationText.ifEmpty { "Audio" },
+                dateText = b.dateText.ifEmpty { "Web Quản trị" }
             )
         }
-
-        // 2. Thêm các chuyên mục phát thanh tiêu biểu của Vùng 4 Hải quân
-        list.add(
-            BroadcastAudio(
-                id = "bt_sang",
-                title = "Bản tin Phát thanh Nội bộ: Thời sự & Huấn luyện SSCĐ số 01",
-                category = "Bản tin phát thanh",
-                description = "Bản tin tổng hợp tình hình biển đảo, nhiệm vụ sẵn sàng chiến đấu và gương cán bộ, chiến sĩ tiêu biểu.",
-                audioUrl = "",
-                durationText = "12:35",
-                dateText = "Phát thanh 06h00"
-            )
-        )
-        list.add(
-            BroadcastAudio(
-                id = "bt_chieu",
-                title = "Bản tin Chiều: Nhịp sống doanh trại & Điểm sáng văn hóa",
-                category = "Bản tin phát thanh",
-                description = "Chuyên mục xây dựng nền nếp chính quy, rèn luyện kỷ luật và phong trào thể thao văn nghệ tại các đơn vị.",
-                audioUrl = "",
-                durationText = "15:10",
-                dateText = "Phát thanh 17h00"
-            )
-        )
-        list.add(
-            BroadcastAudio(
-                id = "hk_hq",
-                title = "Hành khúc Hải quân Việt Nam (Trọng Loan)",
-                category = "Hành khúc & Bài ca Biển",
-                description = "Giai điệu hào hùng, niềm tự hào của những người lính giữ biển trời thiêng liêng của Tổ quốc.",
-                audioUrl = "",
-                durationText = "04:15",
-                dateText = "Ca khúc truyền thống"
-            )
-        )
-        list.add(
-            BroadcastAudio(
-                id = "hk_bien",
-                title = "Lướt sóng ra khơi (Thế Dương)",
-                category = "Hành khúc & Bài ca Biển",
-                description = "Bài ca truyền thống khắc họa ý chí kiên cường và tình cảm của chiến sĩ Hải quân nhân dân Việt Nam.",
-                audioUrl = "",
-                durationText = "03:52",
-                dateText = "Ca khúc truyền thống"
-            )
-        )
-        list.add(
-            BroadcastAudio(
-                id = "lbh_1",
-                title = "Chuyên mục: Lời Bác dạy ngày này năm xưa",
-                category = "Lời Bác dạy",
-                description = "Mỗi ngày một lời Bác dạy cán bộ, chiến sĩ Quân đội nhân dân Việt Nam về phẩm chất Bộ đội Cụ Hồ.",
-                audioUrl = "",
-                durationText = "06:45",
-                dateText = "Phát sóng hàng ngày"
-            )
-        )
-        list.add(
-            BroadcastAudio(
-                id = "ls_tau_khong_so",
-                title = "Kể chuyện Truyền thống: Huyền thoại Đường Hồ Chí Minh trên biển",
-                category = "Kể chuyện truyền thống",
-                description = "Ký ức hào hùng về những con tàu Không số cảm tử vượt sóng gió chi viện cho chiến trường miền Nam.",
-                audioUrl = "",
-                durationText = "18:20",
-                dateText = "Chuyên đề lịch sử"
-            )
-        )
-
-        list
     }
 
     // State phát thanh
     var selectedBroadcast by remember { mutableStateOf(allBroadcasts.firstOrNull()) }
+    LaunchedEffect(allBroadcasts) {
+        if (selectedBroadcast == null || allBroadcasts.none { it.id == selectedBroadcast?.id }) {
+            selectedBroadcast = allBroadcasts.firstOrNull()
+        }
+    }
     var isPlaying by remember { mutableStateOf(false) }
     var currentPositionMs by remember { mutableStateOf(0L) }
     var totalDurationMs by remember { mutableStateOf(1L) }
@@ -168,7 +94,15 @@ fun TruyenThanhNoiBoDialog(
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategoryFilter by remember { mutableStateOf("Tất cả") }
 
-    val categories = listOf("Tất cả", "Bản tin phát thanh", "Ghi âm bài giảng", "Hành khúc & Bài ca Biển", "Lời Bác dạy")
+    val categories = remember(allBroadcasts) {
+        val cats = mutableListOf("Tất cả")
+        allBroadcasts.map { it.category }.distinct().forEach { cat ->
+            if (cat.isNotBlank() && !cats.contains(cat)) {
+                cats.add(cat)
+            }
+        }
+        cats
+    }
 
     val filteredList = remember(allBroadcasts, searchQuery, selectedCategoryFilter) {
         allBroadcasts.filter { item ->
@@ -279,7 +213,7 @@ fun TruyenThanhNoiBoDialog(
                         modifier = Modifier
                             .fillMaxWidth()
                             .statusBarsPadding()
-                            .padding(horizontal = 8.dp, vertical = 8.dp),
+                            .padding(horizontal = 6.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         IconButton(onClick = onDismiss) {
@@ -290,55 +224,17 @@ fun TruyenThanhNoiBoDialog(
                             )
                         }
 
-                        Spacer(modifier = Modifier.width(4.dp))
-
-                        Vung4LogoBadge(size = 36.dp)
-
-                        Spacer(modifier = Modifier.width(10.dp))
-
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "TRUYỀN THANH NỘI BỘ",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 16.sp,
-                                color = Color.White,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = "Kênh thông tin & phát thanh chính trị Vùng 4 Hải quân",
-                                fontSize = 11.sp,
-                                color = GoldPrimary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-
-                        // Badge Trực tuyến
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = Color(0xFF2E7D32)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(6.dp)
-                                        .clip(CircleShape)
-                                        .background(Color.White)
-                                )
-                                Text(
-                                    text = "ĐANG PHÁT",
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "TRUYỀN THANH NỘI BỘ",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp,
+                            color = Color.White,
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(start = 4.dp),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                 }
             }
@@ -581,7 +477,9 @@ fun TruyenThanhNoiBoDialog(
 
                     // Category Filter Scroll
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         categories.forEach { cat ->
@@ -617,6 +515,47 @@ fun TruyenThanhNoiBoDialog(
                     contentPadding = PaddingValues(bottom = 24.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
+                    if (filteredList.isEmpty()) {
+                        item {
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 16.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color.White),
+                                shape = RoundedCornerShape(14.dp)
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(24.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Icon(
+                                        Icons.Default.Podcasts,
+                                        contentDescription = null,
+                                        tint = Color.Gray,
+                                        modifier = Modifier.size(44.dp)
+                                    )
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    Text(
+                                        text = "Chưa có bản tin truyền thanh nội bộ phù hợp",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        textAlign = TextAlign.Center
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "Các bản tin phát thanh đăng tải trên Web Quản trị sẽ hiển thị tại đây.",
+                                        fontSize = 12.sp,
+                                        color = Color.Gray,
+                                        textAlign = TextAlign.Center
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     itemsIndexed(filteredList) { index, item ->
                         val isCurrent = selectedBroadcast?.id == item.id
                         Card(
