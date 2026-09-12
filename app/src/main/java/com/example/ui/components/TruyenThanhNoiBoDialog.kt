@@ -1,7 +1,12 @@
 package com.example.ui.components
 
+import android.app.DownloadManager
+import android.content.Context
+import android.content.Intent
 import android.net.Uri
+import android.os.Environment
 import android.util.Log
+import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -86,6 +91,7 @@ fun TruyenThanhNoiBoDialog(
             selectedBroadcast = allBroadcasts.firstOrNull()
         }
     }
+    var downloadedIds by remember { mutableStateOf(getDownloadedBroadcastIds(context)) }
     var isPlaying by remember { mutableStateOf(false) }
     var currentPositionMs by remember { mutableStateOf(0L) }
     var totalDurationMs by remember { mutableStateOf(1L) }
@@ -247,6 +253,7 @@ fun TruyenThanhNoiBoDialog(
             ) {
                 // KHUNG PHÁT THANH HIỆN TẠI (HERO PLAYER CARD)
                 selectedBroadcast?.let { currentTrack ->
+                    val isCurrentDownloaded = currentTrack.id in downloadedIds
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -313,6 +320,30 @@ fun TruyenThanhNoiBoDialog(
                                         color = MaterialTheme.colorScheme.onSurface,
                                         maxLines = 2,
                                         overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+
+                                // Nút tải bản tin đang phát
+                                FilledTonalIconButton(
+                                    onClick = {
+                                        if (isCurrentDownloaded) {
+                                            Toast.makeText(context, "Bản tin này đã được tải về máy", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            downloadBroadcastAudio(context, currentTrack) {
+                                                downloadedIds = downloadedIds + currentTrack.id
+                                            }
+                                        }
+                                    },
+                                    colors = IconButtonDefaults.filledTonalIconButtonColors(
+                                        containerColor = if (isCurrentDownloaded) Color(0xFFE8F5E9) else Color(0xFF00838F).copy(alpha = 0.12f),
+                                        contentColor = if (isCurrentDownloaded) Color(0xFF2E7D32) else Color(0xFF00838F)
+                                    ),
+                                    modifier = Modifier.size(38.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (isCurrentDownloaded) Icons.Default.Check else Icons.Default.Download,
+                                        contentDescription = if (isCurrentDownloaded) "Đã tải về máy" else "Tải bản tin về máy",
+                                        modifier = Modifier.size(20.dp)
                                     )
                                 }
                             }
@@ -654,18 +685,50 @@ fun TruyenThanhNoiBoDialog(
                                         color = Color.Gray
                                     )
                                     Spacer(modifier = Modifier.height(4.dp))
-                                    IconButton(
-                                        onClick = {
-                                            if (isCurrent) togglePlayPause() else playTrack(item)
-                                        },
-                                        modifier = Modifier.size(32.dp)
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(2.dp)
                                     ) {
-                                        Icon(
-                                            imageVector = if (isCurrent && isPlaying) Icons.Default.PauseCircle else Icons.Default.PlayCircle,
-                                            contentDescription = "Phát",
-                                            tint = if (isCurrent) Color(0xFF00838F) else RedPrimary,
-                                            modifier = Modifier.size(28.dp)
-                                        )
+                                        // Nút Tải bản tin
+                                        val isItemDownloaded = item.id in downloadedIds
+                                        IconButton(
+                                            onClick = {
+                                                if (isItemDownloaded) {
+                                                    Toast.makeText(context, "Bản tin này đã được tải về máy", Toast.LENGTH_SHORT).show()
+                                                } else {
+                                                    downloadBroadcastAudio(context, item) {
+                                                        downloadedIds = downloadedIds + item.id
+                                                    }
+                                                }
+                                            },
+                                            modifier = Modifier.size(32.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = if (isItemDownloaded) Icons.Default.Check else Icons.Default.Download,
+                                                contentDescription = if (isItemDownloaded) "Đã tải về máy" else "Tải bản tin về máy",
+                                                tint = when {
+                                                    isItemDownloaded -> Color(0xFF2E7D32)
+                                                    item.audioUrl.isNotBlank() -> Color(0xFF00838F)
+                                                    else -> Color.LightGray
+                                                },
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+
+                                        // Nút Phát bản tin
+                                        IconButton(
+                                            onClick = {
+                                                if (isCurrent) togglePlayPause() else playTrack(item)
+                                            },
+                                            modifier = Modifier.size(32.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = if (isCurrent && isPlaying) Icons.Default.PauseCircle else Icons.Default.PlayCircle,
+                                                contentDescription = "Phát",
+                                                tint = if (isCurrent) Color(0xFF00838F) else RedPrimary,
+                                                modifier = Modifier.size(28.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -682,4 +745,102 @@ private fun formatAudioTime(millis: Long): String {
     val minutes = totalSeconds / 60
     val seconds = totalSeconds % 60
     return String.format("%02d:%02d", minutes, seconds)
+}
+
+private const val PREFS_DOWNLOADED_BROADCASTS = "downloaded_broadcasts_prefs"
+private const val KEY_DOWNLOADED_IDS = "downloaded_ids"
+
+fun getDownloadedBroadcastIds(context: Context): Set<String> {
+    val prefs = context.getSharedPreferences(PREFS_DOWNLOADED_BROADCASTS, Context.MODE_PRIVATE)
+    return prefs.getStringSet(KEY_DOWNLOADED_IDS, emptySet()) ?: emptySet()
+}
+
+fun markBroadcastAsDownloaded(context: Context, id: String) {
+    if (id.isBlank()) return
+    val prefs = context.getSharedPreferences(PREFS_DOWNLOADED_BROADCASTS, Context.MODE_PRIVATE)
+    val current = prefs.getStringSet(KEY_DOWNLOADED_IDS, emptySet())?.toMutableSet() ?: mutableSetOf()
+    current.add(id)
+    prefs.edit().putStringSet(KEY_DOWNLOADED_IDS, current).apply()
+}
+
+/**
+ * Tải tệp âm thanh bản tin truyền thanh nội bộ về máy qua Android DownloadManager
+ * Ngăn chặn tải nhiều lần: nếu đã tải thì không tải lại
+ */
+fun downloadBroadcastAudio(
+    context: Context, 
+    item: BroadcastAudio,
+    onDownloadStarted: (() -> Unit)? = null
+) {
+    if (item.audioUrl.isBlank()) {
+        Toast.makeText(context, "Bản tin không có liên kết tệp âm thanh để tải về", Toast.LENGTH_SHORT).show()
+        return
+    }
+
+    // Không cho phép tải nhiều lần nếu đã tải
+    val downloadedSet = getDownloadedBroadcastIds(context)
+    if (downloadedSet.contains(item.id)) {
+        Toast.makeText(context, "Bản tin này đã được tải về máy", Toast.LENGTH_SHORT).show()
+        return
+    }
+
+    try {
+        val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
+        if (downloadManager == null) {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(item.audioUrl)).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+            markBroadcastAsDownloaded(context, item.id)
+            onDownloadStarted?.invoke()
+            return
+        }
+
+        // Làm sạch tên tệp để an toàn trên hệ thống lưu trữ
+        val safeTitle = item.title
+            .replace(Regex("[\\\\/:*?\"<>|]"), "_")
+            .trim()
+            .ifEmpty { "BanTin_${item.id}" }
+            .take(60)
+
+        val ext = when {
+            item.audioUrl.contains(".mp3", ignoreCase = true) -> "mp3"
+            item.audioUrl.contains(".m4a", ignoreCase = true) -> "m4a"
+            item.audioUrl.contains(".wav", ignoreCase = true) -> "wav"
+            item.audioUrl.contains(".aac", ignoreCase = true) -> "aac"
+            else -> "mp3"
+        }
+        val fileName = "$safeTitle.$ext"
+
+        val request = DownloadManager.Request(Uri.parse(item.audioUrl)).apply {
+            setTitle(item.title)
+            setDescription("Bản tin truyền thanh nội bộ - Vùng 4 Hải quân")
+            setMimeType("audio/*")
+            setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
+            setAllowedOverMetered(true)
+            setAllowedOverRoaming(true)
+        }
+
+        downloadManager.enqueue(request)
+        markBroadcastAsDownloaded(context, item.id)
+        onDownloadStarted?.invoke()
+        Toast.makeText(
+            context,
+            "Đang tải bản tin về thư mục Downloads...",
+            Toast.LENGTH_SHORT
+        ).show()
+    } catch (e: Exception) {
+        Log.e("TruyenThanhNoiBo", "Lỗi tải bản tin: ${e.message}", e)
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(item.audioUrl)).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+            markBroadcastAsDownloaded(context, item.id)
+            onDownloadStarted?.invoke()
+        } catch (_: Exception) {
+            Toast.makeText(context, "Không thể tải bản tin: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+        }
+    }
 }
