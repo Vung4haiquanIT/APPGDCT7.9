@@ -161,21 +161,23 @@ fun KiemTraScreen(
 
             val targetCount = if (session.totalQuestions > 0) session.totalQuestions else if (sessionQuestions.isNotEmpty()) sessionQuestions.size else 20
 
-            examQuestions = if (sessionQuestions.isNotEmpty()) {
+            val rawList = if (sessionQuestions.isNotEmpty()) {
                 if (sessionQuestions.size >= targetCount) {
-                    sessionQuestions.take(targetCount)
+                    sessionQuestions.shuffled().take(targetCount)
                 } else {
-                    // Hiển thị chính xác toàn bộ danh sách câu hỏi của đợt thi mà không tự ý lấy nhầm câu hỏi GDCT bài học
-                    sessionQuestions
+                    // Hiển thị đầy đủ danh sách câu hỏi của đợt thi được đảo ngẫu nhiên
+                    sessionQuestions.shuffled()
                 }
             } else {
                 val nonLessonQuestions = allQuestions.filter { it.lessonId.isBlank() }
                 if (nonLessonQuestions.isNotEmpty()) {
                     nonLessonQuestions.shuffled().take(minOf(targetCount, nonLessonQuestions.size))
                 } else {
-                    allQuestions.take(minOf(targetCount, allQuestions.size))
+                    allQuestions.shuffled().take(minOf(targetCount, allQuestions.size))
                 }
             }
+            // Đảo ngẫu nhiên câu hỏi và đảo ngẫu nhiên thứ tự các đáp án trong từng câu hỏi
+            examQuestions = rawList.map { it.withShuffledOptions() }
 
             examTimerSeconds = if (session.durationMinutes > 0) session.durationMinutes * 60 else 20 * 60
         } else {
@@ -185,7 +187,7 @@ fun KiemTraScreen(
             val nonLessonQuestions = allQuestions.filter { it.lessonId.isBlank() }
             val pool = if (nonLessonQuestions.isNotEmpty()) nonLessonQuestions else allQuestions
             val totalToPick = minOf(20, pool.size)
-            examQuestions = pool.shuffled().take(totalToPick)
+            examQuestions = pool.shuffled().take(totalToPick).map { it.withShuffledOptions() }
             examTimerSeconds = 20 * 60
         }
 

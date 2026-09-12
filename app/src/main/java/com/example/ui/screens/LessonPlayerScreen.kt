@@ -173,14 +173,15 @@ fun LessonPlayerScreen(
         }
     }
 
-    // Seed để chọn ngẫu nhiên 1 câu hỏi từ bộ đề thi (ví dụ 10 câu nhập trên Web Quản trị)
-    var randomQuestionSeed by remember(lesson.id) { mutableIntStateOf((1..10000).random()) }
+    // Seed để chọn ngẫu nhiên 1 câu hỏi từ bộ đề thi và xáo trộn các đáp án ngẫu nhiên
+    var randomQuestionSeed by remember(lesson.id) { mutableLongStateOf(System.currentTimeMillis() + (1..10000).random()) }
 
-    // Câu hỏi ngẫu nhiên hiện tại được chọn từ bộ đề
+    // Câu hỏi ngẫu nhiên hiện tại được chọn từ bộ đề với các đáp án được đảo ngẫu nhiên
     val currentRandomQuestion = remember(lessonQuestions, randomQuestionSeed) {
         if (lessonQuestions.isNotEmpty()) {
-            val randomIndex = (randomQuestionSeed.coerceAtLeast(0)) % lessonQuestions.size
-            lessonQuestions[randomIndex]
+            val randomIndex = (Math.abs(randomQuestionSeed) % lessonQuestions.size).toInt()
+            val picked = lessonQuestions[randomIndex]
+            picked.withShuffledOptions(randomQuestionSeed + 777L)
         } else null
     }
 
@@ -1475,38 +1476,46 @@ fun LessonPlayerScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .statusBarsPadding()
-                                .padding(horizontal = 12.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                                .padding(horizontal = 8.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            IconButton(
+                                onClick = { isAnsweringQuizOverlayOpen = false },
+                                modifier = Modifier.size(40.dp)
                             ) {
-                                IconButton(onClick = { isAnsweringQuizOverlayOpen = false }) {
-                                    Icon(
-                                        imageVector = Icons.Default.Close,
-                                        contentDescription = "Đóng",
-                                        tint = Color.White
-                                    )
-                                }
-                                Column {
-                                    Text(
-                                        text = "BÀI KIỂM TRA ĐÁNH GIÁ CUỐI BÀI",
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 15.sp,
-                                        color = Color.White
-                                    )
-                                     Text(
-                                        text = "01 câu hỏi ngẫu nhiên từ bộ đề (${lessonQuestions.size} câu)",
-                                        fontSize = 12.sp,
-                                        color = GoldPrimary,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                }
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Đóng",
+                                    tint = Color.White
+                                )
                             }
 
-                            // Badge trạng thái
+                            Spacer(modifier = Modifier.width(4.dp))
+
+                            Column(
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(
+                                    text = "BÀI KIỂM TRA ĐÁNH GIÁ CUỐI BÀI",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    color = Color.White,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = "01 câu hỏi ngẫu nhiên từ bộ đề (${lessonQuestions.size} câu)",
+                                    fontSize = 11.sp,
+                                    color = GoldPrimary,
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.width(8.dp))
+
+                            // Badge trạng thái dạng viên thuốc ngang, cố định không bao giờ bị co lại thành dải dọc trên màn hình hẹp
                             Surface(
                                 shape = RoundedCornerShape(16.dp),
                                 color = GoldPrimary
@@ -1516,7 +1525,9 @@ fun LessonPlayerScreen(
                                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color.White
+                                    color = Color.White,
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                             }
                         }
@@ -1528,7 +1539,7 @@ fun LessonPlayerScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
@@ -1538,7 +1549,8 @@ fun LessonPlayerScreen(
                                 fontSize = 11.sp,
                                 color = Color(0xFFE65100),
                                 lineHeight = 15.sp,
-                                fontWeight = FontWeight.Medium
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.weight(1f)
                             )
                         }
                     }
@@ -1641,45 +1653,55 @@ fun LessonPlayerScreen(
                         }
                     }
 
-                    // Nút nộp bài kiểm tra
-                    Box(modifier = Modifier.padding(16.dp)) {
-                        Button(
-                            onClick = {
-                                if (currentRandomQuestion != null && selectedSingleOptionIndex != null) {
-                                    val isCorrect = selectedSingleOptionIndex == currentRandomQuestion.correctIndex
-                                    isCurrentAttemptSubmitted = true
-                                    lastAttemptResult = isCorrect
-                                    quizSubmitted = true
-                                    currentScore = if (isCorrect) 1 else 0
-                                    currentTotalQuestions = 1
-                                    currentScorePercent = if (isCorrect) 100 else 0
-
-                                    triggerAutoSave(
-                                        scoreVal = if (isCorrect) 1 else 0,
-                                        totalVal = 1,
-                                        forceComplete = isCorrect
-                                    )
-
-                                    isAnsweringQuizOverlayOpen = false
-                                    showQuizResultNoticeDialog = true
-                                }
-                            },
+                    // Nút nộp bài kiểm tra: có Surface và navigationBarsPadding để hiển thị chuẩn xác trên tất cả các dòng máy, không bị phím ảo/thanh điều hướng che mất
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = MaterialTheme.colorScheme.surface,
+                        shadowElevation = 8.dp
+                    ) {
+                        Box(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .height(50.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (selectedSingleOptionIndex != null) Color(0xFF2E7D32) else RedPrimary
-                            ),
-                            shape = RoundedCornerShape(12.dp),
-                            enabled = selectedSingleOptionIndex != null
+                                .navigationBarsPadding()
+                                .padding(horizontal = 16.dp, vertical = 12.dp)
                         ) {
-                            Icon(Icons.Default.CheckCircle, contentDescription = null)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "NỘP BÀI KIỂM TRA ĐÁNH GIÁ",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 15.sp
-                            )
+                            Button(
+                                onClick = {
+                                    if (currentRandomQuestion != null && selectedSingleOptionIndex != null) {
+                                        val isCorrect = selectedSingleOptionIndex == currentRandomQuestion.correctIndex
+                                        isCurrentAttemptSubmitted = true
+                                        lastAttemptResult = isCorrect
+                                        quizSubmitted = true
+                                        currentScore = if (isCorrect) 1 else 0
+                                        currentTotalQuestions = 1
+                                        currentScorePercent = if (isCorrect) 100 else 0
+
+                                        triggerAutoSave(
+                                            scoreVal = if (isCorrect) 1 else 0,
+                                            totalVal = 1,
+                                            forceComplete = isCorrect
+                                        )
+
+                                        isAnsweringQuizOverlayOpen = false
+                                        showQuizResultNoticeDialog = true
+                                    }
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(48.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (selectedSingleOptionIndex != null) Color(0xFF2E7D32) else RedPrimary
+                                ),
+                                shape = RoundedCornerShape(12.dp),
+                                enabled = selectedSingleOptionIndex != null
+                            ) {
+                                Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(20.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "NỘP BÀI KIỂM TRA ĐÁNH GIÁ",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
+                            }
                         }
                     }
                 }

@@ -393,6 +393,31 @@ data class QuestionItem(
     val correctIndex: Int = 0,
     val explanation: String = ""
 ) {
+    /**
+     * Đảo ngẫu nhiên thứ tự các đáp án trong câu hỏi, đồng thời tự động cập nhật
+     * lại correctIndex tương ứng với đáp án đúng để chấm điểm hoàn toàn chính xác.
+     */
+    fun withShuffledOptions(seed: Long = System.currentTimeMillis()): QuestionItem {
+        if (options.size <= 1) return this
+        // Chuẩn hóa loại bỏ tiền tố A. B. C. D. nếu người dùng lỡ nhập vào
+        val cleanedOptions = options.map { opt ->
+            opt.replace(Regex("^[A-Da-d][\\.\\)]\\s*"), "").trim()
+        }
+        val correctOptionText = cleanedOptions.getOrNull(correctIndex) ?: ""
+        val rnd = java.util.Random(seed)
+        val indexed = cleanedOptions.mapIndexed { idx, txt -> idx to txt }
+        val shuffledIndexed = indexed.shuffled(rnd)
+        val newOptions = shuffledIndexed.map { it.second }
+        val newCorrectIndex = if (correctOptionText.isNotBlank()) {
+            val found = newOptions.indexOf(correctOptionText)
+            if (found >= 0) found else correctIndex
+        } else {
+            val found = shuffledIndexed.indexOfFirst { it.first == correctIndex }
+            if (found >= 0) found else 0
+        }
+        return copy(options = newOptions, correctIndex = newCorrectIndex)
+    }
+
     companion object {
         fun fromDoc(doc: DocumentSnapshot): QuestionItem {
             val q = doc.getString("question") ?: doc.getString("cauHoi") ?: doc.getString("content") ?: doc.getString("title") ?: ""
