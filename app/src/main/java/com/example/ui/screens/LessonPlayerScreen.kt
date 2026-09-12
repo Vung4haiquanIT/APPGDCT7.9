@@ -1490,46 +1490,17 @@ fun LessonPlayerScreen(
                                 )
                             }
 
-                            Spacer(modifier = Modifier.width(4.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
 
-                            Column(
+                            Text(
+                                text = "BÀI KIỂM TRA ĐÁNH GIÁ CUỐI BÀI",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp,
+                                color = Color.White,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f)
-                            ) {
-                                Text(
-                                    text = "BÀI KIỂM TRA ĐÁNH GIÁ CUỐI BÀI",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp,
-                                    color = Color.White,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = "01 câu hỏi ngẫu nhiên từ bộ đề (${lessonQuestions.size} câu)",
-                                    fontSize = 11.sp,
-                                    color = GoldPrimary,
-                                    fontWeight = FontWeight.Medium,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.width(8.dp))
-
-                            // Badge trạng thái dạng viên thuốc ngang, cố định không bao giờ bị co lại thành dải dọc trên màn hình hẹp
-                            Surface(
-                                shape = RoundedCornerShape(16.dp),
-                                color = GoldPrimary
-                            ) {
-                                Text(
-                                    text = "1 Lần trả lời",
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White,
-                                    maxLines = 1,
-                                    softWrap = false
-                                )
-                            }
+                            )
                         }
                     }
 
