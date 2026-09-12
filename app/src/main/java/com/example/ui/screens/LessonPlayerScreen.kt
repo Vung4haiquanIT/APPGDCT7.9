@@ -53,6 +53,9 @@ import com.example.model.Lesson
 import com.example.ui.components.InAppDocumentViewerDialog
 import com.example.ui.components.LoginDialog
 import com.example.ui.components.TrongDongBackground
+import com.example.ui.components.UniversalVideoPlayer
+import com.example.ui.components.VideoSourceType
+import com.example.ui.components.VideoUrlHelper
 import com.example.ui.components.Vung4LogoBadge
 import com.example.ui.theme.GoldPrimary
 import com.example.ui.theme.RedPrimary
@@ -237,6 +240,13 @@ fun LessonPlayerScreen(
     var videoErrorMessage by remember { mutableStateOf<String?>(null) }
     var isVideoFullScreen by remember { mutableStateOf(false) }
 
+    // Đồng bộ URL video khi dữ liệu video của bài học tải về từ Firestore
+    LaunchedEffect(lessonVideos) {
+        if (selectedVideoUrl == null || !lessonVideos.any { it.videoUrl == selectedVideoUrl }) {
+            selectedVideoUrl = lessonVideos.firstOrNull()?.videoUrl
+        }
+    }
+
     val activity = remember(context) {
         var ctx = context
         while (ctx is ContextWrapper) {
@@ -279,6 +289,13 @@ fun LessonPlayerScreen(
 
     var selectedAudioUrl by remember { mutableStateOf(lessonAudios.firstOrNull()?.audioUrl) }
     var audioErrorMessage by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(lessonAudios) {
+        if (selectedAudioUrl == null || !lessonAudios.any { it.audioUrl == selectedAudioUrl }) {
+            selectedAudioUrl = lessonAudios.firstOrNull()?.audioUrl
+        }
+    }
+
     val audioPlayer = remember {
         ExoPlayer.Builder(context).build().apply {
             playWhenReady = false
@@ -408,16 +425,31 @@ fun LessonPlayerScreen(
     // Chuẩn bị video chỉ khi người dùng mở Tab Video (Tab 2)
     LaunchedEffect(selectedTab, selectedVideoUrl) {
         if (selectedTab == 2 && !selectedVideoUrl.isNullOrBlank()) {
-            try {
+            val url = selectedVideoUrl!!
+            val sourceType = VideoUrlHelper.detectSourceType(url)
+            if (sourceType == VideoSourceType.DIRECT_STREAM) {
+                // Chỉ nạp vào ExoPlayer khi là video trực tiếp (.mp4, .m3u8, Firebase Storage)
+                try {
+                    videoErrorMessage = null
+                    val mediaItem = MediaItem.fromUri(Uri.parse(url))
+                    exoPlayer.setMediaItem(mediaItem)
+                    exoPlayer.prepare()
+                } catch (e: Exception) {
+                    videoErrorMessage = "Không thể tải video: ${e.localizedMessage}"
+                }
+            } else {
+                // Video dạng YouTube, Google Drive hoặc Web URL sẽ do UniversalVideoPlayer (Web/Iframe) phát
+                // Tránh tuyệt đối truyền web URL vào ExoPlayer gây lỗi InvalidResponseCodeException: Response code: 400
                 videoErrorMessage = null
-                val mediaItem = MediaItem.fromUri(Uri.parse(selectedVideoUrl))
-                exoPlayer.setMediaItem(mediaItem)
-                exoPlayer.prepare()
-            } catch (e: Exception) {
-                videoErrorMessage = "Không thể tải video: ${e.localizedMessage}"
+                try {
+                    exoPlayer.clearMediaItems()
+                    exoPlayer.pause()
+                } catch (_: Exception) {}
             }
         } else if (selectedTab != 2) {
-            exoPlayer.pause()
+            try {
+                exoPlayer.pause()
+            } catch (_: Exception) {}
         }
     }
 
@@ -468,19 +500,12 @@ fun LessonPlayerScreen(
                 .fillMaxSize()
                 .background(Color.Black)
         ) {
-            AndroidView(
-                factory = { ctx ->
-                    PlayerView(ctx).apply {
-                        player = exoPlayer
-                        useController = true
-                        setFullscreenButtonClickListener { isFullScreen ->
-                            isVideoFullScreen = isFullScreen
-                        }
-                    }
-                },
-                update = { pv ->
-                    if (pv.player != exoPlayer) pv.player = exoPlayer
-                },
+            UniversalVideoPlayer(
+                videoUrl = selectedVideoUrl ?: "",
+                exoPlayer = exoPlayer,
+                isFullScreen = true,
+                onToggleFullScreen = { isVideoFullScreen = it },
+                playerErrorMessage = videoErrorMessage,
                 modifier = Modifier.fillMaxSize()
             )
 
@@ -1333,37 +1358,80 @@ fun LessonPlayerScreen(
                                         .height(240.dp),
                                     shape = RoundedCornerShape(16.dp)
                                 ) {
-                                    Box(modifier = Modifier.fillMaxSize()) {
-                                        AndroidView(
-                                            factory = { ctx ->
-                                                PlayerView(ctx).apply {
-                                                    player = exoPlayer
-                                                    useController = true
-                                                    setFullscreenButtonClickListener { isFullScreen ->
-                                                        isVideoFullScreen = isFullScreen
-                                                    }
-                                                }
-                                            },
-                                            update = { pv ->
-                                                if (pv.player != exoPlayer) pv.player = exoPlayer
-                                            },
-                                            modifier = Modifier.fillMaxSize()
-                                        )
+                                    UniversalVideoPlayer(
+                                        videoUrl = selectedVideoUrl ?: "",
+                                        exoPlayer = exoPlayer,
+                                        isFullScreen = false,
+                                        onToggleFullScreen = { isVideoFullScreen = it },
+                                        playerErrorMessage = videoErrorMessage,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                }
 
-                                        // Nút xem toàn màn hình tiện lợi ở góc trên bên phải video
+                                // Thông tin nguồn video
+                                val currentVideoItem = lessonVideos.firstOrNull { it.videoUrl == selectedVideoUrl }
+                                val currentSourceType = remember(selectedVideoUrl) {
+                                    selectedVideoUrl?.let { VideoUrlHelper.detectSourceType(it) } ?: VideoSourceType.DIRECT_STREAM
+                                }
+
+                                Surface(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            modifier = Modifier.weight(1f, fill = false)
+                                        ) {
+                                            Surface(
+                                                shape = RoundedCornerShape(6.dp),
+                                                color = when (currentSourceType) {
+                                                    VideoSourceType.YOUTUBE -> Color(0xFFCC0000)
+                                                    VideoSourceType.GOOGLE_DRIVE -> Color(0xFF1976D2)
+                                                    VideoSourceType.DIRECT_STREAM -> Color(0xFF2E7D32)
+                                                    VideoSourceType.WEB_URL -> Color(0xFFE65100)
+                                                }
+                                            ) {
+                                                Text(
+                                                    text = currentSourceType.displayName,
+                                                    color = Color.White,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                                )
+                                            }
+
+                                            Text(
+                                                text = currentVideoItem?.title?.ifBlank { "Video bài giảng" } ?: "Video bài giảng",
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+
                                         IconButton(
-                                            onClick = { isVideoFullScreen = true },
-                                            modifier = Modifier
-                                                .align(Alignment.TopEnd)
-                                                .padding(8.dp)
-                                                .size(36.dp)
-                                                .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(8.dp))
+                                            onClick = {
+                                                try {
+                                                    selectedVideoUrl?.let { u ->
+                                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(u))
+                                                        context.startActivity(intent)
+                                                    }
+                                                } catch (_: Exception) {}
+                                            },
+                                            modifier = Modifier.size(32.dp)
                                         ) {
                                             Icon(
-                                                imageVector = Icons.Default.Fullscreen,
-                                                contentDescription = "Xem toàn màn hình",
-                                                tint = Color.White,
-                                                modifier = Modifier.size(22.dp)
+                                                imageVector = Icons.Default.OpenInNew,
+                                                contentDescription = "Mở liên kết",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(18.dp)
                                             )
                                         }
                                     }
