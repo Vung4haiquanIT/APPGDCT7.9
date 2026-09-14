@@ -279,11 +279,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun isUserDocLocked(doc: DocumentSnapshot): Boolean {
         if (!doc.exists()) {
-            return true
+            return false
         }
 
-        // 1. Kiểm tra các cờ boolean
-        val isLocked = doc.getBoolean("isLocked")
+        // 1. Kiểm tra các cờ boolean rõ ràng (explicit boolean)
+        val isLockedExplicit = doc.getBoolean("isLocked")
             ?: doc.getBoolean("locked")
             ?: doc.getBoolean("isBlocked")
             ?: doc.getBoolean("blocked")
@@ -294,16 +294,49 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             ?: doc.getBoolean("tamKhoa")
             ?: doc.getBoolean("isBan")
             ?: doc.getBoolean("banned")
-        if (isLocked == true) return true
 
-        val active = doc.getBoolean("active")
+        // Nếu Web Admin đã set rõ ràng cờ boolean false -> ĐÃ MỞ KHÓA
+        if (isLockedExplicit == false) {
+            return false
+        }
+        // Nếu cờ boolean là true -> BỊ KHÓA
+        if (isLockedExplicit == true) {
+            return true
+        }
+
+        val activeExplicit = doc.getBoolean("active")
             ?: doc.getBoolean("isActive")
             ?: doc.getBoolean("enabled")
             ?: doc.getBoolean("enable")
             ?: doc.getBoolean("hoatDong")
-        if (active == false) return true
 
-        // 2. Kiểm tra chuỗi trạng thái (status, trangThai, state, accountStatus, lockStatus)
+        // Nếu Web Admin đã set active = true -> ĐÃ MỞ KHÓA
+        if (activeExplicit == true) {
+            return false
+        }
+        // Nếu active = false -> BỊ KHÓA
+        if (activeExplicit == false) {
+            return true
+        }
+
+        // 2. Kiểm tra chuỗi cờ locked/active dạng String ("false", "true", "0", "1")
+        val rawLockedStr = (doc.getString("locked") ?: doc.getString("isLocked") ?: doc.getString("khoa") ?: "").trim().lowercase()
+        if (rawLockedStr == "false" || rawLockedStr == "0" || rawLockedStr == "no" || rawLockedStr == "unlocked" || rawLockedStr == "mở khóa" || rawLockedStr == "mo_khoa") {
+            return false
+        }
+        if (rawLockedStr == "true" || rawLockedStr == "1" || rawLockedStr == "yes" || rawLockedStr == "locked" || rawLockedStr == "khoa" || rawLockedStr == "khóa" || rawLockedStr == "khoá") {
+            return true
+        }
+
+        val rawActiveStr = (doc.getString("active") ?: doc.getString("isActive") ?: doc.getString("enabled") ?: "").trim().lowercase()
+        if (rawActiveStr == "true" || rawActiveStr == "1" || rawActiveStr == "yes" || rawActiveStr == "active" || rawActiveStr == "hoat_dong") {
+            return false
+        }
+        if (rawActiveStr == "false" || rawActiveStr == "0" || rawActiveStr == "no" || rawActiveStr == "inactive") {
+            return true
+        }
+
+        // 3. Kiểm tra chuỗi trạng thái (status, trangThai, state, accountStatus, lockStatus)
         val rawStatus = (
             doc.getString("status")
                 ?: doc.getString("trangThai")
@@ -314,24 +347,35 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 ?: ""
         ).trim().lowercase()
 
-        val lockedKeywords = listOf(
-            "locked", "khoa", "khóa", "bi_khoa", "bị khóa", "tam_khoa", "tạm khóa",
-            "disabled", "blocked", "banned", "inactive", "deactivated", "vo_hieu_hoa", "vô hiệu hóa",
-            "ngung_hoat_dong", "ngưng hoạt động", "ban", "deny", "denied", "stop", "close", "closed"
-        )
-        if (lockedKeywords.any { rawStatus.contains(it) }) {
-            return true
-        }
+        if (rawStatus.isNotBlank()) {
+            // Danh sách từ khóa MỞ KHÓA / HOẠT ĐỘNG (Ưu tiên kiểm tra trước để tránh nhận diện nhầm!)
+            val unlockedKeywords = listOf(
+                "unlocked", "unlock", "mo_khoa", "mở khóa", "mở khoá", "mo khoa",
+                "huy_khoa", "hủy khóa", "hủy khoá", "active", "hoat_dong", "hoạt động",
+                "dang_hoat_dong", "đang hoạt động", "normal", "binh_thuong", "bình thường",
+                "enabled", "enable", "open", "ok"
+            )
+            if (unlockedKeywords.any { rawStatus == it || rawStatus.contains(it) }) {
+                return false
+            }
 
-        // 3. Giá trị chuỗi của các cờ boolean ("locked": "true", "khoa": "true")
-        val rawLockedStr = (doc.getString("locked") ?: doc.getString("isLocked") ?: doc.getString("khoa") ?: "").trim().lowercase()
-        if (rawLockedStr == "true" || rawLockedStr == "1" || rawLockedStr == "yes" || rawLockedStr == "locked" || rawLockedStr == "khoa" || rawLockedStr == "khóa") {
-            return true
-        }
+            // Danh sách từ khóa KHÓA TÀI KHOẢN chính xác
+            val lockedExactMatches = listOf(
+                "locked", "lock", "khoa", "khóa", "khoá", "bi_khoa", "bị khóa", "bị khoá",
+                "tam_khoa", "tạm khóa", "tạm khoá", "disabled", "blocked", "banned",
+                "inactive", "deactivated", "vo_hieu_hoa", "vô hiệu hóa",
+                "ngung_hoat_dong", "ngưng hoạt động", "close", "closed", "stop"
+            )
+            if (lockedExactMatches.any { rawStatus == it }) {
+                return true
+            }
 
-        val rawActiveStr = (doc.getString("active") ?: doc.getString("isActive") ?: doc.getString("enabled") ?: "").trim().lowercase()
-        if (rawActiveStr == "false" || rawActiveStr == "0" || rawActiveStr == "no") {
-            return true
+            // Kiểm tra chứa cụm từ khóa nhưng TUYỆT ĐỐI LOẠI TRỪ các từ phủ định "mở", "hủy", "un"
+            val hasLockedSubstr = (rawStatus.contains("khoa") || rawStatus.contains("khóa") || rawStatus.contains("khoá") || rawStatus.contains("locked") || rawStatus.contains("blocked") || rawStatus.contains("disabled"))
+            val hasNegation = rawStatus.contains("mở") || rawStatus.contains("mo_") || rawStatus.contains("hủy") || rawStatus.contains("huy_") || rawStatus.contains("un") || rawStatus.contains("không") || rawStatus.contains("khong")
+            if (hasLockedSubstr && !hasNegation) {
+                return true
+            }
         }
 
         return false
@@ -357,8 +401,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     if (snapshot != null) {
                         if (!snapshot.exists()) {
-                            // Tài khoản đã bị xóa hoàn toàn khỏi hệ thống bởi Web Admin
-                            forceKickOutDueToLock("Tài khoản của đồng chí đã bị xóa khỏi hệ thống bởi Quản trị viên.")
+                            // Chỉ kick out nếu thực sự snapshot xác nhận từ server (không phải lỗi tạm thời hay cache)
+                            if (!snapshot.metadata.isFromCache) {
+                                forceKickOutDueToLock("Tài khoản của đồng chí đã bị xóa khỏi hệ thống bởi Quản trị viên.")
+                            }
                         } else if (isUserDocLocked(snapshot)) {
                             forceKickOutDueToLock("Tài khoản của đồng chí đã bị Quản trị viên trên Web khóa.")
                         }
@@ -381,36 +427,26 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             Log.w(TAG, "[SECURITY] Failed to attach accounts listener: ${e.message}")
         }
 
-        // 3. Fallback định kỳ (mỗi 3 giây) qua Firebase Auth reload & đối chiếu document
+        // 3. Fallback định kỳ (mỗi 4 giây) đối chiếu trực tiếp document trên Server
         accountSecurityCheckJob = viewModelScope.launch(Dispatchers.IO) {
             while (isActive) {
-                delay(3000)
+                delay(4000)
                 try {
                     // Kiểm tra Firebase Auth nếu có
                     if (isFirebaseApiKeyValid() && auth != null && auth.currentUser != null) {
                         try {
                             auth.currentUser?.reload()?.await()
-                            if (auth.currentUser == null) {
-                                withContext(Dispatchers.Main) {
-                                    forceKickOutDueToLock("Phiên đăng nhập đã hết hạn hoặc bị vô hiệu hóa.")
-                                }
-                                break
-                            }
-                        } catch (authEx: Exception) {
-                            val msg = authEx.message?.lowercase() ?: ""
-                            if (msg.contains("disabled") || msg.contains("blocked") || msg.contains("user-disabled") || msg.contains("invalid-user")) {
-                                withContext(Dispatchers.Main) {
-                                    forceKickOutDueToLock("Tài khoản của đồng chí đã bị Quản trị viên trên Web khóa.")
-                                }
-                                break
-                            }
-                        }
+                        } catch (_: Exception) {}
                     }
 
-                    // Đối chiếu lại trực tiếp với Firestore
+                    // Đối chiếu lại trực tiếp với Firestore (ưu tiên SERVER để tránh cache)
                     if (db != null) {
                         try {
-                            val userDoc = db.collection("users").document(userId).get().await()
+                            val userDoc = try {
+                                db.collection("users").document(userId).get(com.google.firebase.firestore.Source.SERVER).await()
+                            } catch (_: Exception) {
+                                db.collection("users").document(userId).get().await()
+                            }
                             if (userDoc.exists() && isUserDocLocked(userDoc)) {
                                 withContext(Dispatchers.Main) {
                                     forceKickOutDueToLock("Tài khoản của đồng chí đã bị Quản trị viên trên Web khóa.")
@@ -1135,7 +1171,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (db == null) return
         viewModelScope.launch {
             try {
-                val doc = db.collection("users").document(uid).get().await()
+                val doc = try {
+                    db.collection("users").document(uid).get(com.google.firebase.firestore.Source.SERVER).await()
+                } catch (_: Exception) {
+                    db.collection("users").document(uid).get().await()
+                }
                 if (doc.exists()) {
                     if (isUserDocLocked(doc)) {
                         forceKickOutDueToLock("Tài khoản của đồng chí đã bị Quản trị viên trên Web khóa.")
@@ -1548,7 +1588,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         var matchedDoc: com.google.firebase.firestore.DocumentSnapshot? = null
 
                         try {
-                            val usersSnapshot = db.collection("users").get().await()
+                            // Luôn ưu tiên lấy từ SERVER để cập nhật ngay trạng thái mở khóa từ Web
+                            val usersSnapshot = try {
+                                db.collection("users").get(com.google.firebase.firestore.Source.SERVER).await()
+                            } catch (_: Exception) {
+                                db.collection("users").get().await()
+                            }
                             for (doc in usersSnapshot.documents) {
                                 val email = doc.getString("email") ?: ""
                                 val username = doc.getString("username") ?: doc.getString("account") ?: doc.getString("taiKhoan") ?: ""
@@ -1576,7 +1621,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         // Nếu chưa thấy trong 'users', thử tìm trong 'accounts'
                         if (matchedDoc == null) {
                             try {
-                                val accSnapshot = db.collection("accounts").get().await()
+                                val accSnapshot = try {
+                                    db.collection("accounts").get(com.google.firebase.firestore.Source.SERVER).await()
+                                } catch (_: Exception) {
+                                    db.collection("accounts").get().await()
+                                }
                                 for (doc in accSnapshot.documents) {
                                     val email = doc.getString("email") ?: ""
                                     val username = doc.getString("username") ?: doc.getString("account") ?: ""
@@ -1591,16 +1640,24 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         }
 
                         if (matchedDoc != null) {
-                            if (isUserDocLocked(matchedDoc)) {
+                            // Lấy snapshot tươi mới nhất từ SERVER đối với document này để tránh cache
+                            val freshDoc = try {
+                                matchedDoc.reference.get(com.google.firebase.firestore.Source.SERVER).await()
+                            } catch (_: Exception) {
+                                matchedDoc
+                            }
+                            val docToCheck = if (freshDoc != null && freshDoc.exists()) freshDoc else matchedDoc
+
+                            if (isUserDocLocked(docToCheck)) {
                                 _authActionLoading.value = false
-                                onError("Tài khoản của đồng chí đã bị Quản trị viên trên Web khóa. Vui lòng liên hệ cán bộ quản trị để được hỗ trợ!")
+                                onError("Tài khoản của đồng chí đang bị khóa trên hệ thống Web. Vui lòng liên hệ cán bộ quản trị để được hỗ trợ!")
                                 return@launch
                             }
 
-                            val savedPassword = matchedDoc.getString("password") 
-                                ?: matchedDoc.getString("matKhau") 
-                                ?: matchedDoc.getString("pass")
-                                ?: matchedDoc.getString("mat_khau")
+                            val savedPassword = docToCheck.getString("password") 
+                                ?: docToCheck.getString("matKhau") 
+                                ?: docToCheck.getString("pass")
+                                ?: docToCheck.getString("mat_khau")
 
                             // Nếu web admin có lưu mật khẩu thì kiểm tra khớp
                             if (!savedPassword.isNullOrBlank() && savedPassword != password) {
@@ -1611,24 +1668,21 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
                             // Gọi FirebaseAuth đăng nhập bổ trợ để đồng bộ phiên nếu API key hợp lệ
                             if (isFirebaseApiKeyValid() && auth != null) {
-                                val emailToTry = matchedDoc.getString("email")?.ifEmpty { null }
+                                val emailToTry = docToCheck.getString("email")?.ifEmpty { null }
                                     ?: if (!trimmedInput.contains("@")) "${trimmedInput.lowercase()}@gdctvung4.vn" else trimmedInput
                                 try {
                                     val authResult = auth.signInWithEmailAndPassword(emailToTry, password).await()
                                     _currentUser.value = authResult.user
                                 } catch (authEx: Exception) {
-                                    val msg = authEx.localizedMessage?.lowercase() ?: ""
-                                    if (msg.contains("disabled") || msg.contains("blocked") || msg.contains("user-disabled")) {
-                                        _authActionLoading.value = false
-                                        onError("Tài khoản của đồng chí đã bị Quản trị viên trên Web khóa!")
-                                        return@launch
-                                    }
-                                    Log.w(TAG, "[AUTH SDK] Background sign in failed: ${authEx.localizedMessage}")
+                                    Log.w(TAG, "[AUTH SDK] Background sign in non-critical: ${authEx.localizedMessage}")
+                                    // Chú ý: Vì tài khoản trên Firestore của Web Quản Trị đã được xác nhận MỞ KHÓA,
+                                    // không chặn người dùng nếu Firebase Auth SDK có độ trễ đồng bộ.
                                 }
                             }
 
                             // Xác thực thành công tài khoản từ Web Quản Trị!
-                            val userDocObj = UserDoc.fromDoc(matchedDoc)
+                            clearAccountLockedEvent()
+                            val userDocObj = UserDoc.fromDoc(docToCheck)
                             val prefs = getApplication<Application>().getSharedPreferences("vung4_auth_prefs", Context.MODE_PRIVATE)
                             val localAvatar = prefs.getString("user_avatar_${userDocObj.id}", "")?.ifEmpty {
                                 prefs.getString("user_avatar", "")
