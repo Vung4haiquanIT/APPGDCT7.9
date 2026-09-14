@@ -312,6 +312,81 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun changeUserPassword(oldPass: String, newPass: String, onComplete: (Boolean, String?) -> Unit) {
+        val current = _userDoc.value
+        if (current == null || current.id.isBlank()) {
+            onComplete(false, "Vui lòng đăng nhập để đổi mật khẩu")
+            return
+        }
+        val trimmedOld = oldPass.trim()
+        val trimmedNew = newPass.trim()
+        if (trimmedOld.isEmpty() || trimmedNew.isEmpty()) {
+            onComplete(false, "Mật khẩu không được để trống")
+            return
+        }
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                if (db == null) {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        onComplete(false, "Lỗi kết nối cơ sở dữ liệu")
+                    }
+                    return@launch
+                }
+
+                // 1. Kiểm tra mật khẩu cũ trên Firestore
+                val userRef = db.collection("users").document(current.id)
+                val snapshot = userRef.get().await()
+                if (!snapshot.exists()) {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        onComplete(false, "Không tìm thấy thông tin tài khoản")
+                    }
+                    return@launch
+                }
+
+                val savedPassword = snapshot.getString("password") 
+                    ?: snapshot.getString("matKhau") 
+                    ?: snapshot.getString("pass")
+                    ?: snapshot.getString("mat_khau")
+
+                if (!savedPassword.isNullOrBlank() && savedPassword != trimmedOld) {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        onComplete(false, "Mật khẩu cũ không chính xác")
+                    }
+                    return@launch
+                }
+
+                // 2. Cập nhật trên Firebase Auth nếu có người dùng đăng nhập qua SDK
+                if (isFirebaseApiKeyValid() && auth != null && auth.currentUser != null) {
+                    try {
+                        auth.currentUser?.updatePassword(trimmedNew)?.await()
+                        Log.i(TAG, "[PASSWORD] Firebase Auth password updated successfully")
+                    } catch (authEx: Exception) {
+                        Log.w(TAG, "[PASSWORD AUTH SDK] Update failed: ${authEx.localizedMessage}")
+                    }
+                }
+
+                // 3. Cập nhật trên Firestore
+                val updates = mapOf(
+                    "password" to trimmedNew,
+                    "matKhau" to trimmedNew,
+                    "pass" to trimmedNew,
+                    "mat_khau" to trimmedNew
+                )
+                userRef.update(updates).await()
+                Log.i(TAG, "[PASSWORD] Firestore document password updated successfully for ${current.id}")
+
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    onComplete(true, null)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "[PASSWORD ERROR] Failed to change password: ${e.message}", e)
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    onComplete(false, e.localizedMessage ?: "Lỗi hệ thống khi đổi mật khẩu")
+                }
+            }
+        }
+    }
+
     fun resetUserAvatar(onComplete: (() -> Unit)? = null) {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {

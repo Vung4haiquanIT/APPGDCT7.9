@@ -45,6 +45,7 @@ import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import com.example.model.ExamResultDoc
 import com.example.ui.components.LoginDialog
+import com.example.ui.components.ChangePasswordDialog
 import com.example.ui.components.Vung4LogoBadge
 import com.example.ui.theme.GoldPrimary
 import com.example.ui.theme.NavySecondary
@@ -71,6 +72,7 @@ fun CaNhanScreen(
     var showLoginDialog by remember { mutableStateOf(false) }
     var showAvatarOptionsDialog by remember { mutableStateOf(false) }
     var showAllExamHistoryDialog by remember { mutableStateOf(false) }
+    var showChangePasswordDialog by remember { mutableStateOf(false) }
     val dateFormat = remember { SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()) }
 
     val photoPickerLauncher = rememberLauncherForActivityResult(
@@ -293,6 +295,32 @@ fun CaNhanScreen(
                             }
 
                             Spacer(modifier = Modifier.height(20.dp))
+
+                            Button(
+                                onClick = { showChangePasswordDialog = true },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(46.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = NavySecondary,
+                                    contentColor = Color.White
+                                )
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Lock,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "ĐỔI MẬT KHẨU",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
 
                             OutlinedButton(
                                 onClick = { viewModel.logout() },
@@ -657,6 +685,24 @@ fun CaNhanScreen(
                         onErrorCallback(err)
                     }
                 )
+            }
+        )
+    }
+
+    // DIALOG ĐỔI MẬT KHẨU
+    if (showChangePasswordDialog) {
+        ChangePasswordDialog(
+            isLoading = authActionLoading,
+            onDismiss = { showChangePasswordDialog = false },
+            onChangePassword = { oldPass, newPass, onErrorCallback ->
+                viewModel.changeUserPassword(oldPass, newPass) { success, error ->
+                    if (success) {
+                        Toast.makeText(context, "Đổi mật khẩu thành công!", Toast.LENGTH_SHORT).show()
+                        showChangePasswordDialog = false
+                    } else {
+                        onErrorCallback(error ?: "Không thể đổi mật khẩu. Vui lòng kiểm tra lại!")
+                    }
+                }
             }
         )
     }
