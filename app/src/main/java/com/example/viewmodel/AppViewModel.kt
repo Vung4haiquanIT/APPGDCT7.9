@@ -2,6 +2,9 @@ package com.example.viewmodel
 
 import android.app.Application
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.util.Base64
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -14,6 +17,8 @@ import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.SetOptions
+import java.io.ByteArrayOutputStream
+import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -148,6 +153,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private var accountDocListener: ListenerRegistration? = null
     private var accountSecurityCheckJob: Job? = null
 
+    // Giám sát phiên đăng nhập duy nhất (tránh đăng nhập đồng thời trên nhiều thiết bị)
+    private var localSessionId: String = ""
+
     private val _accountLockedEvent = MutableStateFlow<String?>(null)
     val accountLockedEvent: StateFlow<String?> = _accountLockedEvent.asStateFlow()
 
@@ -208,6 +216,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             prefs.edit()
                 .putBoolean("is_logged_in", true)
                 .putString("user_id", user.id)
+                .putString("current_session_id", localSessionId)
                 .putString("user_name", user.name)
                 .putString("user_email", user.email)
                 .putString("user_role", user.role)
@@ -217,7 +226,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 .putString("user_avatar", user.avatarUrl)
                 .putString("user_avatar_${user.id}", user.avatarUrl)
                 .apply()
-            Log.i(TAG, "[SESSION] Saved login session for ${user.name} (${user.id})")
+            Log.i(TAG, "[SESSION] Saved login session for ${user.name} (${user.id}), session: $localSessionId")
         } catch (e: Exception) {
             Log.e(TAG, "[SESSION SAVE ERROR] ${e.localizedMessage}", e)
         }
@@ -225,6 +234,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun clearUserSession() {
         try {
+            localSessionId = ""
             val prefs = getApplication<Application>().getSharedPreferences("vung4_auth_prefs", Context.MODE_PRIVATE)
             prefs.edit().clear().apply()
             Log.i(TAG, "[SESSION] Cleared saved session")
@@ -238,9 +248,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             val prefs = getApplication<Application>().getSharedPreferences("vung4_auth_prefs", Context.MODE_PRIVATE)
             val isLoggedIn = prefs.getBoolean("is_logged_in", false)
             val id = prefs.getString("user_id", "") ?: ""
-            val localAvatar = prefs.getString("user_avatar_${id}", "")?.ifEmpty {
+            localSessionId = prefs.getString("current_session_id", "") ?: ""
+            val rawAvatar = prefs.getString("user_avatar_${id}", "")?.ifEmpty {
                 prefs.getString("user_avatar", "")
             } ?: ""
+            val localAvatar = resolveAndCacheAvatar(id, rawAvatar)
             if (isLoggedIn && id.isNotBlank()) {
                 val restored = UserDoc(
                     id = id,
@@ -384,12 +396,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     /**
      * Lắng nghe thời gian thực trạng thái tài khoản từ Web Quản trị.
      * Khi Quản trị viên trên Web bấm "Khóa", ứng dụng sẽ phát hiện ngay tức thì.
+     * Đồng thời phát hiện khi tài khoản được đăng nhập trên một thiết bị khác.
      */
     fun startUserAccountRealtimeMonitoring(userId: String, userEmail: String = "") {
         stopUserAccountRealtimeMonitoring()
-        if (db == null || userId.isBlank()) return
+        if (db == null || userId.isBlank() || userId == "guest") return
 
-        Log.i(TAG, "[SECURITY] Bắt đầu giám sát thời gian thực trạng thái tài khoản: $userId")
+        Log.i(TAG, "[SECURITY] Bắt đầu giám sát thời gian thực trạng thái tài khoản: $userId (Session: $localSessionId)")
 
         // 1. Lắng nghe trực tiếp Firestore collection "users"
         try {
@@ -407,6 +420,30 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                             }
                         } else if (isUserDocLocked(snapshot)) {
                             forceKickOutDueToLock("Tài khoản của đồng chí đã bị Quản trị viên trên Web khóa.")
+                        } else {
+                            // Kiểm tra xung đột phiên đăng nhập trên nhiều thiết bị
+                            val remoteSession = snapshot.getString("currentSessionId")
+                                ?: snapshot.getString("sessionId")
+                                ?: snapshot.getString("activeSessionId")
+                            if (!remoteSession.isNullOrBlank() && localSessionId.isNotBlank() && remoteSession != localSessionId) {
+                                val otherDevice = snapshot.getString("lastDeviceId") ?: "thiết bị khác"
+                                forceKickOutDueToOtherDeviceLogin(otherDevice)
+                                return@addSnapshotListener
+                            }
+
+                            // Tự động đồng bộ ảnh đại diện nếu được thay đổi từ thiết bị khác
+                            val remoteAvatar = snapshot.getString("avatarUrl")
+                                ?: snapshot.getString("avatar")
+                                ?: snapshot.getString("avatarBase64")
+                                ?: snapshot.getString("photoUrl")
+                                ?: ""
+                            if (remoteAvatar.isNotBlank()) {
+                                val current = _userDoc.value
+                                val resolved = resolveAndCacheAvatar(userId, remoteAvatar)
+                                if (current != null && resolved.isNotBlank() && current.avatarUrl != resolved) {
+                                    _userDoc.value = current.copy(avatarUrl = resolved)
+                                }
+                            }
                         }
                     }
                 }
@@ -419,8 +456,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             accountDocListener = db.collection("accounts").document(userId)
                 .addSnapshotListener { snapshot, error ->
                     if (error != null) return@addSnapshotListener
-                    if (snapshot != null && snapshot.exists() && isUserDocLocked(snapshot)) {
-                        forceKickOutDueToLock("Tài khoản của đồng chí đã bị Quản trị viên trên Web khóa.")
+                    if (snapshot != null && snapshot.exists()) {
+                        if (isUserDocLocked(snapshot)) {
+                            forceKickOutDueToLock("Tài khoản của đồng chí đã bị Quản trị viên trên Web khóa.")
+                        } else {
+                            val remoteSession = snapshot.getString("currentSessionId")
+                                ?: snapshot.getString("sessionId")
+                                ?: snapshot.getString("activeSessionId")
+                            if (!remoteSession.isNullOrBlank() && localSessionId.isNotBlank() && remoteSession != localSessionId) {
+                                val otherDevice = snapshot.getString("lastDeviceId") ?: "thiết bị khác"
+                                forceKickOutDueToOtherDeviceLogin(otherDevice)
+                            }
+                        }
                     }
                 }
         } catch (e: Exception) {
@@ -447,11 +494,23 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                             } catch (_: Exception) {
                                 db.collection("users").document(userId).get().await()
                             }
-                            if (userDoc.exists() && isUserDocLocked(userDoc)) {
-                                withContext(Dispatchers.Main) {
-                                    forceKickOutDueToLock("Tài khoản của đồng chí đã bị Quản trị viên trên Web khóa.")
+                            if (userDoc.exists()) {
+                                if (isUserDocLocked(userDoc)) {
+                                    withContext(Dispatchers.Main) {
+                                        forceKickOutDueToLock("Tài khoản của đồng chí đã bị Quản trị viên trên Web khóa.")
+                                    }
+                                    break
                                 }
-                                break
+                                val remoteSession = userDoc.getString("currentSessionId")
+                                    ?: userDoc.getString("sessionId")
+                                    ?: userDoc.getString("activeSessionId")
+                                if (!remoteSession.isNullOrBlank() && localSessionId.isNotBlank() && remoteSession != localSessionId) {
+                                    val otherDevice = userDoc.getString("lastDeviceId") ?: "thiết bị khác"
+                                    withContext(Dispatchers.Main) {
+                                        forceKickOutDueToOtherDeviceLogin(otherDevice)
+                                    }
+                                    break
+                                }
                             }
                         } catch (_: Exception) {}
                     }
@@ -474,6 +533,96 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
+     * Xử lý và lưu bộ nhớ đệm ảnh đại diện cục bộ từ dữ liệu Firestore (hỗ trợ Base64, URL Web, file nội bộ)
+     * Đảm bảo khi đăng nhập trên máy khác, ảnh đại diện lập tức hiển thị đồng bộ và sắc nét.
+     */
+    fun resolveAndCacheAvatar(userId: String, rawAvatar: String): String {
+        val context = getApplication<Application>()
+        val avatarDir = java.io.File(context.filesDir, "avatars")
+        if (!avatarDir.exists()) avatarDir.mkdirs()
+        val targetFile = java.io.File(avatarDir, "avatar_${userId}.jpg")
+
+        if (rawAvatar.isBlank()) {
+            return if (targetFile.exists()) targetFile.absolutePath else ""
+        }
+
+        // Trường hợp 1: Dữ liệu ảnh là chuỗi Base64
+        if (rawAvatar.startsWith("data:image/") || (rawAvatar.length > 150 && !rawAvatar.startsWith("http") && !rawAvatar.startsWith("/"))) {
+            try {
+                val base64Content = if (rawAvatar.contains(",")) {
+                    rawAvatar.substringAfter(",")
+                } else {
+                    rawAvatar
+                }
+                val imageBytes = Base64.decode(base64Content.trim(), Base64.DEFAULT)
+                if (imageBytes != null && imageBytes.isNotEmpty()) {
+                    targetFile.writeBytes(imageBytes)
+                    val prefs = context.getSharedPreferences("vung4_auth_prefs", Context.MODE_PRIVATE)
+                    prefs.edit()
+                        .putString("user_avatar_${userId}", targetFile.absolutePath)
+                        .putString("user_avatar", targetFile.absolutePath)
+                        .apply()
+                    return targetFile.absolutePath
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "[AVATAR] Lỗi giải mã Base64 avatar: ${e.message}")
+            }
+        }
+
+        // Trường hợp 2: URL Internet / Web Admin (http:// hoặc https://)
+        if (rawAvatar.startsWith("http://") || rawAvatar.startsWith("https://")) {
+            return rawAvatar
+        }
+
+        // Trường hợp 3: Đường dẫn file cục bộ (có thể từ thiết bị này hoặc thiết bị khác)
+        if (rawAvatar.startsWith("/")) {
+            val file = java.io.File(rawAvatar)
+            if (file.exists()) {
+                return rawAvatar
+            } else if (targetFile.exists()) {
+                // File từ máy khác không có, nhưng máy này đã có cache file chuẩn
+                return targetFile.absolutePath
+            } else {
+                return ""
+            }
+        }
+
+        return rawAvatar
+    }
+
+    /**
+     * Buộc đăng xuất ngay lập tức khi phát hiện tài khoản đã đăng nhập trên thiết bị khác
+     */
+    fun forceKickOutDueToOtherDeviceLogin(deviceName: String = "thiết bị khác") {
+        val hasUser = _userDoc.value != null && !_userDoc.value!!.id.isNullOrBlank()
+        val hasFbUser = _currentUser.value != null
+        if (!hasUser && !hasFbUser) return
+
+        val reason = "Tài khoản của đồng chí vừa được đăng nhập trên một thiết bị khác ($deviceName). Để bảo mật thông tin, phiên làm việc trên thiết bị này đã tự động kết thúc."
+        Log.w(TAG, "[SECURITY] KÍCH HOẠT ĐÁ VĂNG KHỎI APP DO ĐĂNG NHẬP THIẾT BỊ KHÁC: $reason")
+
+        // 1. Tắt màn hình xem bài học ngay lập tức
+        _isViewingLesson.value = false
+
+        // 2. Dừng giám sát và xóa phiên cục bộ
+        stopUserAccountRealtimeMonitoring()
+        localSessionId = ""
+        clearUserSession()
+        _currentUser.value = null
+        _userDoc.value = null
+        _userDocStatus.value = "DISCONNECTED (Đã đăng nhập trên $deviceName)"
+        _progressList.value = emptyList()
+        _progressStatus.value = "DISCONNECTED"
+        _userExamResults.value = emptyList()
+        try {
+            auth?.signOut()
+        } catch (_: Exception) {}
+
+        // 3. Kích hoạt sự kiện để MainScreen hiện Dialog cảnh báo và chuyển về màn Đăng nhập
+        _accountLockedEvent.value = reason
+    }
+
+    /**
      * Đá văng người dùng đang mở App về màn hình Đăng nhập ngay lập tức khi bị khóa
      */
     fun forceKickOutDueToLock(reason: String = "Tài khoản của đồng chí đã bị Quản trị viên trên Web khóa.") {
@@ -486,39 +635,78 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         // 1. Tắt màn hình xem bài học ngay lập tức
         _isViewingLesson.value = false
 
-        // 2. Đăng xuất hoàn toàn và xóa phiên đăng nhập
-        logout()
+        // 2. Dừng giám sát và đăng xuất
+        stopUserAccountRealtimeMonitoring()
+        localSessionId = ""
+        clearUserSession()
+        _currentUser.value = null
+        _userDoc.value = null
+        _userDocStatus.value = "LOCKED"
+        _progressList.value = emptyList()
+        _progressStatus.value = "LOCKED"
+        _userExamResults.value = emptyList()
+        try {
+            auth?.signOut()
+        } catch (_: Exception) {}
 
         // 3. Kích hoạt sự kiện khóa tài khoản để giao diện đưa về màn hình Đăng nhập ngay lập tức
         _accountLockedEvent.value = reason
     }
 
     fun updateUserAvatar(uri: android.net.Uri, onComplete: ((Boolean, String?) -> Unit)? = null) {
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+        viewModelScope.launch(Dispatchers.IO) {
             try {
                 val context = getApplication<Application>()
                 val avatarDir = java.io.File(context.filesDir, "avatars")
                 if (!avatarDir.exists()) avatarDir.mkdirs()
 
                 val userId = _userDoc.value?.id.takeIf { !it.isNullOrBlank() } ?: "local_user"
-                val targetFile = java.io.File(avatarDir, "avatar_${userId}_${System.currentTimeMillis()}.jpg")
+                val targetFile = java.io.File(avatarDir, "avatar_${userId}.jpg")
 
-                context.contentResolver.openInputStream(uri)?.use { input ->
-                    targetFile.outputStream().use { output ->
-                        input.copyTo(output)
-                    }
+                // 1. Đọc và nén ảnh
+                val inputStream = context.contentResolver.openInputStream(uri)
+                val originalBitmap = BitmapFactory.decodeStream(inputStream)
+                inputStream?.close()
+
+                if (originalBitmap == null) {
+                    throw Exception("Không thể đọc định dạng hình ảnh đã chọn")
                 }
 
+                // Căn giữa hình vuông và nén kích thước tối đa 256x256 px
+                val maxDim = 256
+                val width = originalBitmap.width
+                val height = originalBitmap.height
+                val cropSize = width.coerceAtMost(height)
+                val cropX = (width - cropSize) / 2
+                val cropY = (height - cropSize) / 2
+                val croppedBitmap = Bitmap.createBitmap(originalBitmap, cropX, cropY, cropSize, cropSize)
+
+                val scaledBitmap = if (cropSize > maxDim) {
+                    Bitmap.createScaledBitmap(croppedBitmap, maxDim, maxDim, true)
+                } else {
+                    croppedBitmap
+                }
+
+                val baos = ByteArrayOutputStream()
+                scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 80, baos)
+                val imageBytes = baos.toByteArray()
+
+                // Lưu file cục bộ vào bộ nhớ trong máy
+                targetFile.writeBytes(imageBytes)
                 val avatarPath = targetFile.absolutePath
 
-                // Lưu vào SharedPreferences để ghi nhớ dài hạn
+                // 2. Tạo chuỗi Base64 Data URI đồng bộ đa nền tảng
+                val base64Data = "data:image/jpeg;base64," + Base64.encodeToString(imageBytes, Base64.NO_WRAP)
+
+                // Lưu vào SharedPreferences của máy hiện tại
                 val prefs = context.getSharedPreferences("vung4_auth_prefs", Context.MODE_PRIVATE)
                 prefs.edit()
                     .putString("user_avatar_${userId}", avatarPath)
                     .putString("user_avatar", avatarPath)
+                    .putString("user_avatar_base64_${userId}", base64Data)
                     .apply()
 
-                // Cập nhật state in-memory
+                // Cập nhật State tức thì trên giao diện
                 val current = _userDoc.value
                 val updated = if (current != null) {
                     current.copy(avatarUrl = avatarPath)
@@ -527,23 +715,29 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 _userDoc.value = updated
 
-                // Đồng bộ lên Firestore nếu tài khoản đã đăng nhập
-                if (db != null && current != null && current.id.isNotBlank()) {
+                // 3. Đồng bộ chuỗi Base64 lên Firestore để TẤT CẢ các thiết bị khác khi đăng nhập đều tải được ảnh
+                if (db != null && current != null && current.id.isNotBlank() && current.id != "guest") {
                     try {
+                        val updates = hashMapOf<String, Any>(
+                            "avatarUrl" to base64Data,
+                            "avatar" to base64Data,
+                            "avatarBase64" to base64Data,
+                            "updatedAt" to System.currentTimeMillis()
+                        )
                         db.collection("users").document(current.id)
-                            .update("avatarUrl", avatarPath)
-                        Log.i(TAG, "[AVATAR] Updated avatarUrl in Firestore for ${current.id}")
+                            .set(updates, SetOptions.merge()).await()
+                        Log.i(TAG, "[AVATAR] Đã đồng bộ ảnh đại diện Base64 lên Firestore cho tài khoản ${current.id}")
                     } catch (dbEx: Exception) {
-                        Log.w(TAG, "[AVATAR FIRESTORE SYNC] Notice: ${dbEx.localizedMessage}")
+                        Log.w(TAG, "[AVATAR FIRESTORE SYNC] Lỗi đồng bộ: ${dbEx.localizedMessage}")
                     }
                 }
 
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                withContext(Dispatchers.Main) {
                     onComplete?.invoke(true, null)
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "[AVATAR ERROR] Failed to save avatar: ${e.message}", e)
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                Log.e(TAG, "[AVATAR ERROR] Lỗi cập nhật ảnh đại diện: ${e.message}", e)
+                withContext(Dispatchers.Main) {
                     onComplete?.invoke(false, e.localizedMessage)
                 }
             }
@@ -626,7 +820,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun resetUserAvatar(onComplete: (() -> Unit)? = null) {
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+        viewModelScope.launch(Dispatchers.IO) {
             try {
                 val context = getApplication<Application>()
                 val userId = _userDoc.value?.id.takeIf { !it.isNullOrBlank() } ?: "local_user"
@@ -634,15 +828,27 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 prefs.edit()
                     .remove("user_avatar_${userId}")
                     .remove("user_avatar")
+                    .remove("user_avatar_base64_${userId}")
                     .apply()
+
+                try {
+                    val localFile = java.io.File(context.filesDir, "avatars/avatar_${userId}.jpg")
+                    if (localFile.exists()) localFile.delete()
+                } catch (_: Exception) {}
 
                 val current = _userDoc.value
                 if (current != null) {
                     _userDoc.value = current.copy(avatarUrl = "")
-                    if (db != null && current.id.isNotBlank()) {
+                    if (db != null && current.id.isNotBlank() && current.id != "guest") {
                         try {
+                            val updates = hashMapOf<String, Any>(
+                                "avatarUrl" to "",
+                                "avatar" to "",
+                                "avatarBase64" to "",
+                                "updatedAt" to System.currentTimeMillis()
+                            )
                             db.collection("users").document(current.id)
-                                .update("avatarUrl", "")
+                                .set(updates, SetOptions.merge()).await()
                         } catch (e: Exception) {
                             Log.w(TAG, "[AVATAR RESET FIRESTORE] Notice: ${e.message}")
                         }
@@ -651,7 +857,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 Log.e(TAG, "[AVATAR RESET ERROR] ${e.message}")
             }
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+            withContext(Dispatchers.Main) {
                 onComplete?.invoke()
             }
         }
@@ -1181,14 +1387,49 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         forceKickOutDueToLock("Tài khoản của đồng chí đã bị Quản trị viên trên Web khóa.")
                         return@launch
                     }
+
+                    // Kiểm tra xem tài khoản có bị đăng nhập trên thiết bị khác không
+                    val remoteSession = doc.getString("currentSessionId")
+                        ?: doc.getString("sessionId")
+                        ?: doc.getString("activeSessionId")
+                    if (!remoteSession.isNullOrBlank() && localSessionId.isNotBlank() && remoteSession != localSessionId) {
+                        val otherDevice = doc.getString("lastDeviceId") ?: "thiết bị khác"
+                        forceKickOutDueToOtherDeviceLogin(otherDevice)
+                        return@launch
+                    }
+
+                    // Tự động khởi tạo session token nếu tài khoản chưa từng được gán
+                    if (localSessionId.isBlank()) {
+                        if (!remoteSession.isNullOrBlank()) {
+                            localSessionId = remoteSession
+                        } else {
+                            localSessionId = UUID.randomUUID().toString()
+                            val deviceName = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}".trim()
+                            val sessionData = hashMapOf<String, Any>(
+                                "currentSessionId" to localSessionId,
+                                "lastLoginAt" to System.currentTimeMillis(),
+                                "lastDeviceId" to deviceName
+                            )
+                            try {
+                                db.collection("users").document(uid).set(sessionData, SetOptions.merge())
+                            } catch (_: Exception) {}
+                        }
+                        val prefs = getApplication<Application>().getSharedPreferences("vung4_auth_prefs", Context.MODE_PRIVATE)
+                        prefs.edit().putString("current_session_id", localSessionId).apply()
+                    }
+
+                    val rawAvatar = doc.getString("avatarUrl")
+                        ?: doc.getString("avatar")
+                        ?: doc.getString("avatarBase64")
+                        ?: doc.getString("photoUrl")
+                        ?: ""
+                    val resolvedAvatar = resolveAndCacheAvatar(uid, rawAvatar)
                     val userDocObj = UserDoc.fromDoc(doc)
-                    val prefs = getApplication<Application>().getSharedPreferences("vung4_auth_prefs", Context.MODE_PRIVATE)
-                    val localAvatar = prefs.getString("user_avatar_${userDocObj.id}", "")?.ifEmpty {
-                        prefs.getString("user_avatar", "")
-                    } ?: ""
-                    val finalUserDoc = if (userDocObj.avatarUrl.isEmpty() && localAvatar.isNotEmpty()) {
-                        userDocObj.copy(avatarUrl = localAvatar)
-                    } else userDocObj
+                    val finalUserDoc = if (resolvedAvatar.isNotBlank()) {
+                        userDocObj.copy(avatarUrl = resolvedAvatar)
+                    } else {
+                        userDocObj
+                    }
                     _userDoc.value = finalUserDoc
                     _userDocStatus.value = "CONNECTED (${finalUserDoc.name})"
                     saveUserSession(finalUserDoc)
@@ -1682,14 +1923,44 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
                             // Xác thực thành công tài khoản từ Web Quản Trị!
                             clearAccountLockedEvent()
+
+                            // Tạo session token mới duy nhất cho thiết bị này để tránh đăng nhập nhiều thiết bị cùng lúc
+                            val newSessionId = UUID.randomUUID().toString()
+                            localSessionId = newSessionId
+                            val deviceName = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}".trim()
+
+                            // Cập nhật session mới lên Firestore
+                            if (db != null) {
+                                try {
+                                    val sessionData = hashMapOf<String, Any>(
+                                        "currentSessionId" to newSessionId,
+                                        "lastLoginAt" to System.currentTimeMillis(),
+                                        "lastDeviceId" to deviceName
+                                    )
+                                    db.collection("users").document(matchedDoc.id).set(sessionData, SetOptions.merge()).await()
+                                    try {
+                                        db.collection("accounts").document(matchedDoc.id).set(sessionData, SetOptions.merge())
+                                    } catch (_: Exception) {}
+                                    Log.i(TAG, "[SESSION] Cập nhật session mới thành công trên server: $newSessionId")
+                                } catch (sessEx: Exception) {
+                                    Log.w(TAG, "[SESSION SYNC ERROR] ${sessEx.localizedMessage}")
+                                }
+                            }
+
+                            // Giải mã và đồng bộ ảnh đại diện (nếu tài khoản đã đổi ảnh trên máy khác)
+                            val rawAvatar = docToCheck.getString("avatarUrl")
+                                ?: docToCheck.getString("avatar")
+                                ?: docToCheck.getString("avatarBase64")
+                                ?: docToCheck.getString("photoUrl")
+                                ?: ""
+                            val resolvedAvatar = resolveAndCacheAvatar(matchedDoc.id, rawAvatar)
+
                             val userDocObj = UserDoc.fromDoc(docToCheck)
-                            val prefs = getApplication<Application>().getSharedPreferences("vung4_auth_prefs", Context.MODE_PRIVATE)
-                            val localAvatar = prefs.getString("user_avatar_${userDocObj.id}", "")?.ifEmpty {
-                                prefs.getString("user_avatar", "")
-                            } ?: ""
-                            val finalUserDoc = if (userDocObj.avatarUrl.isEmpty() && localAvatar.isNotEmpty()) {
-                                userDocObj.copy(avatarUrl = localAvatar)
-                            } else userDocObj
+                            val finalUserDoc = if (resolvedAvatar.isNotBlank()) {
+                                userDocObj.copy(avatarUrl = resolvedAvatar)
+                            } else {
+                                userDocObj
+                            }
                             _userDoc.value = finalUserDoc
                             _userDocStatus.value = "CONNECTED (${finalUserDoc.name})"
                             saveUserSession(finalUserDoc)
@@ -1729,12 +2000,20 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun logout() {
         stopUserAccountRealtimeMonitoring()
+        val uid = _userDoc.value?.id
+        if (db != null && !uid.isNullOrBlank() && uid != "guest") {
+            try {
+                // Xóa session trên Firestore nếu máy này chủ động đăng xuất
+                db.collection("users").document(uid).update("currentSessionId", "")
+            } catch (_: Exception) {}
+        }
         try {
             auth?.signOut()
         } catch (e: Exception) {
             Log.e(TAG, "[LOGOUT ERROR] ${e.localizedMessage}", e)
         }
         clearUserSession()
+        localSessionId = ""
         _currentUser.value = null
         _userDoc.value = null
         _userDocStatus.value = "NOT AUTHENTICATED"

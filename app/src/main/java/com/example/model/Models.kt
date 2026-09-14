@@ -12,7 +12,8 @@ data class Course(
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
     val imageUrl: String = "",
-    val category: String = ""
+    val category: String = "",
+    val year: String = ""
 ) {
     companion object {
         fun fromDoc(doc: DocumentSnapshot): Course {
@@ -25,7 +26,8 @@ data class Course(
                 createdAt = parseTime(doc.get("createdAt")),
                 updatedAt = parseTime(doc.get("updatedAt")),
                 imageUrl = doc.getString("imageUrl") ?: doc.getString("image") ?: "",
-                category = doc.getString("category") ?: doc.getString("chuyenDe") ?: doc.getString("type") ?: ""
+                category = doc.getString("category") ?: doc.getString("chuyenDe") ?: doc.getString("type") ?: "",
+                year = doc.getString("year") ?: doc.getString("nam") ?: doc.get("year")?.toString() ?: doc.get("nam")?.toString() ?: ""
             )
         }
     }
@@ -40,7 +42,8 @@ data class Lesson(
     val version: Long = 1L,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
-    val category: String = ""
+    val category: String = "",
+    val year: String = ""
 ) {
     companion object {
         fun fromDoc(doc: DocumentSnapshot): Lesson {
@@ -53,7 +56,8 @@ data class Lesson(
                 version = parseLong(doc.get("version")),
                 createdAt = parseTime(doc.get("createdAt")),
                 updatedAt = parseTime(doc.get("updatedAt")),
-                category = doc.getString("category") ?: doc.getString("chuyenDe") ?: doc.getString("type") ?: ""
+                category = doc.getString("category") ?: doc.getString("chuyenDe") ?: doc.getString("type") ?: "",
+                year = doc.getString("year") ?: doc.getString("nam") ?: doc.get("year")?.toString() ?: doc.get("nam")?.toString() ?: ""
             )
         }
     }
@@ -220,7 +224,7 @@ data class UserDoc(
                 unit = doc.getString("unit") ?: doc.getString("donVi") ?: "Vùng 4 Hải Quân",
                 rank = doc.getString("rank") ?: doc.getString("capBac") ?: doc.getString("chucVu") ?: "",
                 phone = doc.getString("phone") ?: doc.getString("soDienThoai") ?: "",
-                avatarUrl = doc.getString("avatarUrl") ?: doc.getString("avatar") ?: doc.getString("photoUrl") ?: doc.getString("hinhDaiDien") ?: "",
+                avatarUrl = doc.getString("avatarUrl") ?: doc.getString("avatar") ?: doc.getString("avatarBase64") ?: doc.getString("photoUrl") ?: doc.getString("hinhDaiDien") ?: "",
                 permissions = permsList,
                 createdAt = parseTime(doc.get("createdAt")),
                 updatedAt = parseTime(doc.get("updatedAt"))

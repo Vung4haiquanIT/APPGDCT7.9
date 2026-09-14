@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -119,8 +120,69 @@ fun HocTapContent(
     // Map course id to course title for easy filtering
     val courseMap = remember(courses) { courses.associateBy { it.id } }
 
+    // State lọc bài học theo năm
+    var selectedYear by remember { mutableStateOf("ALL") }
+
+    // Helper trích xuất năm của bài học dựa trên thuộc tính year, tiêu đề, chuyên đề hoặc thời gian tạo
+    fun getLessonYear(lesson: Lesson, course: Course?): String {
+        // 1. Thuộc tính năm trực tiếp từ Web Quản Trị
+        if (lesson.year.isNotBlank()) {
+            val y = lesson.year.filter { it.isDigit() }
+            if (y.length == 4) return y
+        }
+        if (course != null && course.year.isNotBlank()) {
+            val y = course.year.filter { it.isDigit() }
+            if (y.length == 4) return y
+        }
+
+        // 2. Trích xuất năm 4 chữ số từ tiêu đề chuyên đề (VD: "GIÁO DỤC CHÍNH TRỊ NĂM 2026" -> "2026")
+        if (course != null) {
+            val match = Regex("""\b(20[2-3]\d)\b""").find(course.title)
+            if (match != null) return match.groupValues[1]
+        }
+
+        // 3. Trích xuất năm từ tiêu đề bài học
+        val matchL = Regex("""\b(20[2-3]\d)\b""").find(lesson.title)
+        if (matchL != null) return matchL.groupValues[1]
+
+        // 4. Trích xuất năm từ phần mô tả
+        if (course != null) {
+            val matchCD = Regex("""\b(20[2-3]\d)\b""").find(course.description)
+            if (matchCD != null) return matchCD.groupValues[1]
+        }
+        val matchLD = Regex("""\b(20[2-3]\d)\b""").find(lesson.description)
+        if (matchLD != null) return matchLD.groupValues[1]
+
+        // 5. Trích xuất năm từ thời gian tạo/cập nhật (createdAt / updatedAt)
+        val time = if (lesson.createdAt > 0) lesson.createdAt else if (course != null && course.createdAt > 0) course.createdAt else 0L
+        if (time > 1577836800000L) { // Jan 1, 2020
+            val cal = java.util.Calendar.getInstance().apply { timeInMillis = time }
+            val yr = cal.get(java.util.Calendar.YEAR)
+            if (yr in 2020..2035) return yr.toString()
+        }
+
+        return "Khác"
+    }
+
+    // Danh sách tất cả các năm thực tế đang có trong kho bài học
+    val availableYears = remember(lessons, courses) {
+        val set = mutableSetOf<String>()
+        lessons.forEach { lesson ->
+            val course = courseMap[lesson.courseId]
+            val yr = getLessonYear(lesson, course)
+            if (yr.isNotBlank()) {
+                set.add(yr)
+            }
+        }
+        set.sortedWith(Comparator { a, b ->
+            if (a == "Khác") 1
+            else if (b == "Khác") -1
+            else b.compareTo(a) // Giảm dần: 2026, 2025, 2024...
+        })
+    }
+
     // Filter lessons based on selected filter and search query
-    val filteredLessons = remember(lessons, selectedFilterKey, searchQuery, courses) {
+    val filteredLessons = remember(lessons, selectedFilterKey, searchQuery, courses, selectedYear) {
         lessons.filter { lesson ->
             val course = courseMap[lesson.courseId]
             val courseTitle = course?.title ?: ""
@@ -246,7 +308,11 @@ fun HocTapContent(
                 lessonDesc.contains(searchQuery, ignoreCase = true) ||
                 courseTitle.contains(searchQuery, ignoreCase = true)
 
-            matchesFilter && matchesSearch
+            val matchesYear = if (selectedYear == "ALL") true else {
+                getLessonYear(lesson, course) == selectedYear
+            }
+
+            matchesFilter && matchesSearch && matchesYear
         }.sortedWith(
             compareByDescending<Lesson> { it.createdAt.coerceAtLeast(it.updatedAt) }
                 .thenByDescending { it.id }
@@ -403,12 +469,134 @@ fun HocTapContent(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 item {
-                    Text(
-                        text = "Danh sách bài học (${filteredLessons.size})",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Danh sách bài học (${filteredLessons.size})",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
+
+                        // Vùng khoanh đỏ: Bộ lọc bài học theo năm đang có
+                        var expandedYearMenu by remember { mutableStateOf(false) }
+
+                        Box {
+                            Surface(
+                                onClick = { expandedYearMenu = true },
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (selectedYear != "ALL") RedPrimary.copy(alpha = 0.10f) else MaterialTheme.colorScheme.surfaceVariant,
+                                border = BorderStroke(
+                                    width = 1.dp,
+                                    color = if (selectedYear != "ALL") RedPrimary else MaterialTheme.colorScheme.outlineVariant
+                                )
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.DateRange,
+                                        contentDescription = "Lọc theo năm",
+                                        modifier = Modifier.size(15.dp),
+                                        tint = if (selectedYear != "ALL") RedPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        text = if (selectedYear == "ALL") "Năm: Tất cả" else "Năm $selectedYear",
+                                        fontSize = 12.sp,
+                                        fontWeight = if (selectedYear != "ALL") FontWeight.Bold else FontWeight.Medium,
+                                        color = if (selectedYear != "ALL") RedPrimary else MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Icon(
+                                        imageVector = Icons.Default.ArrowDropDown,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
+                                        tint = if (selectedYear != "ALL") RedPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+
+                            DropdownMenu(
+                                expanded = expandedYearMenu,
+                                onDismissRequest = { expandedYearMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            if (selectedYear == "ALL") {
+                                                Icon(
+                                                    imageVector = Icons.Default.Check,
+                                                    contentDescription = null,
+                                                    tint = RedPrimary,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            } else {
+                                                Spacer(modifier = Modifier.size(16.dp))
+                                            }
+                                            Text(
+                                                text = "Tất cả các năm (${lessons.size})",
+                                                fontWeight = if (selectedYear == "ALL") FontWeight.Bold else FontWeight.Normal,
+                                                color = if (selectedYear == "ALL") RedPrimary else MaterialTheme.colorScheme.onSurface,
+                                                fontSize = 13.sp
+                                            )
+                                        }
+                                    },
+                                    onClick = {
+                                        selectedYear = "ALL"
+                                        expandedYearMenu = false
+                                    }
+                                )
+
+                                if (availableYears.isNotEmpty()) {
+                                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                                }
+
+                                availableYears.forEach { yr ->
+                                    val count = lessons.count { l ->
+                                        val c = courseMap[l.courseId]
+                                        getLessonYear(l, c) == yr
+                                    }
+                                    val isSelected = selectedYear == yr
+                                    DropdownMenuItem(
+                                        text = {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                if (isSelected) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Check,
+                                                        contentDescription = null,
+                                                        tint = RedPrimary,
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                } else {
+                                                    Spacer(modifier = Modifier.size(16.dp))
+                                                }
+                                                Text(
+                                                    text = if (yr == "Khác") "Năm khác ($count)" else "Năm $yr ($count)",
+                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                    color = if (isSelected) RedPrimary else MaterialTheme.colorScheme.onSurface,
+                                                    fontSize = 13.sp
+                                                )
+                                            }
+                                        },
+                                        onClick = {
+                                            selectedYear = yr
+                                            expandedYearMenu = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
 
                 if (filteredLessons.isEmpty()) {
