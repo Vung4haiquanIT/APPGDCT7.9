@@ -12,6 +12,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.example.ui.components.LoginDialog
 import com.example.ui.components.TrongDongBackground
 import com.example.ui.theme.RedPrimary
 import com.example.viewmodel.AppViewModel
@@ -33,7 +34,24 @@ fun MainScreen(viewModel: AppViewModel) {
     var selectedCategoryForHocTap by remember { mutableStateOf<String?>(null) }
     var isExamTaking by remember { mutableStateOf(false) }
     val isViewingLesson by viewModel.isViewingLesson.collectAsState()
+    val accountLockedEvent by viewModel.accountLockedEvent.collectAsState()
+    val authActionLoading by viewModel.authActionLoading.collectAsState()
+    var showLockedLoginDialog by remember { mutableStateOf(false) }
+    var lockedDialogMessage by remember { mutableStateOf<String?>(null) }
     var lastBackPressTime by remember { mutableLongStateOf(0L) }
+
+    // Xử lý sự kiện Quản trị viên trên Web bấm Khóa tài khoản -> Đá văng ra màn hình Đăng nhập ngay lập tức
+    LaunchedEffect(accountLockedEvent) {
+        accountLockedEvent?.let { message ->
+            isExamTaking = false
+            lockedDialogMessage = message
+            showLockedLoginDialog = true
+            // Điều hướng ngay về màn hình Cá nhân / Đăng nhập
+            backStack.clear()
+            backStack.add(Screen.TrangChu.route)
+            backStack.add(Screen.CaNhan.route)
+        }
+    }
 
     fun navigateTo(route: String) {
         if (route == Screen.TrangChu.route) {
@@ -121,6 +139,7 @@ fun MainScreen(viewModel: AppViewModel) {
                         },
                         onNavigateToThongBao = { navigateTo(Screen.ThongBao.route) },
                         onNavigateToDebug = { navigateTo(Screen.Debug.route) },
+                        onNavigateToCaNhan = { navigateTo(Screen.CaNhan.route) },
                         onCategoryClick = { category ->
                             if (category.equals("kiem_tra", ignoreCase = true) || category.equals("kiemtra", ignoreCase = true)) {
                                 navigateTo(Screen.KiemTra.route)
@@ -158,6 +177,32 @@ fun MainScreen(viewModel: AppViewModel) {
                     )
                 }
             }
+        }
+
+        // Hiển thị hộp thoại Đăng nhập ngay lập tức khi bị Quản trị viên đá văng ra
+        if (showLockedLoginDialog) {
+            LoginDialog(
+                isLoading = authActionLoading,
+                warningBanner = lockedDialogMessage ?: "Tài khoản của đồng chí đã bị Quản trị viên trên Web khóa. Hệ thống đã tự động kết thúc phiên làm việc!",
+                onDismiss = {
+                    showLockedLoginDialog = false
+                    viewModel.clearAccountLockedEvent()
+                },
+                onLogin = { usernameOrEmail, password, onErrorCallback ->
+                    viewModel.loginWithAdminAccount(
+                        emailOrUsername = usernameOrEmail,
+                        pass = password,
+                        onSuccess = {
+                            showLockedLoginDialog = false
+                            viewModel.clearAccountLockedEvent()
+                            Toast.makeText(context, "Đăng nhập thành công!", Toast.LENGTH_SHORT).show()
+                        },
+                        onError = { err ->
+                            onErrorCallback(err)
+                        }
+                    )
+                }
+            )
         }
     }
 }

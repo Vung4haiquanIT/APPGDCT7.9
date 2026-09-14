@@ -393,7 +393,13 @@ fun KiemTraScreen(
                         timeSpentSeconds = examTimeSpentSeconds,
                         examName = activeExamName,
                         isOfficialWebExam = isOfficialWebExam,
-                        onOpenFeedback = { showFeedbackDialog = true },
+                        onOpenFeedback = { 
+                            if (!isAuthenticated) {
+                                showLoginRequiredDialog = true
+                            } else {
+                                showFeedbackDialog = true
+                            }
+                        },
                         onRetakeNewExam = { startExamForSession(null) },
                         onBackToBank = { currentMode = ExamMode.QUESTION_BANK },
                         onBackToOverview = { currentMode = ExamMode.OVERVIEW }

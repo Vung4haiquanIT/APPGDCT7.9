@@ -10,14 +10,20 @@ import com.example.util.NotificationHelper
 import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.SetOptions
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -137,6 +143,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private var bannersFromBannersColl: List<BannerItem> = emptyList()
     private var bannersFromPostersColl: List<BannerItem> = emptyList()
 
+    // Giám sát trạng thái Khóa tài khoản từ Web Quản trị
+    private var userDocListener: ListenerRegistration? = null
+    private var accountDocListener: ListenerRegistration? = null
+    private var accountSecurityCheckJob: Job? = null
+
+    private val _accountLockedEvent = MutableStateFlow<String?>(null)
+    val accountLockedEvent: StateFlow<String?> = _accountLockedEvent.asStateFlow()
+
+    fun clearAccountLockedEvent() {
+        _accountLockedEvent.value = null
+    }
+
     private fun updateEffectiveBanners() {
         val combined = if (bannersFromBannersColl.isNotEmpty()) {
             bannersFromBannersColl
@@ -239,6 +257,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 fetchProgress(restored.id)
                 fetchExamResults(restored.id)
                 syncPendingGuestProgressToFirestore(restored.id)
+                startUserAccountRealtimeMonitoring(restored.id, restored.email)
                 Log.i(TAG, "[SESSION] Restored login session for ${restored.name}")
                 restored
             } else if (localAvatar.isNotEmpty()) {
@@ -253,6 +272,189 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             Log.e(TAG, "[SESSION RESTORE ERROR] ${e.localizedMessage}", e)
             null
         }
+    }
+
+    /**
+     * Kiểm tra trạng thái Khóa của tài khoản người dùng từ dữ liệu Firestore
+     */
+    fun isUserDocLocked(doc: DocumentSnapshot): Boolean {
+        if (!doc.exists()) {
+            return true
+        }
+
+        // 1. Kiểm tra các cờ boolean
+        val isLocked = doc.getBoolean("isLocked")
+            ?: doc.getBoolean("locked")
+            ?: doc.getBoolean("isBlocked")
+            ?: doc.getBoolean("blocked")
+            ?: doc.getBoolean("isDisabled")
+            ?: doc.getBoolean("disabled")
+            ?: doc.getBoolean("khoa")
+            ?: doc.getBoolean("biKhoa")
+            ?: doc.getBoolean("tamKhoa")
+            ?: doc.getBoolean("isBan")
+            ?: doc.getBoolean("banned")
+        if (isLocked == true) return true
+
+        val active = doc.getBoolean("active")
+            ?: doc.getBoolean("isActive")
+            ?: doc.getBoolean("enabled")
+            ?: doc.getBoolean("enable")
+            ?: doc.getBoolean("hoatDong")
+        if (active == false) return true
+
+        // 2. Kiểm tra chuỗi trạng thái (status, trangThai, state, accountStatus, lockStatus)
+        val rawStatus = (
+            doc.getString("status")
+                ?: doc.getString("trangThai")
+                ?: doc.getString("trang_thai")
+                ?: doc.getString("state")
+                ?: doc.getString("accountStatus")
+                ?: doc.getString("lockStatus")
+                ?: ""
+        ).trim().lowercase()
+
+        val lockedKeywords = listOf(
+            "locked", "khoa", "khóa", "bi_khoa", "bị khóa", "tam_khoa", "tạm khóa",
+            "disabled", "blocked", "banned", "inactive", "deactivated", "vo_hieu_hoa", "vô hiệu hóa",
+            "ngung_hoat_dong", "ngưng hoạt động", "ban", "deny", "denied", "stop", "close", "closed"
+        )
+        if (lockedKeywords.any { rawStatus.contains(it) }) {
+            return true
+        }
+
+        // 3. Giá trị chuỗi của các cờ boolean ("locked": "true", "khoa": "true")
+        val rawLockedStr = (doc.getString("locked") ?: doc.getString("isLocked") ?: doc.getString("khoa") ?: "").trim().lowercase()
+        if (rawLockedStr == "true" || rawLockedStr == "1" || rawLockedStr == "yes" || rawLockedStr == "locked" || rawLockedStr == "khoa" || rawLockedStr == "khóa") {
+            return true
+        }
+
+        val rawActiveStr = (doc.getString("active") ?: doc.getString("isActive") ?: doc.getString("enabled") ?: "").trim().lowercase()
+        if (rawActiveStr == "false" || rawActiveStr == "0" || rawActiveStr == "no") {
+            return true
+        }
+
+        return false
+    }
+
+    /**
+     * Lắng nghe thời gian thực trạng thái tài khoản từ Web Quản trị.
+     * Khi Quản trị viên trên Web bấm "Khóa", ứng dụng sẽ phát hiện ngay tức thì.
+     */
+    fun startUserAccountRealtimeMonitoring(userId: String, userEmail: String = "") {
+        stopUserAccountRealtimeMonitoring()
+        if (db == null || userId.isBlank()) return
+
+        Log.i(TAG, "[SECURITY] Bắt đầu giám sát thời gian thực trạng thái tài khoản: $userId")
+
+        // 1. Lắng nghe trực tiếp Firestore collection "users"
+        try {
+            userDocListener = db.collection("users").document(userId)
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        Log.w(TAG, "[SECURITY ERROR] users listener: ${error.message}")
+                        return@addSnapshotListener
+                    }
+                    if (snapshot != null) {
+                        if (!snapshot.exists()) {
+                            // Tài khoản đã bị xóa hoàn toàn khỏi hệ thống bởi Web Admin
+                            forceKickOutDueToLock("Tài khoản của đồng chí đã bị xóa khỏi hệ thống bởi Quản trị viên.")
+                        } else if (isUserDocLocked(snapshot)) {
+                            forceKickOutDueToLock("Tài khoản của đồng chí đã bị Quản trị viên trên Web khóa.")
+                        }
+                    }
+                }
+        } catch (e: Exception) {
+            Log.w(TAG, "[SECURITY] Failed to attach users listener: ${e.message}")
+        }
+
+        // 2. Lắng nghe thêm collection "accounts" nếu tài khoản được quản lý ở đó
+        try {
+            accountDocListener = db.collection("accounts").document(userId)
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) return@addSnapshotListener
+                    if (snapshot != null && snapshot.exists() && isUserDocLocked(snapshot)) {
+                        forceKickOutDueToLock("Tài khoản của đồng chí đã bị Quản trị viên trên Web khóa.")
+                    }
+                }
+        } catch (e: Exception) {
+            Log.w(TAG, "[SECURITY] Failed to attach accounts listener: ${e.message}")
+        }
+
+        // 3. Fallback định kỳ (mỗi 3 giây) qua Firebase Auth reload & đối chiếu document
+        accountSecurityCheckJob = viewModelScope.launch(Dispatchers.IO) {
+            while (isActive) {
+                delay(3000)
+                try {
+                    // Kiểm tra Firebase Auth nếu có
+                    if (isFirebaseApiKeyValid() && auth != null && auth.currentUser != null) {
+                        try {
+                            auth.currentUser?.reload()?.await()
+                            if (auth.currentUser == null) {
+                                withContext(Dispatchers.Main) {
+                                    forceKickOutDueToLock("Phiên đăng nhập đã hết hạn hoặc bị vô hiệu hóa.")
+                                }
+                                break
+                            }
+                        } catch (authEx: Exception) {
+                            val msg = authEx.message?.lowercase() ?: ""
+                            if (msg.contains("disabled") || msg.contains("blocked") || msg.contains("user-disabled") || msg.contains("invalid-user")) {
+                                withContext(Dispatchers.Main) {
+                                    forceKickOutDueToLock("Tài khoản của đồng chí đã bị Quản trị viên trên Web khóa.")
+                                }
+                                break
+                            }
+                        }
+                    }
+
+                    // Đối chiếu lại trực tiếp với Firestore
+                    if (db != null) {
+                        try {
+                            val userDoc = db.collection("users").document(userId).get().await()
+                            if (userDoc.exists() && isUserDocLocked(userDoc)) {
+                                withContext(Dispatchers.Main) {
+                                    forceKickOutDueToLock("Tài khoản của đồng chí đã bị Quản trị viên trên Web khóa.")
+                                }
+                                break
+                            }
+                        } catch (_: Exception) {}
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+    }
+
+    fun stopUserAccountRealtimeMonitoring() {
+        try {
+            userDocListener?.remove()
+            userDocListener = null
+            accountDocListener?.remove()
+            accountDocListener = null
+            accountSecurityCheckJob?.cancel()
+            accountSecurityCheckJob = null
+        } catch (e: Exception) {
+            Log.w(TAG, "[SECURITY] Error stopping monitoring: ${e.message}")
+        }
+    }
+
+    /**
+     * Đá văng người dùng đang mở App về màn hình Đăng nhập ngay lập tức khi bị khóa
+     */
+    fun forceKickOutDueToLock(reason: String = "Tài khoản của đồng chí đã bị Quản trị viên trên Web khóa.") {
+        val hasUser = _userDoc.value != null && !_userDoc.value!!.id.isNullOrBlank()
+        val hasFbUser = _currentUser.value != null
+        if (!hasUser && !hasFbUser) return
+
+        Log.w(TAG, "[SECURITY] KÍCH HOẠT ĐÁ VĂNG KHỎI APP DO TÀI KHOẢN BỊ KHÓA: $reason")
+
+        // 1. Tắt màn hình xem bài học ngay lập tức
+        _isViewingLesson.value = false
+
+        // 2. Đăng xuất hoàn toàn và xóa phiên đăng nhập
+        logout()
+
+        // 3. Kích hoạt sự kiện khóa tài khoản để giao diện đưa về màn hình Đăng nhập ngay lập tức
+        _accountLockedEvent.value = reason
     }
 
     fun updateUserAvatar(uri: android.net.Uri, onComplete: ((Boolean, String?) -> Unit)? = null) {
@@ -935,6 +1137,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val doc = db.collection("users").document(uid).get().await()
                 if (doc.exists()) {
+                    if (isUserDocLocked(doc)) {
+                        forceKickOutDueToLock("Tài khoản của đồng chí đã bị Quản trị viên trên Web khóa.")
+                        return@launch
+                    }
                     val userDocObj = UserDoc.fromDoc(doc)
                     val prefs = getApplication<Application>().getSharedPreferences("vung4_auth_prefs", Context.MODE_PRIVATE)
                     val localAvatar = prefs.getString("user_avatar_${userDocObj.id}", "")?.ifEmpty {
@@ -949,6 +1155,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     fetchProgress(finalUserDoc.id)
                     fetchExamResults(finalUserDoc.id)
                     syncPendingGuestProgressToFirestore(finalUserDoc.id)
+                    startUserAccountRealtimeMonitoring(finalUserDoc.id, finalUserDoc.email)
                     Log.i(TAG, "[USERS] User doc found for UID: $uid")
                 } else {
                     _userDocStatus.value = "NOT FOUND (Document does not exist)"
@@ -1384,6 +1591,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         }
 
                         if (matchedDoc != null) {
+                            if (isUserDocLocked(matchedDoc)) {
+                                _authActionLoading.value = false
+                                onError("Tài khoản của đồng chí đã bị Quản trị viên trên Web khóa. Vui lòng liên hệ cán bộ quản trị để được hỗ trợ!")
+                                return@launch
+                            }
+
                             val savedPassword = matchedDoc.getString("password") 
                                 ?: matchedDoc.getString("matKhau") 
                                 ?: matchedDoc.getString("pass")
@@ -1404,6 +1617,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                                     val authResult = auth.signInWithEmailAndPassword(emailToTry, password).await()
                                     _currentUser.value = authResult.user
                                 } catch (authEx: Exception) {
+                                    val msg = authEx.localizedMessage?.lowercase() ?: ""
+                                    if (msg.contains("disabled") || msg.contains("blocked") || msg.contains("user-disabled")) {
+                                        _authActionLoading.value = false
+                                        onError("Tài khoản của đồng chí đã bị Quản trị viên trên Web khóa!")
+                                        return@launch
+                                    }
                                     Log.w(TAG, "[AUTH SDK] Background sign in failed: ${authEx.localizedMessage}")
                                 }
                             }
@@ -1423,6 +1642,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                             fetchProgress(matchedDoc.id)
                             fetchExamResults(matchedDoc.id)
                             syncPendingGuestProgressToFirestore(matchedDoc.id)
+                            startUserAccountRealtimeMonitoring(finalUserDoc.id, finalUserDoc.email)
                             _authActionLoading.value = false
                             onSuccess()
                             return@launch
@@ -1454,6 +1674,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * Đăng xuất và trở về chế độ Khách (Guest Mode)
      */
     fun logout() {
+        stopUserAccountRealtimeMonitoring()
         try {
             auth?.signOut()
         } catch (e: Exception) {
@@ -1835,6 +2056,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val user = _userDoc.value
                 val currentFbUser = _currentUser.value
+                val isAuth = currentFbUser != null || (user != null && !user.id.isNullOrBlank())
+                if (!isAuth) {
+                    onError("Bạn cần đăng nhập để gửi phản ánh.")
+                    return@launch
+                }
+
                 val uid = user?.id ?: currentFbUser?.uid ?: "guest"
                 val userName = user?.name?.ifEmpty { currentFbUser?.displayName ?: "Học viên Vùng 4" } ?: "Học viên Vùng 4"
                 val userEmail = user?.email?.ifEmpty { currentFbUser?.email ?: "" } ?: ""
@@ -1865,8 +2092,60 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun sendUserFeedback(
+        title: String,
+        feedbackContent: String,
+        feedbackType: String = "Góp ý chung",
+        onSuccess: () -> Unit,
+        onError: (String) -> Unit
+    ) {
+        viewModelScope.launch {
+            try {
+                val user = _userDoc.value
+                val currentFbUser = _currentUser.value
+                val isAuth = currentFbUser != null || (user != null && !user.id.isNullOrBlank())
+                if (!isAuth) {
+                    onError("Bạn cần đăng nhập để thực hiện gửi phản hồi và góp ý.")
+                    return@launch
+                }
+
+                val uid = user?.id ?: currentFbUser?.uid ?: "guest"
+                val userName = user?.name?.ifEmpty { currentFbUser?.displayName ?: "Học viên Vùng 4" } ?: "Học viên Vùng 4"
+                val userEmail = user?.email?.ifEmpty { currentFbUser?.email ?: "" } ?: ""
+                val userUnit = user?.unit?.ifEmpty { "Vùng 4 Hải Quân" } ?: "Vùng 4 Hải Quân"
+                val userRank = user?.rank ?: ""
+                val timestamp = System.currentTimeMillis()
+
+                val data = hashMapOf<String, Any>(
+                    "userId" to uid,
+                    "userName" to userName,
+                    "userEmail" to userEmail,
+                    "unit" to userUnit,
+                    "rank" to userRank,
+                    "title" to title.ifBlank { "Ý kiến đóng góp từ học viên" },
+                    "feedback" to feedbackContent,
+                    "content" to feedbackContent,
+                    "type" to feedbackType,
+                    "timestamp" to timestamp,
+                    "createdAt" to timestamp,
+                    "status" to "pending"
+                )
+
+                if (db != null) {
+                    db.collection("feedbacks").add(data).await()
+                    db.collection("user_feedbacks").add(data).await()
+                    db.collection("gop_y").add(data).await()
+                }
+                onSuccess()
+            } catch (e: Exception) {
+                onError(e.localizedMessage ?: "Lỗi kết nối máy chủ")
+            }
+        }
+    }
+
     override fun onCleared() {
         super.onCleared()
+        stopUserAccountRealtimeMonitoring()
         coursesListener?.remove()
         lessonsListener?.remove()
         contentsListener?.remove()

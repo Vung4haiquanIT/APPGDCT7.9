@@ -25,13 +25,15 @@ import com.example.ui.theme.RedPrimary
 @Composable
 fun LoginDialog(
     isLoading: Boolean,
+    initialErrorMessage: String? = null,
+    warningBanner: String? = null,
     onDismiss: () -> Unit,
     onLogin: (String, String, (String) -> Unit) -> Unit
 ) {
     var usernameOrEmail by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var errorMessage by remember { mutableStateOf(initialErrorMessage) }
     val focusManager = LocalFocusManager.current
 
     AlertDialog(
@@ -57,6 +59,34 @@ fun LoginDialog(
                     .padding(vertical = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                if (!warningBanner.isNullOrBlank()) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.85f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Lock,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Text(
+                                text = warningBanner,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                fontSize = 12.5.sp,
+                                lineHeight = 17.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+
                 Text(
                     text = "Đăng nhập để đồng bộ tiến độ học tập và kết quả bài học trực tiếp về Web Quản Trị Vùng 4.",
                     fontSize = 12.sp,

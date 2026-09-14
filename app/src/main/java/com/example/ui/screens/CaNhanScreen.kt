@@ -46,6 +46,7 @@ import coil.compose.AsyncImage
 import com.example.model.ExamResultDoc
 import com.example.ui.components.LoginDialog
 import com.example.ui.components.ChangePasswordDialog
+import com.example.ui.components.UserFeedbackDialog
 import com.example.ui.components.Vung4LogoBadge
 import com.example.ui.theme.GoldPrimary
 import com.example.ui.theme.NavySecondary
@@ -73,6 +74,7 @@ fun CaNhanScreen(
     var showAvatarOptionsDialog by remember { mutableStateOf(false) }
     var showAllExamHistoryDialog by remember { mutableStateOf(false) }
     var showChangePasswordDialog by remember { mutableStateOf(false) }
+    var showFeedbackDialog by remember { mutableStateOf(false) }
     val dateFormat = remember { SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()) }
 
     val photoPickerLauncher = rememberLauncherForActivityResult(
@@ -642,6 +644,113 @@ fun CaNhanScreen(
             }
 
 
+            // PHẢN HỒI & GÓP Ý Ý KIẾN
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Surface(
+                                shape = CircleShape,
+                                color = RedPrimary.copy(alpha = 0.12f),
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.Feedback,
+                                        contentDescription = null,
+                                        tint = RedPrimary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                            Column {
+                                Text(
+                                    text = "PHẢN HỒI & GÓP Ý",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "Đóng góp ý kiến & kiến nghị về hệ thống",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        if (!isAuthenticated) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Lock,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Text(
+                                        text = "Vui lòng đăng nhập để gửi ý kiến phản hồi và nhận thông tin xử lý từ Ban Quản trị.",
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onErrorContainer
+                                    )
+                                }
+                            }
+                        }
+
+                        Button(
+                            onClick = { 
+                                if (!isAuthenticated) {
+                                    Toast.makeText(context, "Vui lòng đăng nhập để thực hiện phản hồi, góp ý!", Toast.LENGTH_SHORT).show()
+                                    showLoginDialog = true
+                                } else {
+                                    showFeedbackDialog = true
+                                }
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(44.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isAuthenticated) RedPrimary else NavySecondary,
+                                contentColor = Color.White
+                            )
+                        ) {
+                            Icon(
+                                imageVector = if (isAuthenticated) Icons.Default.Feedback else Icons.Default.Lock,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = if (isAuthenticated) "GỬI GÓP Ý / PHẢN HỒI MỚI" else "ĐĂNG NHẬP ĐỂ GỬI GÓP Ý",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
+                        }
+                    }
+                }
+            }
+
             // THÔNG TIN ỨNG DỤNG GỌN GÀNG
             item {
                 Card(
@@ -703,6 +812,35 @@ fun CaNhanScreen(
                         onErrorCallback(error ?: "Không thể đổi mật khẩu. Vui lòng kiểm tra lại!")
                     }
                 }
+            }
+        )
+    }
+
+    // DIALOG PHẢN HỒI & GÓP Ý
+    if (showFeedbackDialog && isAuthenticated) {
+        val userName = userDoc?.name?.takeIf { it.isNotBlank() }
+            ?: currentUser?.displayName?.takeIf { !it.isNullOrBlank() }
+            ?: currentUser?.email?.substringBefore("@")
+            ?: "Cán bộ, Chiến sĩ"
+        val userUnit = userDoc?.unit ?: "Vùng 4 Hải Quân"
+
+        UserFeedbackDialog(
+            userName = userName,
+            userUnit = userUnit,
+            onDismiss = { showFeedbackDialog = false },
+            onSubmit = { title, content, type, onComplete ->
+                viewModel.sendUserFeedback(
+                    title = title,
+                    feedbackContent = content,
+                    feedbackType = type,
+                    onSuccess = {
+                        onComplete(true, null)
+                        Toast.makeText(context, "Đã gửi ý kiến góp ý thành công!", Toast.LENGTH_SHORT).show()
+                    },
+                    onError = { err ->
+                        onComplete(false, err)
+                    }
+                )
             }
         )
     }

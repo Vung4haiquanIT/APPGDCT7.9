@@ -5,6 +5,7 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -52,6 +53,7 @@ fun TrangChuScreen(
     onNavigateToHocTap: () -> Unit,
     onNavigateToThongBao: () -> Unit,
     onNavigateToDebug: () -> Unit = {},
+    onNavigateToCaNhan: () -> Unit = {},
     onCategoryClick: (String) -> Unit
 ) {
     val courses by viewModel.courses.collectAsState()
@@ -149,22 +151,39 @@ fun TrangChuScreen(
             TopAppBar(
                 title = {
                     Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable { onNavigateToCaNhan() }
+                            .padding(vertical = 4.dp, horizontal = 2.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(42.dp)
-                                .clip(CircleShape)
-                                .background(RedPrimary),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Star,
-                                contentDescription = null,
-                                tint = GoldPrimary,
-                                modifier = Modifier.size(24.dp)
+                        val hasCustomAvatar = !userDoc?.avatarUrl.isNullOrBlank()
+                        if (hasCustomAvatar) {
+                            AsyncImage(
+                                model = userDoc?.avatarUrl,
+                                contentDescription = "Ảnh đại diện người dùng",
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .clip(CircleShape)
+                                    .border(1.5.dp, GoldPrimary, CircleShape),
+                                contentScale = ContentScale.Crop
                             )
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .clip(CircleShape)
+                                    .background(RedPrimary),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Star,
+                                    contentDescription = null,
+                                    tint = GoldPrimary,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
                         }
                         Column {
                             Text(
