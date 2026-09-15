@@ -45,7 +45,7 @@ fun LoginDialog(
             ) {
                 Vung4LogoBadge(size = 32.dp)
                 Text(
-                    text = "ĐĂNG NHẬP HỌC VIÊN / CÁN BỘ",
+                    text = "ĐĂNG NHẬP TÀI KHOẢN",
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
                     color = RedPrimary
@@ -99,7 +99,7 @@ fun LoginDialog(
                         usernameOrEmail = it
                         errorMessage = null
                     },
-                    label = { Text("Tài khoản / Email / Số điện thoại") },
+                    label = { Text("Tài khoản") },
                     singleLine = true,
                     enabled = !isLoading,
                     leadingIcon = {

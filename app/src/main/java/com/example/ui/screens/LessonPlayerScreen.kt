@@ -166,18 +166,25 @@ fun LessonPlayerScreen(
 
     val allQuestions by viewModel.questions.collectAsState()
 
-    // Lấy danh sách câu hỏi trắc nghiệm đã tạo từ Web Quản trị gắn với bài học / chuyên đề này
-    val lessonQuestions = remember(allQuestions, lesson.id, lesson.courseId, lesson.category) {
-        val matchedDirect = allQuestions.filter { q ->
-            (q.lessonId.isNotBlank() && q.lessonId == lesson.id) ||
-            (q.courseId.isNotBlank() && q.courseId == lesson.id)
-        }
-        if (matchedDirect.isNotEmpty()) {
-            matchedDirect
+    // Lấy danh sách câu hỏi ôn tập / kiểm tra gắn liền với bài học này (từ Web Quản trị)
+    // 1. Ưu tiên lấy từ lesson.questions (được nhúng trực tiếp trong document bài học)
+    // 2. Lấy từ allQuestions được đồng bộ theo lessonId hoặc courseId
+    // Tuyệt đối không tự tạo câu hỏi mẫu
+    val lessonQuestions = remember(lesson, allQuestions) {
+        if (lesson.questions.isNotEmpty()) {
+            lesson.questions
         } else {
-            // Lọc câu hỏi theo courseId của chuyên đề (nếu câu hỏi đó gán cho courseId)
-            allQuestions.filter { q ->
-                (q.courseId.isNotBlank() && q.courseId == lesson.courseId && q.lessonId.isBlank())
+            val matchedDirect = allQuestions.filter { q ->
+                (q.lessonId.isNotBlank() && q.lessonId == lesson.id) ||
+                (q.courseId.isNotBlank() && q.courseId == lesson.id)
+            }
+            if (matchedDirect.isNotEmpty()) {
+                matchedDirect
+            } else {
+                // Lọc câu hỏi theo courseId của chuyên đề (nếu câu hỏi đó gán cho courseId)
+                allQuestions.filter { q ->
+                    (q.courseId.isNotBlank() && q.courseId == lesson.courseId && q.lessonId.isBlank())
+                }
             }
         }
     }

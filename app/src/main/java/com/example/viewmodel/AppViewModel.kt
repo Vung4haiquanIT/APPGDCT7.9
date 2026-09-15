@@ -93,7 +93,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _banners = MutableStateFlow<List<BannerItem>>(BannerItem.getDefaultMilitaryBanners())
     val banners: StateFlow<List<BannerItem>> = _banners.asStateFlow()
 
-    private val _questions = MutableStateFlow<List<QuestionItem>>(QuestionItem.getDefaultQuestionBank())
+    private val _questions = MutableStateFlow<List<QuestionItem>>(emptyList())
     val questions: StateFlow<List<QuestionItem>> = _questions.asStateFlow()
 
     private val _examSessions = MutableStateFlow<List<ExamSessionDoc>>(emptyList())
@@ -145,6 +145,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private var examSessionsListener: ListenerRegistration? = null
     private var examResultsListener: ListenerRegistration? = null
     private var broadcastsListener: ListenerRegistration? = null
+    private val extraFirestoreListeners = mutableListOf<ListenerRegistration>()
     private var bannersFromBannersColl: List<BannerItem> = emptyList()
     private var bannersFromPostersColl: List<BannerItem> = emptyList()
 
@@ -917,32 +918,89 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun mergeCourses(incoming: List<Course>) {
+        if (incoming.isEmpty()) return
+        val current = _courses.value.associateBy { it.id }.toMutableMap()
+        incoming.forEach { current[it.id] = it }
+        _courses.value = current.values.toList()
+        Log.i(TAG, "[COURSES] Merged total: ${_courses.value.size}")
+    }
+
+    private fun mergeLessons(incoming: List<Lesson>) {
+        if (incoming.isEmpty()) return
+        val current = _lessons.value.associateBy { it.id }.toMutableMap()
+        incoming.forEach { current[it.id] = it }
+        _lessons.value = current.values.toList()
+        Log.i(TAG, "[LESSONS] Merged total: ${_lessons.value.size}")
+        updateCombinedNotifications()
+
+        // Tự động thu thập các câu hỏi trắc nghiệm đính kèm trong các bài học
+        val embeddedQuestions = incoming.flatMap { it.questions }
+        if (embeddedQuestions.isNotEmpty()) {
+            mergeQuestions(embeddedQuestions)
+        }
+    }
+
+    private fun mergeQuestions(incoming: List<QuestionItem>) {
+        if (incoming.isEmpty()) return
+        val current = _questions.value.associateBy { if (it.id.isNotBlank()) it.id else it.question }.toMutableMap()
+        incoming.forEach { q ->
+            val key = if (q.id.isNotBlank()) q.id else q.question
+            current[key] = q
+        }
+        _questions.value = current.values.toList()
+        Log.i(TAG, "[QUESTIONS] Merged total: ${_questions.value.size}")
+    }
+
     private fun startRealtimeListeners() {
         if (db == null) return
 
-        // 1. courses
+        // Clear any previous extra listeners
+        extraFirestoreListeners.forEach { it.remove() }
+        extraFirestoreListeners.clear()
+
+        // 1. courses (Listen to 'courses', 'chuyen_de', and 'chuyenDe')
         try {
             coursesListener?.remove()
             coursesListener = db.collection("courses")
                 .addSnapshotListener { snapshot, error ->
                     if (error != null) {
                         Log.e(TAG, "[COURSES ERROR] ${error.code}: ${error.message}", error)
-                        _errorMessage.value = "Courses Error: ${error.message}"
                         return@addSnapshotListener
                     }
                     if (snapshot != null) {
                         val list = snapshot.documents.mapNotNull { 
-                            try { Course.fromDoc(it) } catch (e: Exception) { null }
+                            try { Course.fromDoc(it) } catch (e: Exception) {
+                                Log.e(TAG, "[COURSE PARSE ERROR] ${it.id}: ${e.message}")
+                                null
+                            }
                         }
-                        _courses.value = list
-                        Log.i(TAG, "[COURSES] Documents: ${list.size}")
+                        mergeCourses(list)
+                        Log.i(TAG, "[COURSES 'courses'] Documents: ${list.size}")
                     }
                 }
+            
+            // Fallback course collections
+            listOf("chuyen_de", "chuyenDe").forEach { collName ->
+                try {
+                    val l = db.collection(collName).addSnapshotListener { snapshot, _ ->
+                        if (snapshot != null && !snapshot.isEmpty) {
+                            val list = snapshot.documents.mapNotNull { 
+                                try { Course.fromDoc(it) } catch (e: Exception) { null }
+                            }
+                            mergeCourses(list)
+                        }
+                    }
+                    extraFirestoreListeners.add(l)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Cannot listen to $collName: ${e.message}")
+                }
+            }
         } catch (e: Exception) {
             Log.e(TAG, "[COURSES EXCEPTION] ${e.localizedMessage}", e)
         }
 
-        // 2. lessons
+        // 2. lessons (Listen to 'lessons', 'bai_hoc', 'baiHoc', and collectionGroups)
         try {
             lessonsListener?.remove()
             lessonsListener = db.collection("lessons")
@@ -953,13 +1011,51 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     if (snapshot != null) {
                         val list = snapshot.documents.mapNotNull { 
-                            try { Lesson.fromDoc(it) } catch (e: Exception) { null }
+                            try { Lesson.fromDoc(it) } catch (e: Exception) {
+                                Log.e(TAG, "[LESSON PARSE ERROR] ${it.id}: ${e.message}")
+                                null
+                            }
                         }
-                        _lessons.value = list
-                        Log.i(TAG, "[LESSONS] Documents: ${list.size}")
-                        updateCombinedNotifications()
+                        mergeLessons(list)
+                        Log.i(TAG, "[LESSONS 'lessons'] Documents: ${list.size}")
                     }
                 }
+
+            // Fallback lesson collections & collection groups (for subcollections like /courses/{id}/lessons)
+            val lessonCollections = listOf("bai_hoc", "baiHoc")
+            lessonCollections.forEach { collName ->
+                try {
+                    val l = db.collection(collName).addSnapshotListener { snapshot, _ ->
+                        if (snapshot != null && !snapshot.isEmpty) {
+                            val list = snapshot.documents.mapNotNull { 
+                                try { Lesson.fromDoc(it) } catch (e: Exception) { null }
+                            }
+                            mergeLessons(list)
+                        }
+                    }
+                    extraFirestoreListeners.add(l)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Cannot listen to $collName: ${e.message}")
+                }
+            }
+
+            // CollectionGroup listeners for nested lessons
+            listOf("lessons", "bai_hoc", "baiHoc").forEach { groupName ->
+                try {
+                    val l = db.collectionGroup(groupName).addSnapshotListener { snapshot, _ ->
+                        if (snapshot != null && !snapshot.isEmpty) {
+                            val list = snapshot.documents.mapNotNull { 
+                                try { Lesson.fromDoc(it) } catch (e: Exception) { null }
+                            }
+                            mergeLessons(list)
+                            Log.i(TAG, "[LESSONS collectionGroup '$groupName'] Documents: ${list.size}")
+                        }
+                    }
+                    extraFirestoreListeners.add(l)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Cannot listen to collectionGroup $groupName: ${e.message}")
+                }
+            }
         } catch (e: Exception) {
             Log.e(TAG, "[LESSONS EXCEPTION] ${e.localizedMessage}", e)
         }
@@ -1137,61 +1233,57 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         Log.w(TAG, "[QUESTIONS ERROR] ${error.code}: ${error.message}")
                         return@addSnapshotListener
                     }
-                    val defaultBank = QuestionItem.getDefaultQuestionBank()
                     if (snapshot != null && !snapshot.isEmpty) {
                         val remoteList = snapshot.documents.mapNotNull { 
                             try { QuestionItem.fromDoc(it) } catch (e: Exception) { null }
                         }
                         if (remoteList.isNotEmpty()) {
-                            // Dùng 100% câu hỏi từ Web Quản trị
-                            _questions.value = remoteList
-                            Log.i(TAG, "[QUESTIONS] Synced EXCLUSIVELY from Web Quản trị: ${remoteList.size} questions")
-                        } else {
-                            _questions.value = defaultBank
-                        }
-                    } else {
-                        // Kiểm tra bộ sưu tập dự phòng: "cauHoi", "exam_questions", "cauHoiKiemTra"
-                        db.collection("cauHoi").get().addOnSuccessListener { cauHoiSnap ->
-                            if (cauHoiSnap != null && !cauHoiSnap.isEmpty) {
-                                val cauHoiList = cauHoiSnap.documents.mapNotNull { 
-                                    try { QuestionItem.fromDoc(it) } catch (e: Exception) { null }
-                                }
-                                if (cauHoiList.isNotEmpty()) {
-                                    _questions.value = cauHoiList
-                                    Log.i(TAG, "[QUESTIONS] Synced from cauHoi collection: ${cauHoiList.size} questions")
-                                    return@addOnSuccessListener
-                                }
-                            }
-                            db.collection("exam_questions").get().addOnSuccessListener { eqSnap ->
-                                if (eqSnap != null && !eqSnap.isEmpty) {
-                                    val eqList = eqSnap.documents.mapNotNull {
-                                        try { QuestionItem.fromDoc(it) } catch (e: Exception) { null }
-                                    }
-                                    if (eqList.isNotEmpty()) {
-                                        _questions.value = eqList
-                                        Log.i(TAG, "[QUESTIONS] Synced from exam_questions collection: ${eqList.size} questions")
-                                        return@addOnSuccessListener
-                                    }
-                                }
-                                db.collection("cauHoiKiemTra").get().addOnSuccessListener { chktSnap ->
-                                    if (chktSnap != null && !chktSnap.isEmpty) {
-                                        val chktList = chktSnap.documents.mapNotNull {
-                                            try { QuestionItem.fromDoc(it) } catch (e: Exception) { null }
-                                        }
-                                        if (chktList.isNotEmpty()) {
-                                            _questions.value = chktList
-                                            Log.i(TAG, "[QUESTIONS] Synced from cauHoiKiemTra collection: ${chktList.size} questions")
-                                            return@addOnSuccessListener
-                                        }
-                                    }
-                                    _questions.value = defaultBank
-                                }
-                            }
-                        }.addOnFailureListener {
-                            _questions.value = defaultBank
+                            mergeQuestions(remoteList)
+                            Log.i(TAG, "[QUESTIONS] Synced from 'questions': ${remoteList.size} questions")
                         }
                     }
                 }
+
+            // Đồng bộ thêm từ các collection câu hỏi khác của Web Quản trị
+            val qCollections = listOf("cauHoi", "exam_questions", "cauHoiKiemTra")
+            qCollections.forEach { collName ->
+                try {
+                    val l = db.collection(collName).addSnapshotListener { snapshot, _ ->
+                        if (snapshot != null && !snapshot.isEmpty) {
+                            val list = snapshot.documents.mapNotNull {
+                                try { QuestionItem.fromDoc(it) } catch (e: Exception) { null }
+                            }
+                            if (list.isNotEmpty()) {
+                                mergeQuestions(list)
+                                Log.i(TAG, "[QUESTIONS] Synced from '$collName': ${list.size} questions")
+                            }
+                        }
+                    }
+                    extraFirestoreListeners.add(l)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Cannot listen to $collName: ${e.message}")
+                }
+            }
+
+            // CollectionGroup listeners cho câu hỏi nằm trong subcollection của bài học hoặc đợt thi
+            listOf("questions", "cauHoi", "quiz").forEach { groupName ->
+                try {
+                    val l = db.collectionGroup(groupName).addSnapshotListener { snapshot, _ ->
+                        if (snapshot != null && !snapshot.isEmpty) {
+                            val list = snapshot.documents.mapNotNull {
+                                try { QuestionItem.fromDoc(it) } catch (e: Exception) { null }
+                            }
+                            if (list.isNotEmpty()) {
+                                mergeQuestions(list)
+                                Log.i(TAG, "[QUESTIONS collectionGroup '$groupName'] Synced: ${list.size} questions")
+                            }
+                        }
+                    }
+                    extraFirestoreListeners.add(l)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Cannot listen to collectionGroup $groupName: ${e.message}")
+                }
+            }
         } catch (e: Exception) {
             Log.w(TAG, "[QUESTIONS EXCEPTION] ${e.localizedMessage}")
         }
@@ -2228,7 +2320,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         totalQuestions: Int,
         timeSpentSeconds: Int,
         examId: String = "",
-        examName: String = "Đề thi kiểm tra 20 câu ngẫu nhiên"
+        examName: String = "Đề thi kiểm tra 20 câu ngẫu nhiên",
+        isOfficial: Boolean = false
     ) {
         viewModelScope.launch {
             val percent = if (totalQuestions > 0) (score * 100 / totalQuestions) else 0
@@ -2241,6 +2334,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             val userUnit = user?.unit?.ifEmpty { "Vùng 4 Hải Quân" } ?: "Vùng 4 Hải Quân"
             val userRank = user?.rank ?: ""
             val timestamp = System.currentTimeMillis()
+            val examType = if (isOfficial) "official" else "practice"
 
             val newResultDoc = ExamResultDoc(
                 id = "res_${timestamp}",
@@ -2256,7 +2350,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 scorePercentage = percent,
                 passed = passed,
                 timeSpentSeconds = timeSpentSeconds,
-                timestamp = timestamp
+                timestamp = timestamp,
+                isOfficial = isOfficial,
+                examType = examType
             )
 
             // Update local state immediately for instant feedback
@@ -2299,7 +2395,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 "timestamp" to timestamp,
                 "createdAt" to timestamp,
                 "thoiGianNop" to timestamp,
-                "type" to "exam_quiz",
+                "isOfficial" to isOfficial,
+                "chinhThuc" to isOfficial,
+                "examType" to examType,
+                "loaiBaiThi" to if (isOfficial) "chinh_thuc" else "luyen_tap",
+                "type" to if (isOfficial) "official" else "practice",
                 "source" to "mobile_app",
                 "device" to "Android App Vùng 4"
             )
@@ -2494,5 +2594,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         examSessionsListener?.remove()
         examResultsListener?.remove()
         broadcastsListener?.remove()
+        extraFirestoreListeners.forEach { it.remove() }
+        extraFirestoreListeners.clear()
     }
 }

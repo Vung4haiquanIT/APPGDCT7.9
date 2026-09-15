@@ -38,6 +38,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -67,6 +68,7 @@ fun CaNhanScreen(
     val currentUser by viewModel.currentUser.collectAsState()
     val userDoc by viewModel.userDoc.collectAsState()
     val userExamResults by viewModel.userExamResults.collectAsState()
+    val examSessions by viewModel.examSessions.collectAsState()
     val authActionLoading by viewModel.authActionLoading.collectAsState()
     val authMessage by viewModel.authMessage.collectAsState()
 
@@ -352,13 +354,17 @@ fun CaNhanScreen(
             // THÀNH TÍCH ĐỢT THI & KIỂM TRA (ĐỒNG BỘ WEB QUẢN TRỊ)
             item {
                 val totalExams = userExamResults.size
-                val avgScore10 = if (totalExams > 0) {
-                    userExamResults.map {
+                // Chỉ lấy danh sách các bài kiểm tra chính thức (loại trừ luyện tập, ôn tập tự do)
+                val officialExams = remember(userExamResults, examSessions) {
+                    userExamResults.filter { it.isOfficialExam(examSessions) }
+                }
+                val avgScore10 = if (officialExams.isNotEmpty()) {
+                    officialExams.map {
                         if (it.totalQuestions > 0) (it.score.toDouble() * 10.0 / it.totalQuestions.toDouble())
                         else (it.scorePercentage.toDouble() / 10.0)
                     }.average()
-                } else 0.0
-                val avgScoreStr = String.format(Locale.US, "%.2f", avgScore10)
+                } else null
+                val avgScoreStr = if (avgScore10 != null) String.format(Locale.US, "%.2f", avgScore10) else "--"
                 val passRate = if (totalExams > 0) (userExamResults.count { it.passed } * 100 / totalExams) else 0
 
                 Card(
@@ -457,7 +463,7 @@ fun CaNhanScreen(
                                 }
                             }
 
-                            // Average Score
+                            // Average Score (chỉ tính từ danh sách bài thi chính thức)
                             Card(
                                 modifier = Modifier.weight(1f).padding(horizontal = 2.dp),
                                 colors = CardDefaults.cardColors(containerColor = NavySecondary.copy(alpha = 0.06f)),
@@ -469,6 +475,7 @@ fun CaNhanScreen(
                                 ) {
                                     Text(avgScoreStr, fontWeight = FontWeight.Black, fontSize = 20.sp, color = NavySecondary)
                                     Text("Điểm trung bình", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("(Thi chính thức)", fontSize = 9.sp, color = NavySecondary, fontWeight = FontWeight.Medium)
                                 }
                             }
 
@@ -552,14 +559,34 @@ fun CaNhanScreen(
                                             horizontalArrangement = Arrangement.SpaceBetween,
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
+                                            val isOfficial = res.isOfficialExam(examSessions)
                                             Column(modifier = Modifier.weight(1f)) {
-                                                Text(
-                                                    text = res.examName.ifEmpty { "Bài thi kiểm tra trắc nghiệm" },
-                                                    fontWeight = FontWeight.Bold,
-                                                    fontSize = 13.sp,
-                                                    color = MaterialTheme.colorScheme.onSurface
-                                                )
-                                                Spacer(modifier = Modifier.height(2.dp))
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                ) {
+                                                    Surface(
+                                                        shape = RoundedCornerShape(4.dp),
+                                                        color = if (isOfficial) RedPrimary.copy(alpha = 0.12f) else NavySecondary.copy(alpha = 0.12f)
+                                                    ) {
+                                                        Text(
+                                                            text = if (isOfficial) "CHÍNH THỨC" else "ÔN LUYỆN",
+                                                            fontSize = 9.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = if (isOfficial) RedPrimary else NavySecondary,
+                                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.5.dp)
+                                                        )
+                                                    }
+                                                    Text(
+                                                        text = res.examName.ifEmpty { "Bài thi kiểm tra trắc nghiệm" },
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 13.sp,
+                                                        color = MaterialTheme.colorScheme.onSurface,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                }
+                                                Spacer(modifier = Modifier.height(3.dp))
                                                 Text(
                                                     text = "Thời gian nộp: ${dateFormat.format(Date(res.timestamp))}",
                                                     fontSize = 11.sp,
@@ -1012,13 +1039,17 @@ fun CaNhanScreen(
                             val totalExamsCount = userExamResults.size
                             val passedCount = userExamResults.count { it.passed }
                             val failedCount = totalExamsCount - passedCount
-                            val avgScoreDouble = if (totalExamsCount > 0) {
-                                userExamResults.map {
+                            // Tính điểm trung bình chỉ lấy từ các bài thi chính thức
+                            val officialExamsInDialog = remember(userExamResults, examSessions) {
+                                userExamResults.filter { it.isOfficialExam(examSessions) }
+                            }
+                            val avgScoreDouble = if (officialExamsInDialog.isNotEmpty()) {
+                                officialExamsInDialog.map {
                                     if (it.totalQuestions > 0) (it.score.toDouble() * 10.0 / it.totalQuestions.toDouble())
                                     else (it.scorePercentage.toDouble() / 10.0)
                                 }.average()
-                            } else 0.0
-                            val avgScoreStr = String.format(Locale.US, "%.2f", avgScoreDouble)
+                            } else null
+                            val avgScoreStr = if (avgScoreDouble != null) String.format(Locale.US, "%.2f", avgScoreDouble) else "--"
 
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
@@ -1051,6 +1082,7 @@ fun CaNhanScreen(
                                         ) {
                                             Text(avgScoreStr, fontWeight = FontWeight.Black, fontSize = 20.sp, color = NavySecondary)
                                             Text("Điểm TB", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Text("(Chính thức)", fontSize = 9.sp, color = NavySecondary, fontWeight = FontWeight.Medium)
                                         }
                                         Column(
                                             modifier = Modifier.weight(1f),
@@ -1074,6 +1106,7 @@ fun CaNhanScreen(
                         // Danh sách toàn bộ bài thi
                         items(userExamResults) { res ->
                             val isPassed = res.passed
+                            val isOfficial = res.isOfficialExam(examSessions)
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(14.dp),
@@ -1088,12 +1121,31 @@ fun CaNhanScreen(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = res.examName.ifEmpty { "Bài thi kiểm tra trắc nghiệm" },
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 14.sp,
-                                            color = MaterialTheme.colorScheme.onSurface
-                                        )
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Surface(
+                                                shape = RoundedCornerShape(4.dp),
+                                                color = if (isOfficial) RedPrimary.copy(alpha = 0.12f) else NavySecondary.copy(alpha = 0.12f)
+                                            ) {
+                                                Text(
+                                                    text = if (isOfficial) "CHÍNH THỨC" else "ÔN LUYỆN",
+                                                    fontSize = 9.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = if (isOfficial) RedPrimary else NavySecondary,
+                                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.5.dp)
+                                                )
+                                            }
+                                            Text(
+                                                text = res.examName.ifEmpty { "Bài thi kiểm tra trắc nghiệm" },
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 14.sp,
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
                                         Spacer(modifier = Modifier.height(4.dp))
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,

@@ -63,6 +63,7 @@ fun KiemTraScreen(
     val allQuestions by viewModel.questions.collectAsState()
     val examSessions by viewModel.examSessions.collectAsState()
     val userExamResults by viewModel.userExamResults.collectAsState()
+    val lessons by viewModel.lessons.collectAsState()
     val currentUser by viewModel.currentUser.collectAsState()
     val userDoc by viewModel.userDoc.collectAsState()
     val authActionLoading by viewModel.authActionLoading.collectAsState()
@@ -86,10 +87,101 @@ fun KiemTraScreen(
     // Auth Dialog State
     var showLoginDialog by remember { mutableStateOf(false) }
     var showLoginRequiredDialog by remember { mutableStateOf(false) }
+    var showNoExamQuestionsDialog by remember { mutableStateOf(false) }
+    var showNoSessionQuestionsDialog by remember { mutableStateOf(false) }
+
+    // Câu hỏi cho chế độ Luyện tập ngẫu nhiên: lấy từ danh sách câu hỏi của các đợt kiểm tra
+    val examQuestionsPool = remember(examSessions, allQuestions) {
+        val pool = mutableListOf<QuestionItem>()
+        val seen = mutableSetOf<String>()
+
+        // 1. Toàn bộ câu hỏi nhúng trực tiếp trong các đợt kiểm tra
+        for (session in examSessions) {
+            for (q in session.questionsList) {
+                val key = if (q.id.isNotBlank()) q.id else q.question.trim().lowercase()
+                if (seen.add(key)) {
+                    pool.add(
+                        q.copy(
+                            examSessionId = session.id,
+                            categoryName = q.categoryName.ifBlank { session.title }
+                        )
+                    )
+                }
+            }
+            // 2. Câu hỏi tham chiếu qua questionIds của đợt kiểm tra
+            if (session.questionIds.isNotEmpty()) {
+                val idSet = session.questionIds.toSet()
+                for (q in allQuestions) {
+                    if (q.id in idSet) {
+                        val key = if (q.id.isNotBlank()) q.id else q.question.trim().lowercase()
+                        if (seen.add(key)) {
+                            pool.add(
+                                q.copy(
+                                    examSessionId = session.id,
+                                    categoryName = q.categoryName.ifBlank { session.title }
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. Câu hỏi có đánh dấu examSessionId trong allQuestions
+        for (q in allQuestions) {
+            if (q.examSessionId.isNotBlank()) {
+                val key = if (q.id.isNotBlank()) q.id else q.question.trim().lowercase()
+                if (seen.add(key)) {
+                    pool.add(q)
+                }
+            }
+        }
+        pool
+    }
+
+    // Câu hỏi cho phần Ôn tập: lấy từ các câu hỏi trong các bài học
+    val reviewQuestionsPool = remember(lessons, allQuestions) {
+        val pool = mutableListOf<QuestionItem>()
+        val seen = mutableSetOf<String>()
+
+        // 1. Câu hỏi nhúng bên trong bài học
+        for (lesson in lessons) {
+            for (q in lesson.questions) {
+                val key = if (q.id.isNotBlank()) q.id else q.question.trim().lowercase()
+                if (seen.add(key)) {
+                    pool.add(
+                        q.copy(
+                            lessonId = q.lessonId.ifBlank { lesson.id },
+                            courseId = q.courseId.ifBlank { lesson.courseId },
+                            categoryName = q.categoryName.ifBlank { lesson.title }
+                        )
+                    )
+                }
+            }
+        }
+
+        // 2. Câu hỏi từ allQuestions gắn với lessonId hoặc courseId
+        for (q in allQuestions) {
+            val isLessonQuestion = q.lessonId.isNotBlank() || q.courseId.isNotBlank() || lessons.any { it.id == q.lessonId || it.id == q.courseId }
+            if (isLessonQuestion) {
+                val key = if (q.id.isNotBlank()) q.id else q.question.trim().lowercase()
+                if (seen.add(key)) {
+                    val matchedLesson = lessons.find { it.id == q.lessonId }
+                    val lessonTitle = matchedLesson?.title
+                    pool.add(
+                        if (!lessonTitle.isNullOrBlank() && (q.categoryName.isBlank() || q.categoryName == "Kiến thức chung"))
+                            q.copy(categoryName = lessonTitle)
+                        else q
+                    )
+                }
+            }
+        }
+        pool
+    }
 
     // Active Exam State
     var activeExamId by remember { mutableStateOf("") }
-    var activeExamName by remember { mutableStateOf("Đề thi 20 câu ngẫu nhiên") }
+    var activeExamName by remember { mutableStateOf("Luyện tập ngẫu nhiên") }
     var isOfficialWebExam by remember { mutableStateOf(false) }
     var examQuestions by remember { mutableStateOf<List<QuestionItem>>(emptyList()) }
     var userAnswers by remember { mutableStateOf<MutableMap<Int, Int>>(mutableMapOf()) }
@@ -122,7 +214,8 @@ fun KiemTraScreen(
                     totalQuestions = examQuestions.size,
                     timeSpentSeconds = examTimeSpentSeconds,
                     examId = activeExamId,
-                    examName = "$activeExamName (Tự động nộp khi hết giờ)"
+                    examName = "$activeExamName (Tự động nộp khi hết giờ)",
+                    isOfficial = isOfficialWebExam
                 )
             }
         }
@@ -145,49 +238,44 @@ fun KiemTraScreen(
             activeExamId = session.id
             activeExamName = session.title
             
-            // 1. Ưu tiên lấy trực tiếp danh sách câu hỏi nhúng bên trong đợt thi từ Web Quản trị
+            // 1. Lấy trực tiếp danh sách câu hỏi của đợt thi từ Web Quản trị
             val sessionQuestions = if (session.questionsList.isNotEmpty()) {
                 session.questionsList
             } else if (session.questionIds.isNotEmpty()) {
                 val qSet = session.questionIds.toSet()
                 allQuestions.filter { it.id in qSet }
-            } else if (session.category.isNotBlank()) {
-                // Chỉ lấy câu hỏi kiểm tra chung, tuyệt đối không lấy nhầm câu hỏi ôn tập cuối bài học GDCT (lessonId != "")
-                allQuestions.filter { it.category.equals(session.category, ignoreCase = true) && it.lessonId.isBlank() }
             } else {
-                // Chỉ lấy câu hỏi kiểm tra ngân hàng chung
-                allQuestions.filter { it.lessonId.isBlank() }
+                allQuestions.filter { it.examSessionId == session.id }
             }
 
-            val targetCount = if (session.totalQuestions > 0) session.totalQuestions else if (sessionQuestions.isNotEmpty()) sessionQuestions.size else 20
+            if (sessionQuestions.isEmpty()) {
+                showNoSessionQuestionsDialog = true
+                return
+            }
 
-            val rawList = if (sessionQuestions.isNotEmpty()) {
-                if (sessionQuestions.size >= targetCount) {
-                    sessionQuestions.shuffled().take(targetCount)
-                } else {
-                    // Hiển thị đầy đủ danh sách câu hỏi của đợt thi được đảo ngẫu nhiên
-                    sessionQuestions.shuffled()
-                }
+            val targetCount = if (session.totalQuestions > 0) session.totalQuestions else sessionQuestions.size
+
+            val rawList = if (sessionQuestions.size > targetCount) {
+                sessionQuestions.shuffled().take(targetCount)
             } else {
-                val nonLessonQuestions = allQuestions.filter { it.lessonId.isBlank() }
-                if (nonLessonQuestions.isNotEmpty()) {
-                    nonLessonQuestions.shuffled().take(minOf(targetCount, nonLessonQuestions.size))
-                } else {
-                    allQuestions.shuffled().take(minOf(targetCount, allQuestions.size))
-                }
+                sessionQuestions.shuffled()
             }
             // Đảo ngẫu nhiên câu hỏi và đảo ngẫu nhiên thứ tự các đáp án trong từng câu hỏi
             examQuestions = rawList.map { it.withShuffledOptions() }
 
             examTimerSeconds = if (session.durationMinutes > 0) session.durationMinutes * 60 else 20 * 60
         } else {
+            // Luyện tập ngẫu nhiên: lấy từ danh sách câu hỏi từ các đợt kiểm tra
+            if (examQuestionsPool.isEmpty()) {
+                showNoExamQuestionsDialog = true
+                return
+            }
+
             isOfficialWebExam = false
             activeExamId = "random_practice_${System.currentTimeMillis()}"
-            activeExamName = "Đề thi 20 câu ngẫu nhiên"
-            val nonLessonQuestions = allQuestions.filter { it.lessonId.isBlank() }
-            val pool = if (nonLessonQuestions.isNotEmpty()) nonLessonQuestions else allQuestions
-            val totalToPick = minOf(20, pool.size)
-            examQuestions = pool.shuffled().take(totalToPick).map { it.withShuffledOptions() }
+            val totalToPick = minOf(20, examQuestionsPool.size)
+            activeExamName = "Luyện tập ngẫu nhiên ($totalToPick câu)"
+            examQuestions = examQuestionsPool.shuffled().take(totalToPick).map { it.withShuffledOptions() }
             examTimerSeconds = 20 * 60
         }
 
@@ -327,7 +415,7 @@ fun KiemTraScreen(
                                 ExamMode.OVERVIEW -> "KIỂM TRA TRẮC NGHIỆM"
                                 ExamMode.TAKING_EXAM -> "BÀI THI TRẮC NGHIỆM"
                                 ExamMode.EXAM_RESULT -> "KẾT QUẢ KIỂM TRA"
-                                ExamMode.QUESTION_BANK -> "TỔNG HỢP CÂU HỎI ĐÃ ĐĂNG"
+                                ExamMode.QUESTION_BANK -> "CÂU HỎI ÔN TẬP TỪ BÀI HỌC"
                             },
                             fontWeight = FontWeight.Bold,
                             fontSize = 16.sp
@@ -372,7 +460,8 @@ fun KiemTraScreen(
             when (currentMode) {
                 ExamMode.OVERVIEW -> {
                     ExamOverviewView(
-                        totalQuestionsCount = allQuestions.size,
+                        examQuestionsCount = examQuestionsPool.size,
+                        reviewQuestionsCount = reviewQuestionsPool.size,
                         examSessions = examSessions,
                         userExamResults = userExamResults,
                         isAuthenticated = isAuthenticated,
@@ -407,7 +496,7 @@ fun KiemTraScreen(
                 }
                 ExamMode.QUESTION_BANK -> {
                     QuestionBankView(
-                        allQuestions = allQuestions,
+                        allQuestions = reviewQuestionsPool,
                         onStartExam = { startExamForSession(null) }
                     )
                 }
@@ -492,7 +581,8 @@ fun KiemTraScreen(
                             totalQuestions = examQuestions.size,
                             timeSpentSeconds = examTimeSpentSeconds,
                             examId = activeExamId,
-                            examName = activeExamName
+                            examName = activeExamName,
+                            isOfficial = isOfficialWebExam
                         )
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = RedPrimary)
@@ -668,6 +758,86 @@ fun KiemTraScreen(
             }
         )
     }
+
+    // DIALOG THÔNG BÁO CHƯA CÓ CÂU HỎI TỪ CÁC ĐỢT KIỂM TRA
+    if (showNoExamQuestionsDialog) {
+        AlertDialog(
+            onDismissRequest = { showNoExamQuestionsDialog = false },
+            icon = {
+                Icon(
+                    Icons.Default.Info,
+                    contentDescription = null,
+                    tint = RedPrimary,
+                    modifier = Modifier.size(36.dp)
+                )
+            },
+            title = {
+                Text(
+                    text = "CHƯA CÓ CÂU HỎI TỪ ĐỢT KIỂM TRA",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp,
+                    color = RedPrimary
+                )
+            },
+            text = {
+                Text(
+                    text = "Phần Luyện tập ngẫu nhiên được lấy trực tiếp từ danh sách câu hỏi của các đợt kiểm tra do Web Quản trị đăng tải. Hiện tại chưa có câu hỏi nào từ các đợt kiểm tra trên hệ thống.",
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    lineHeight = 18.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = { showNoExamQuestionsDialog = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = RedPrimary),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text("Đã hiểu", fontWeight = FontWeight.Bold)
+                }
+            }
+        )
+    }
+
+    // DIALOG THÔNG BÁO ĐỢT KIỂM TRA CHƯA CÓ CÂU HỎI
+    if (showNoSessionQuestionsDialog) {
+        AlertDialog(
+            onDismissRequest = { showNoSessionQuestionsDialog = false },
+            icon = {
+                Icon(
+                    Icons.Default.Warning,
+                    contentDescription = null,
+                    tint = RedPrimary,
+                    modifier = Modifier.size(36.dp)
+                )
+            },
+            title = {
+                Text(
+                    text = "ĐỢT KIỂM TRA CHƯA CÓ CÂU HỎI",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp,
+                    color = RedPrimary
+                )
+            },
+            text = {
+                Text(
+                    text = "Đợt kiểm tra này hiện chưa được cấu hình danh sách câu hỏi trên Web Quản trị. Vui lòng liên hệ cán bộ quản lý hoặc thử lại sau.",
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    lineHeight = 18.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = { showNoSessionQuestionsDialog = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = RedPrimary),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text("Đóng", fontWeight = FontWeight.Bold)
+                }
+            }
+        )
+    }
 }
 
 // -------------------------------------------------------------
@@ -676,7 +846,8 @@ fun KiemTraScreen(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ExamOverviewView(
-    totalQuestionsCount: Int,
+    examQuestionsCount: Int,
+    reviewQuestionsCount: Int,
     examSessions: List<ExamSessionDoc>,
     userExamResults: List<ExamResultDoc>,
     isAuthenticated: Boolean,
@@ -875,13 +1046,13 @@ private fun ExamOverviewView(
                         }
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "LÀM ĐỀ THI 20 CÂU NGẪU NHIÊN",
+                                text = "LUYỆN TẬP NGẪU NHIÊN",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 15.sp,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                text = "Lấy ngẫu nhiên 20 câu từ toàn bộ ngân hàng câu hỏi",
+                                text = "Lấy từ danh sách câu hỏi các đợt kiểm tra ($examQuestionsCount câu)",
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -902,7 +1073,7 @@ private fun ExamOverviewView(
                         }
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             Icon(Icons.Default.CheckCircle, contentDescription = null, tint = RedPrimary, modifier = Modifier.size(16.dp))
-                            Text("Số lượng: 20 câu", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text("Số lượng: ${if (examQuestionsCount > 0) minOf(20, examQuestionsCount) else 0} câu", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
                     }
 
@@ -922,7 +1093,9 @@ private fun ExamOverviewView(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = if (!isAuthenticated) "ĐĂNG NHẬP ĐỂ LÀM BÀI" else "BẮT ĐẦU LÀM BÀI THI",
+                            text = if (!isAuthenticated) "ĐĂNG NHẬP ĐỂ LÀM BÀI"
+                                   else if (examQuestionsCount == 0) "CHƯA CÓ CÂU HỎI TỪ ĐỢT KIỂM TRA"
+                                   else "BẮT ĐẦU LUYỆN TẬP",
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -930,7 +1103,7 @@ private fun ExamOverviewView(
             }
         }
 
-        // Chế độ 2: Tổng hợp tất cả câu hỏi đã đăng tải (chỉ hiển thị khi đã đăng nhập)
+        // Chế độ 2: Tổng hợp tất cả câu hỏi ôn tập từ bài học (chỉ hiển thị khi đã đăng nhập)
         if (isAuthenticated) {
             item {
                 Card(
@@ -966,13 +1139,13 @@ private fun ExamOverviewView(
                             }
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = "XEM & ÔN TẬP TOÀN BỘ CÂU HỎI",
+                                    text = "ÔN TẬP CÂU HỎI TỪ BÀI HỌC",
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 15.sp,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
                                 Text(
-                                    text = "Ngân hàng $totalQuestionsCount câu hỏi đã đăng tải",
+                                    text = "Tổng hợp $reviewQuestionsCount câu hỏi ôn tập từ các bài học",
                                     fontSize = 12.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -987,7 +1160,7 @@ private fun ExamOverviewView(
                         ) {
                             Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(20.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("MỞ NGÂN HÀNG CÂU HỎI", fontWeight = FontWeight.Bold)
+                            Text("MỞ NGÂN HÀNG CÂU HỎI ÔN TẬP", fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -1756,7 +1929,7 @@ private fun QuestionBankView(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Danh sách câu hỏi (${filteredQuestions.size})",
+                        text = "Danh sách câu hỏi ôn tập (${filteredQuestions.size})",
                         fontWeight = FontWeight.Bold,
                         fontSize = 15.sp,
                         color = MaterialTheme.colorScheme.onBackground
@@ -1764,12 +1937,43 @@ private fun QuestionBankView(
                     TextButton(onClick = onStartExam) {
                         Icon(Icons.Default.PlayArrow, contentDescription = null, tint = RedPrimary, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Làm đề thi 20 câu", color = RedPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        Text("Luyện tập ngẫu nhiên", color = RedPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                     }
                 }
             }
 
-            if (filteredQuestions.isEmpty()) {
+            if (allQuestions.isEmpty()) {
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Icon(Icons.Default.MenuBook, contentDescription = null, modifier = Modifier.size(40.dp), tint = RedPrimary)
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text(
+                                text = "Chưa có câu hỏi ôn tập từ các bài học",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Phần ôn tập được lấy trực tiếp từ các câu hỏi trong bài học do Web Quản trị đăng tải.",
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                }
+            } else if (filteredQuestions.isEmpty()) {
                 item {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
@@ -1785,7 +1989,7 @@ private fun QuestionBankView(
                             Icon(Icons.Default.SearchOff, contentDescription = null, modifier = Modifier.size(40.dp), tint = RedPrimary)
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                text = "Không tìm thấy câu hỏi nào phù hợp với bộ lọc.",
+                                text = "Không tìm thấy câu hỏi ôn tập nào phù hợp với bộ lọc.",
                                 fontSize = 13.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 textAlign = TextAlign.Center

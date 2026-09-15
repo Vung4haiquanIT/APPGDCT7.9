@@ -120,19 +120,36 @@ fun HocTapContent(
     // Map course id to course title for easy filtering
     val courseMap = remember(courses) { courses.associateBy { it.id } }
 
+    fun findCourseForLesson(lesson: Lesson): Course? {
+        if (lesson.courseId.isNotBlank()) {
+            courseMap[lesson.courseId]?.let { return it }
+            courses.firstOrNull { it.id.trim().equals(lesson.courseId.trim(), ignoreCase = true) }?.let { return it }
+        }
+        if (lesson.category.isNotBlank()) {
+            courses.firstOrNull { it.category.equals(lesson.category, ignoreCase = true) || it.title.contains(lesson.category, ignoreCase = true) }?.let { return it }
+        }
+        return null
+    }
+
     // State lọc bài học theo năm
     var selectedYear by remember { mutableStateOf("ALL") }
 
-    // Helper trích xuất năm của bài học dựa trên thuộc tính year, tiêu đề, chuyên đề hoặc thời gian tạo
+    // Helper trích xuất năm của bài học dựa trên thuộc tính courseYear / year, tiêu đề, chuyên đề hoặc thời gian tạo
     fun getLessonYear(lesson: Lesson, course: Course?): String {
-        // 1. Thuộc tính năm trực tiếp từ Web Quản Trị
-        if (lesson.year.isNotBlank()) {
-            val y = lesson.year.filter { it.isDigit() }
+        // 1. Thuộc tính năm trực tiếp từ Web Quản Trị (trường courseYear hoặc year)
+        val lYear = lesson.courseYear.ifBlank { lesson.year }.trim()
+        if (lYear.isNotBlank()) {
+            val y = lYear.filter { it.isDigit() }
             if (y.length == 4) return y
+            val match = Regex("""\b(20[2-3]\d)\b""").find(lYear)
+            if (match != null) return match.groupValues[1]
         }
-        if (course != null && course.year.isNotBlank()) {
-            val y = course.year.filter { it.isDigit() }
+        val cYear = (course?.courseYear?.ifBlank { course.year } ?: "").trim()
+        if (cYear.isNotBlank()) {
+            val y = cYear.filter { it.isDigit() }
             if (y.length == 4) return y
+            val match = Regex("""\b(20[2-3]\d)\b""").find(cYear)
+            if (match != null) return match.groupValues[1]
         }
 
         // 2. Trích xuất năm 4 chữ số từ tiêu đề chuyên đề (VD: "GIÁO DỤC CHÍNH TRỊ NĂM 2026" -> "2026")
@@ -164,15 +181,28 @@ fun HocTapContent(
         return "Khác"
     }
 
-    // Danh sách tất cả các năm thực tế đang có trong kho bài học
+    // Danh sách tất cả các năm thực tế đang có trong kho bài học và chuyên đề
     val availableYears = remember(lessons, courses) {
         val set = mutableSetOf<String>()
         lessons.forEach { lesson ->
-            val course = courseMap[lesson.courseId]
+            val course = findCourseForLesson(lesson)
             val yr = getLessonYear(lesson, course)
             if (yr.isNotBlank()) {
                 set.add(yr)
             }
+        }
+        courses.forEach { course ->
+            val cYear = course.courseYear.ifBlank { course.year }.trim()
+            if (cYear.isNotBlank()) {
+                val y = cYear.filter { it.isDigit() }
+                if (y.length == 4) set.add(y)
+                else {
+                    val match = Regex("""\b(20[2-3]\d)\b""").find(cYear)
+                    if (match != null) set.add(match.groupValues[1])
+                }
+            }
+            val match = Regex("""\b(20[2-3]\d)\b""").find(course.title)
+            if (match != null) set.add(match.groupValues[1])
         }
         set.sortedWith(Comparator { a, b ->
             if (a == "Khác") 1
@@ -184,7 +214,7 @@ fun HocTapContent(
     // Filter lessons based on selected filter and search query
     val filteredLessons = remember(lessons, selectedFilterKey, searchQuery, courses, selectedYear) {
         lessons.filter { lesson ->
-            val course = courseMap[lesson.courseId]
+            val course = findCourseForLesson(lesson)
             val courseTitle = course?.title ?: ""
             val lessonTitle = lesson.title
             val lessonDesc = lesson.description
@@ -560,7 +590,7 @@ fun HocTapContent(
 
                                 availableYears.forEach { yr ->
                                     val count = lessons.count { l ->
-                                        val c = courseMap[l.courseId]
+                                        val c = findCourseForLesson(l)
                                         getLessonYear(l, c) == yr
                                     }
                                     val isSelected = selectedYear == yr
