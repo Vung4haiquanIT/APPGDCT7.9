@@ -17,6 +17,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import android.widget.ImageView
 import androidx.compose.ui.tooling.preview.Preview
 import com.example.ui.theme.MyApplicationTheme
 import androidx.compose.material3.MaterialTheme
@@ -58,14 +60,17 @@ fun TrongDongBackground(
                 .padding(bottom = 30.dp),
             contentAlignment = Alignment.Center
         ) {
-            Image(
-                painter = painterResource(id = R.drawable.trongdong),
-                contentDescription = null,
+            AndroidView(
+                factory = { ctx ->
+                    ImageView(ctx).apply {
+                        setImageResource(R.drawable.trongdong)
+                        scaleType = ImageView.ScaleType.FIT_CENTER
+                    }
+                },
                 modifier = Modifier
                     .fillMaxWidth(0.88f)
                     .aspectRatio(1f)
-                    .alpha(watermarkAlpha),
-                contentScale = ContentScale.Fit
+                    .alpha(watermarkAlpha)
             )
         }
 
@@ -75,14 +80,17 @@ fun TrongDongBackground(
                 .fillMaxSize(),
             contentAlignment = Alignment.TopEnd
         ) {
-            Image(
-                painter = painterResource(id = R.drawable.trongdong),
-                contentDescription = null,
+            AndroidView(
+                factory = { ctx ->
+                    ImageView(ctx).apply {
+                        setImageResource(R.drawable.trongdong)
+                        scaleType = ImageView.ScaleType.FIT_CENTER
+                    }
+                },
                 modifier = Modifier
                     .size(220.dp)
                     .offset(x = 60.dp, y = (-50).dp)
-                    .alpha(watermarkAlpha * 0.7f),
-                contentScale = ContentScale.Fit
+                    .alpha(watermarkAlpha * 0.7f)
             )
         }
 
