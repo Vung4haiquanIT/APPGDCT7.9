@@ -59,7 +59,7 @@ fun TrongDongBackground(
             contentAlignment = Alignment.Center
         ) {
             Image(
-                painter = painterResource(id = R.drawable.ic_trong_dong_pattern),
+                painter = painterResource(id = R.drawable.trongdong),
                 contentDescription = null,
                 modifier = Modifier
                     .fillMaxWidth(0.88f)
@@ -76,7 +76,7 @@ fun TrongDongBackground(
             contentAlignment = Alignment.TopEnd
         ) {
             Image(
-                painter = painterResource(id = R.drawable.ic_trong_dong_pattern),
+                painter = painterResource(id = R.drawable.trongdong),
                 contentDescription = null,
                 modifier = Modifier
                     .size(220.dp)
