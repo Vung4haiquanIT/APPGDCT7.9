@@ -71,7 +71,7 @@ fun KiemTraScreen(
     val authActionLoading by viewModel.authActionLoading.collectAsState()
 
     val isAuthenticated = currentUser != null || userDoc != null
-    val userName = userDoc?.name?.ifEmpty { currentUser?.displayName } ?: currentUser?.email ?: "Cán bộ / Học viên"
+    val userName = userDoc?.name?.ifEmpty { currentUser?.displayName } ?: currentUser?.email ?: "Đồng chí"
 
     var currentMode by remember { mutableStateOf(ExamMode.OVERVIEW) }
     
@@ -711,7 +711,7 @@ fun KiemTraScreen(
             },
             text = {
                 Text(
-                    text = "Chỉ cán bộ, chiến sĩ và học viên đã đăng nhập tài khoản vào ứng dụng mới được tham gia làm bài kiểm tra. Kết quả bài làm sẽ được tự động đồng bộ và báo cáo về máy chủ Web Quản trị Vùng 4.",
+                    text = "Chỉ cán bộ, chiến sĩ và đồng chí đã đăng nhập tài khoản vào ứng dụng mới được tham gia làm bài kiểm tra. Kết quả bài làm sẽ được tự động đồng bộ và báo cáo về máy chủ Web Quản trị Vùng 4.",
                     fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     lineHeight = 18.sp
@@ -929,7 +929,8 @@ private fun ExamOverviewView(
 
                 // Hiển thị loại đối tượng của tài khoản đang đăng nhập
                 if (isAuthenticated && userDoc != null) {
-                    val userAudience = userDoc.targetAudience.ifBlank { userDoc.role }
+                    val rawAudience = userDoc.targetGroup.ifBlank { userDoc.targetAudience.ifBlank { userDoc.role } }
+                    val userAudience = ExamSessionDoc.formatAudienceDisplay(rawAudience)
                     if (userAudience.isNotBlank()) {
                         Spacer(modifier = Modifier.height(6.dp))
                         Surface(
@@ -985,7 +986,8 @@ private fun ExamOverviewView(
                             modifier = Modifier.size(32.dp)
                         )
                         Spacer(modifier = Modifier.height(6.dp))
-                        val userAudience = if (isAuthenticated && userDoc != null) userDoc.targetAudience.ifBlank { userDoc.role } else ""
+                        val rawAudience = if (isAuthenticated && userDoc != null) userDoc.targetGroup.ifBlank { userDoc.targetAudience.ifBlank { userDoc.role } } else ""
+                        val userAudience = ExamSessionDoc.formatAudienceDisplay(rawAudience)
                         Text(
                             text = if (userAudience.isNotBlank()) "CHƯA CÓ ĐỢT THI CHO ĐỐI TƯỢNG CỦA BẠN" else "CHƯA CÓ ĐỢT THI NÀO TỪ WEB QUẢN TRỊ",
                             fontWeight = FontWeight.Bold,
@@ -1368,7 +1370,8 @@ private fun ExamSessionCard(
                         color = MaterialTheme.colorScheme.onSurface,
                         lineHeight = 20.sp
                     )
-                    if (session.targetAudienceText.isNotBlank()) {
+                    val audienceText = ExamSessionDoc.formatAudienceDisplay(session.targetAudienceText.ifBlank { session.targetGroupText })
+                    if (audienceText.isNotBlank()) {
                         Spacer(modifier = Modifier.height(4.dp))
                         Surface(
                             shape = RoundedCornerShape(6.dp),
@@ -1376,7 +1379,7 @@ private fun ExamSessionCard(
                             border = BorderStroke(0.5.dp, NavySecondary.copy(alpha = 0.25f))
                         ) {
                             Text(
-                                text = "🎯 Đối tượng: ${session.targetAudienceText}",
+                                text = "🎯 Đối tượng: $audienceText",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Medium,
                                 color = NavySecondary,

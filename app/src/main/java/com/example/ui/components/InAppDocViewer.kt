@@ -713,7 +713,7 @@ suspend fun downloadFileToAppStorage(
 }
 
 /**
- * Lưu tệp vào thư mục Tải về (Downloads) của thiết bị để học viên xem lại bên ngoài
+ * Lưu tệp vào thư mục Tải về (Downloads) của thiết bị để đồng chí xem lại bên ngoài
  */
 fun saveToDeviceDownloads(context: Context, sourceFile: File, fileName: String): Boolean {
     return try {

@@ -214,6 +214,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private fun saveUserSession(user: UserDoc) {
         try {
             val prefs = getApplication<Application>().getSharedPreferences("vung4_auth_prefs", Context.MODE_PRIVATE)
+            val effectiveTarget = user.targetGroup.ifBlank { user.targetAudience }
             prefs.edit()
                 .putBoolean("is_logged_in", true)
                 .putString("user_id", user.id)
@@ -224,11 +225,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 .putString("user_unit", user.unit)
                 .putString("user_rank", user.rank)
                 .putString("user_phone", user.phone)
-                .putString("user_target_audience", user.targetAudience)
+                .putString("user_target_group", effectiveTarget)
+                .putString("user_target_audience", effectiveTarget)
                 .putString("user_avatar", user.avatarUrl)
                 .putString("user_avatar_${user.id}", user.avatarUrl)
                 .apply()
-            Log.i(TAG, "[SESSION] Saved login session for ${user.name} (${user.id}), session: $localSessionId")
+            Log.i(TAG, "[SESSION] Saved login session for ${user.name} (${user.id}), session: $localSessionId, targetGroup: $effectiveTarget")
         } catch (e: Exception) {
             Log.e(TAG, "[SESSION SAVE ERROR] ${e.localizedMessage}", e)
         }
@@ -256,17 +258,22 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             } ?: ""
             val localAvatar = resolveAndCacheAvatar(id, rawAvatar)
             if (isLoggedIn && id.isNotBlank()) {
+                val savedTarget = prefs.getString("user_target_group", "")?.ifEmpty {
+                    prefs.getString("user_target_audience", "")
+                }?.ifEmpty {
+                    prefs.getString("user_role", "Đồng chí")
+                } ?: "Đồng chí"
+
                 val restored = UserDoc(
                     id = id,
                     name = prefs.getString("user_name", "") ?: "",
                     email = prefs.getString("user_email", "") ?: "",
-                    role = prefs.getString("user_role", "Học viên") ?: "Học viên",
+                    role = prefs.getString("user_role", "Đồng chí") ?: "Đồng chí",
                     unit = prefs.getString("user_unit", "Vùng 4 Hải Quân") ?: "Vùng 4 Hải Quân",
                     rank = prefs.getString("user_rank", "") ?: "",
                     phone = prefs.getString("user_phone", "") ?: "",
-                    targetAudience = prefs.getString("user_target_audience", "")?.ifEmpty {
-                        prefs.getString("user_role", "Học viên")
-                    } ?: "Học viên",
+                    targetGroup = savedTarget,
+                    targetAudience = savedTarget,
                     avatarUrl = localAvatar
                 )
                 _userDoc.value = restored
@@ -275,11 +282,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 fetchExamResults(restored.id)
                 syncPendingGuestProgressToFirestore(restored.id)
                 startUserAccountRealtimeMonitoring(restored.id, restored.email)
-                Log.i(TAG, "[SESSION] Restored login session for ${restored.name}")
+                Log.i(TAG, "[SESSION] Restored login session for ${restored.name}, targetGroup: $savedTarget")
                 restored
             } else if (localAvatar.isNotEmpty()) {
                 // Khôi phục ảnh đại diện cho chế độ khách nếu có
-                val guestDoc = UserDoc(name = "Học viên", avatarUrl = localAvatar)
+                val guestDoc = UserDoc(name = "Đồng chí", avatarUrl = localAvatar)
                 _userDoc.value = guestDoc
                 null
             } else {
@@ -436,7 +443,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                                 return@addSnapshotListener
                             }
 
-                            // Tự động đồng bộ ảnh đại diện nếu được thay đổi từ thiết bị khác
+                            // Tự động đồng bộ thông tin tài khoản (targetGroup, vai trò, họ tên, ảnh đại diện...) nếu có thay đổi trên Server
+                            val updatedUser = UserDoc.fromDoc(snapshot)
                             val remoteAvatar = snapshot.getString("avatarUrl")
                                 ?: snapshot.getString("avatar")
                                 ?: snapshot.getString("avatarBase64")
@@ -445,12 +453,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                                 ?: snapshot.getString("anhDaiDien")
                                 ?: snapshot.getString("hinhDaiDien")
                                 ?: ""
-                            if (remoteAvatar.isNotBlank()) {
-                                val current = _userDoc.value
-                                val resolved = resolveAndCacheAvatar(userId, remoteAvatar)
-                                if (current != null && resolved.isNotBlank() && current.avatarUrl != resolved) {
-                                    _userDoc.value = current.copy(avatarUrl = resolved)
-                                }
+                            val current = _userDoc.value
+                            val resolvedAvatar = if (remoteAvatar.isNotBlank()) resolveAndCacheAvatar(userId, remoteAvatar) else (current?.avatarUrl ?: "")
+                            val finalDoc = updatedUser.copy(
+                                avatarUrl = if (resolvedAvatar.isNotBlank()) resolvedAvatar else updatedUser.avatarUrl
+                            )
+                            if (current != finalDoc) {
+                                _userDoc.value = finalDoc
+                                saveUserSession(finalDoc)
+                                Log.i(TAG, "[REALTIME USER] Synchronized user info for $userId, targetGroup: ${finalDoc.targetGroup}")
                             }
                         }
                     }
@@ -754,7 +765,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 val updated = if (current != null) {
                     current.copy(avatarUrl = avatarPath)
                 } else {
-                    UserDoc(name = "Học viên", avatarUrl = avatarPath)
+                    UserDoc(name = "Đồng chí", avatarUrl = avatarPath)
                 }
                 _userDoc.value = updated
 
@@ -1790,11 +1801,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val lessonObj = _lessons.value.find { it.id == lessonId }
                 val lessonTitle = lessonObj?.title ?: "Bài học chính trị"
-                val userName = user?.name?.ifEmpty { currentFbUser?.displayName ?: currentFbUser?.email ?: "Học viên Vùng 4" } ?: "Học viên Vùng 4"
+                val userName = user?.name?.ifEmpty { currentFbUser?.displayName ?: currentFbUser?.email ?: "Đồng chí Vùng 4" } ?: "Đồng chí Vùng 4"
                 val userEmail = user?.email?.ifEmpty { currentFbUser?.email ?: "" } ?: ""
                 val userUnit = user?.unit?.ifEmpty { "Vùng 4 Hải Quân" } ?: "Vùng 4 Hải Quân"
                 val userRank = user?.rank ?: ""
-                val userRole = user?.role ?: "Học viên"
+                val userRole = user?.role ?: "Đồng chí"
 
                 val currentTime = System.currentTimeMillis()
                 val scorePercent = if (score != null && totalQuestions != null && totalQuestions > 0) {
@@ -2276,7 +2287,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 NotificationItem(
                     id = "admin_notif_1",
                     title = "Kế hoạch giáo dục chính trị Vùng 4 Hải Quân năm 2026",
-                    message = "Yêu cầu 100% cán bộ, chiến sĩ và học viên hoàn thành các chuyên đề học tập chính trị trước đợt kiểm tra đánh giá định kỳ.",
+                    message = "Yêu cầu 100% cán bộ, chiến sĩ và đồng chí hoàn thành các chuyên đề học tập chính trị trước đợt kiểm tra đánh giá định kỳ.",
                     type = "admin",
                     priority = "urgent",
                     timestamp = System.currentTimeMillis() - 3600000L * 2
@@ -2596,7 +2607,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 val uid = user?.id ?: currentFbUser?.uid ?: "guest"
-                val userName = user?.name?.ifEmpty { currentFbUser?.displayName ?: "Học viên Vùng 4" } ?: "Học viên Vùng 4"
+                val userName = user?.name?.ifEmpty { currentFbUser?.displayName ?: "Đồng chí Vùng 4" } ?: "Đồng chí Vùng 4"
                 val userEmail = user?.email?.ifEmpty { currentFbUser?.email ?: "" } ?: ""
                 val timestamp = System.currentTimeMillis()
 
@@ -2643,7 +2654,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 val uid = user?.id ?: currentFbUser?.uid ?: "guest"
-                val userName = user?.name?.ifEmpty { currentFbUser?.displayName ?: "Học viên Vùng 4" } ?: "Học viên Vùng 4"
+                val userName = user?.name?.ifEmpty { currentFbUser?.displayName ?: "Đồng chí Vùng 4" } ?: "Đồng chí Vùng 4"
                 val userEmail = user?.email?.ifEmpty { currentFbUser?.email ?: "" } ?: ""
                 val userUnit = user?.unit?.ifEmpty { "Vùng 4 Hải Quân" } ?: "Vùng 4 Hải Quân"
                 val userRank = user?.rank ?: ""
@@ -2655,7 +2666,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     "userEmail" to userEmail,
                     "unit" to userUnit,
                     "rank" to userRank,
-                    "title" to title.ifBlank { "Ý kiến đóng góp từ học viên" },
+                    "title" to title.ifBlank { "Ý kiến đóng góp từ đồng chí" },
                     "feedback" to feedbackContent,
                     "content" to feedbackContent,
                     "type" to feedbackType,

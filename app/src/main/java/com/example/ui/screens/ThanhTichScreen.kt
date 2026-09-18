@@ -82,7 +82,7 @@ fun ThanhTichScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // THẺ THÔNG TIN TÀI KHOẢN HỌC VIÊN
+            // THẺ THÔNG TIN TÀI KHOẢN ĐỒNG CHÍ
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -128,7 +128,7 @@ fun ThanhTichScreen(
                         }
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = userDoc?.name?.ifEmpty { currentUser?.displayName ?: currentUser?.email ?: "Học viên Vùng 4" } ?: "Học viên Vùng 4",
+                                text = userDoc?.name?.ifEmpty { currentUser?.displayName ?: currentUser?.email ?: "Đồng chí Vùng 4" } ?: "Đồng chí Vùng 4",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 16.sp,
                                 color = RedPrimary

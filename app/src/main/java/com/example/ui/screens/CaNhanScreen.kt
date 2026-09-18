@@ -284,7 +284,7 @@ fun CaNhanScreen(
                         } else {
                             // ĐÃ ĐĂNG NHẬP
                             Text(
-                                text = userDoc?.name?.ifEmpty { currentUser?.displayName ?: currentUser?.email ?: "Học viên Vùng 4" } ?: "Học viên Vùng 4",
+                                text = userDoc?.name?.ifEmpty { currentUser?.displayName ?: currentUser?.email ?: "Đồng chí Vùng 4" } ?: "Đồng chí Vùng 4",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 18.sp,
                                 color = MaterialTheme.colorScheme.onSurface
