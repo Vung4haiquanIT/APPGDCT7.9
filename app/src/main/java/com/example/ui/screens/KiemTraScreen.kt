@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -39,6 +40,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.example.model.ExamResultDoc
 import com.example.model.ExamSessionDoc
 import com.example.model.QuestionItem
+import com.example.model.UserDoc
 import com.example.ui.components.Vung4LogoBadge
 import com.example.ui.theme.RedPrimary
 import com.example.ui.theme.NavySecondary
@@ -465,6 +467,7 @@ fun KiemTraScreen(
                         examSessions = examSessions,
                         userExamResults = userExamResults,
                         isAuthenticated = isAuthenticated,
+                        userDoc = userDoc,
                         onOpenLogin = { showLoginRequiredDialog = true },
                         onStartSessionExam = { session -> startExamForSession(session) },
                         onStartExam = { startExamForSession(null) },
@@ -851,14 +854,20 @@ private fun ExamOverviewView(
     examSessions: List<ExamSessionDoc>,
     userExamResults: List<ExamResultDoc>,
     isAuthenticated: Boolean,
+    userDoc: UserDoc? = null,
     onOpenLogin: () -> Unit,
     onStartSessionExam: (ExamSessionDoc) -> Unit,
     onStartExam: () -> Unit,
     onOpenQuestionBank: () -> Unit
 ) {
-    // Only display exam sessions published by Web Admin from Firestore, sorted by newest first
-    val displaySessions = remember(examSessions) {
-        examSessions.sortedWith(
+    // Lọc danh sách bài kiểm tra: Nếu đã đăng nhập thì chỉ hiển thị theo loại đối tượng của tài khoản đó
+    val displaySessions = remember(examSessions, isAuthenticated, userDoc) {
+        val filtered = if (isAuthenticated && userDoc != null) {
+            examSessions.filter { it.isApplicableForUser(userDoc) }
+        } else {
+            examSessions
+        }
+        filtered.sortedWith(
             compareByDescending<ExamSessionDoc> { it.createdAt }
                 .thenByDescending { it.startTime }
                 .thenByDescending { it.id }
@@ -872,27 +881,83 @@ private fun ExamOverviewView(
         verticalArrangement = Arrangement.spacedBy(12.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Tiêu đề danh sách bài kiểm tra
+        // Tiêu đề danh sách bài kiểm tra & nhãn đối tượng áp dụng
         item {
-            Row(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 4.dp, bottom = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    .padding(top = 4.dp, bottom = 2.dp)
             ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.Assignment,
-                    contentDescription = null,
-                    tint = RedPrimary,
-                    modifier = Modifier.size(22.dp)
-                )
-                Text(
-                    text = "DANH SÁCH BÀI KIỂM TRA",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp,
-                    color = RedPrimary
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Assignment,
+                            contentDescription = null,
+                            tint = RedPrimary,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Text(
+                            text = "DANH SÁCH BÀI KIỂM TRA",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
+                            color = RedPrimary
+                        )
+                    }
+
+                    if (displaySessions.isNotEmpty()) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = RedPrimary.copy(alpha = 0.1f)
+                        ) {
+                            Text(
+                                text = "${displaySessions.size} đợt thi",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = RedPrimary,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                }
+
+                // Hiển thị loại đối tượng của tài khoản đang đăng nhập
+                if (isAuthenticated && userDoc != null) {
+                    val userAudience = userDoc.targetAudience.ifBlank { userDoc.role }
+                    if (userAudience.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = RedPrimary.copy(alpha = 0.08f),
+                            border = BorderStroke(1.dp, RedPrimary.copy(alpha = 0.2f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.FilterList,
+                                    contentDescription = null,
+                                    tint = RedPrimary,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Text(
+                                    text = "Đợt thi dành cho: $userAudience",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = RedPrimary
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -920,8 +985,9 @@ private fun ExamOverviewView(
                             modifier = Modifier.size(32.dp)
                         )
                         Spacer(modifier = Modifier.height(6.dp))
+                        val userAudience = if (isAuthenticated && userDoc != null) userDoc.targetAudience.ifBlank { userDoc.role } else ""
                         Text(
-                            text = "CHƯA CÓ ĐỢT THI NÀO TỪ WEB QUẢN TRỊ",
+                            text = if (userAudience.isNotBlank()) "CHƯA CÓ ĐỢT THI CHO ĐỐI TƯỢNG CỦA BẠN" else "CHƯA CÓ ĐỢT THI NÀO TỪ WEB QUẢN TRỊ",
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp,
                             color = RedPrimary,
@@ -929,7 +995,10 @@ private fun ExamOverviewView(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Đợt thi chính thức sẽ tự động hiển thị tại đây khi Ban Quản trị Web phát hành.",
+                            text = if (userAudience.isNotBlank())
+                                "Hiện tại chưa có đợt kiểm tra trực tuyến nào được phát hành cho đối tượng '$userAudience'. Đợt thi sẽ tự động hiển thị tại đây khi Ban Quản trị Web mở."
+                            else
+                                "Đợt thi chính thức sẽ tự động hiển thị tại đây khi Ban Quản trị Web phát hành.",
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center,
@@ -1299,6 +1368,22 @@ private fun ExamSessionCard(
                         color = MaterialTheme.colorScheme.onSurface,
                         lineHeight = 20.sp
                     )
+                    if (session.targetAudienceText.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = NavySecondary.copy(alpha = 0.08f),
+                            border = BorderStroke(0.5.dp, NavySecondary.copy(alpha = 0.25f))
+                        ) {
+                            Text(
+                                text = "🎯 Đối tượng: ${session.targetAudienceText}",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = NavySecondary,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
                 }
 
                 Spacer(modifier = Modifier.width(8.dp))

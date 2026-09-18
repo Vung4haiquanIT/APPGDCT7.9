@@ -20,6 +20,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
 import com.example.ui.components.Vung4LogoBadge
 import com.example.ui.theme.GoldPrimary
 import com.example.ui.theme.RedPrimary
@@ -103,13 +104,23 @@ fun ThanhTichScreen(
                                 border = BorderStroke(1.5.dp, GoldPrimary),
                                 shadowElevation = 2.dp
                             ) {
-                                AsyncImage(
-                                    model = userDoc?.avatarUrl,
+                                val avatarModel = remember(userDoc?.avatarUrl) {
+                                    val url = userDoc?.avatarUrl ?: ""
+                                    if (url.startsWith("/")) java.io.File(url) else url
+                                }
+                                SubcomposeAsyncImage(
+                                    model = avatarModel,
                                     contentDescription = "Ảnh đại diện",
                                     modifier = Modifier
                                         .fillMaxSize()
                                         .clip(CircleShape),
-                                    contentScale = ContentScale.Crop
+                                    contentScale = ContentScale.Crop,
+                                    error = {
+                                        Vung4LogoBadge(size = 48.dp)
+                                    },
+                                    loading = {
+                                        Vung4LogoBadge(size = 48.dp)
+                                    }
                                 )
                             }
                         } else {

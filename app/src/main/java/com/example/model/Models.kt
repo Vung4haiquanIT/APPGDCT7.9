@@ -295,6 +295,7 @@ data class UserDoc(
     val rank: String = "",
     val phone: String = "",
     val avatarUrl: String = "",
+    val targetAudience: String = "",
     val permissions: List<String> = emptyList(),
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
@@ -306,6 +307,23 @@ data class UserDoc(
                 is List<*> -> rawPerms.mapNotNull { it?.toString() }
                 else -> emptyList()
             }
+            val rawTarget = when (val t = doc.get("targetGroup")
+                ?: doc.get("targetGroups")
+                ?: doc.get("targetAudience")
+                ?: doc.get("targetAudiences")
+                ?: doc.get("doiTuong")
+                ?: doc.get("loaiDoiTuong")
+                ?: doc.get("doiTuongNguoiDung")
+                ?: doc.get("nhomDoiTuong")
+                ?: doc.get("audience")
+                ?: doc.get("userGroup")) {
+                is List<*> -> t.mapNotNull { it?.toString()?.trim() }.filter { it.isNotBlank() }.joinToString(", ")
+                is String -> t.trim()
+                else -> ""
+            }
+            val effectiveTarget = rawTarget.ifBlank {
+                doc.getString("role") ?: doc.getString("userType") ?: doc.getString("vaiTro") ?: "Học viên"
+            }
             return UserDoc(
                 id = doc.id,
                 name = doc.getString("name") ?: doc.getString("displayName") ?: doc.getString("fullName") ?: "",
@@ -314,7 +332,21 @@ data class UserDoc(
                 unit = doc.getString("unit") ?: doc.getString("donVi") ?: "Vùng 4 Hải Quân",
                 rank = doc.getString("rank") ?: doc.getString("capBac") ?: doc.getString("chucVu") ?: "",
                 phone = doc.getString("phone") ?: doc.getString("soDienThoai") ?: "",
-                avatarUrl = doc.getString("avatarUrl") ?: doc.getString("avatar") ?: doc.getString("avatarBase64") ?: doc.getString("photoUrl") ?: doc.getString("hinhDaiDien") ?: "",
+                targetAudience = effectiveTarget,
+                avatarUrl = doc.getString("avatarUrl")
+                    ?: doc.getString("avatar")
+                    ?: doc.getString("avatarBase64")
+                    ?: doc.getString("photoUrl")
+                    ?: doc.getString("photoURL")
+                    ?: doc.getString("avatar_url")
+                    ?: doc.getString("imageUrl")
+                    ?: doc.getString("image")
+                    ?: doc.getString("anhDaiDien")
+                    ?: doc.getString("anh_dai_dien")
+                    ?: doc.getString("hinhDaiDien")
+                    ?: doc.getString("picture")
+                    ?: doc.getString("userAvatar")
+                    ?: "",
                 permissions = permsList,
                 createdAt = parseTime(doc.get("createdAt")),
                 updatedAt = parseTime(doc.get("updatedAt"))
@@ -597,9 +629,179 @@ data class ExamSessionDoc(
     val startTime: Long = System.currentTimeMillis(),
     val endTime: Long = System.currentTimeMillis() + 86400000L * 30,
     val createdAt: Long = System.currentTimeMillis(),
-    val maxAttempts: Int = 1
+    val maxAttempts: Int = 1,
+    val targetAudience: List<String> = emptyList(),
+    val targetAudienceText: String = "",
+    val targetUnits: List<String> = emptyList()
 ) {
+    /**
+     * Kiểm tra đợt thi có phù hợp với loại đối tượng của tài khoản người dùng đang đăng nhập hay không
+     */
+    fun isApplicableForUser(user: UserDoc?): Boolean {
+        // Chưa đăng nhập -> hiển thị đầy đủ cho khách xem
+        if (user == null) return true
+
+        // Tài khoản Admin quản trị có thể xem tất cả bài thi để kiểm tra
+        if (user.role.contains("Admin", ignoreCase = true) || user.role.equals("Quản trị viên", ignoreCase = true)) {
+            return true
+        }
+
+        // 1. Kiểm tra đơn vị (nếu đợt thi có quy định danh sách đơn vị cụ thể)
+        if (targetUnits.isNotEmpty()) {
+            val userUnit = user.unit.trim().lowercase()
+            val matchUnit = targetUnits.any { u ->
+                val normU = u.trim().lowercase()
+                normU == "tất cả" || normU == "toàn đơn vị" || normU == "toàn quân" || normU == "all" ||
+                        userUnit.contains(normU) || normU.contains(userUnit)
+            }
+            if (!matchUnit && userUnit.isNotBlank()) {
+                return false
+            }
+        }
+
+        // 2. Nếu đợt thi không đặt giới hạn đối tượng hoặc áp dụng cho tất cả
+        if (targetAudience.isEmpty()) {
+            return true
+        }
+        val isAllAudience = targetAudience.any {
+            val a = it.trim().lowercase()
+            a == "tất cả" || a == "tat ca" || a == "toàn quân" || a == "toan quan" ||
+                    a == "toàn đơn vị" || a == "toan don vi" || a == "mọi đối tượng" ||
+                    a == "all" || a == "chung" || a == "mặc định" || a == "*" ||
+                    (a.contains("sq") && a.contains("qncn"))
+        }
+        if (isAllAudience) return true
+
+        // 3. Xác định loại đối tượng chuẩn của tài khoản người dùng
+        val userCategory = getUserAudienceCategory(user)
+
+        // 4. So khớp từng đối tượng mục tiêu của đợt thi với nhóm của người dùng
+        return targetAudience.any { target ->
+            val cleanTarget = target.trim()
+            if (cleanTarget.isBlank()) return@any true
+            matchAudienceCategory(cleanTarget, userCategory, user)
+        }
+    }
+
     companion object {
+        /**
+         * Phân loại đối tượng chuẩn xác cho tài khoản người dùng:
+         * - "QNCN": Quân nhân chuyên nghiệp
+         * - "SQ": Sĩ quan / Cán bộ
+         * - "HSQ_CS": Hạ sĩ quan - Binh sĩ / Chiến sĩ
+         * - "HV": Học viên
+         * - "CNVQP": Công nhân viên quốc phòng
+         */
+        fun getUserAudienceCategory(user: UserDoc): String {
+            val targetStr = user.targetAudience.trim().lowercase()
+            val roleStr = user.role.trim().lowercase()
+            val rankStr = user.rank.trim().lowercase()
+            val combined = "$targetStr $roleStr $rankStr"
+
+            // 1. Ưu tiên kiểm tra QNCN trước (vì quân hàm có thể là "Thiếu úy QNCN", "Trung úy QNCN"...)
+            if (targetStr.contains("qncn") || targetStr.contains("quân nhân chuyên nghiệp") || targetStr.contains("chuyen nghiep") || targetStr == "đối tượng 2" || targetStr == "đt2" ||
+                roleStr.contains("qncn") || roleStr.contains("quân nhân chuyên nghiệp") ||
+                rankStr.contains("qncn") || rankStr.contains("chuyên nghiệp") || rankStr.contains("chuyen nghiep")) {
+                return "QNCN"
+            }
+
+            // 2. Kiểm tra SQ (Sĩ quan / Cán bộ / Đối tượng 1) - Tuyệt đối không chứa QNCN
+            if (targetStr.contains("sĩ quan") || targetStr.contains("si quan") || targetStr == "sq" || targetStr.contains("cán bộ") || targetStr.contains("can bo") || targetStr == "đối tượng 1" || targetStr == "đt1" ||
+                roleStr.contains("sĩ quan") || roleStr.contains("si quan") || roleStr == "sq" || roleStr.contains("cán bộ") ||
+                listOf("thiếu úy", "trung úy", "thượng úy", "đại úy", "thiếu tá", "trung tá", "thượng tá", "đại tá", "chuẩn đô đốc", "phó đô đốc", "đô đốc", "tướng").any { rankStr.contains(it) }) {
+                return "SQ"
+            }
+
+            // 3. Kiểm tra Hạ sĩ quan - Binh sĩ / Chiến sĩ (Đối tượng 3)
+            if (targetStr.contains("hạ sĩ quan") || targetStr.contains("ha si quan") || targetStr.contains("binh sĩ") || targetStr.contains("binh si") ||
+                targetStr.contains("chiến sĩ") || targetStr.contains("chien si") || targetStr.contains("hsq") || targetStr == "đối tượng 3" || targetStr == "đt3" ||
+                roleStr.contains("hạ sĩ quan") || roleStr.contains("chiến sĩ") || roleStr.contains("binh sĩ") ||
+                listOf("binh nhì", "binh nhất", "hạ sĩ", "trung sĩ", "thượng sĩ").any { rankStr.contains(it) }) {
+                return "HSQ_CS"
+            }
+
+            // 4. Kiểm tra Học viên (Đối tượng 4)
+            if (targetStr.contains("học viên") || targetStr.contains("hoc vien") || targetStr.contains("sinh viên") || targetStr == "hv" || targetStr == "đối tượng 4" || targetStr == "đt4" ||
+                roleStr.contains("học viên") || roleStr.contains("sinh viên") || roleStr == "hv") {
+                return "HV"
+            }
+
+            // 5. Kiểm tra Công nhân viên quốc phòng
+            if (targetStr.contains("công nhân") || targetStr.contains("cong nhan") || targetStr.contains("cnvqp") || targetStr.contains("cnqp") ||
+                roleStr.contains("công nhân") || roleStr.contains("cnvqp") || roleStr.contains("cnqp")) {
+                return "CNVQP"
+            }
+
+            // Mặc định dựa trên targetAudience nếu có giá trị riêng
+            if (targetStr.isNotBlank()) return targetStr.uppercase()
+            return "OTHER"
+        }
+
+        /**
+         * So khớp loại đối tượng yêu cầu của đề thi với nhóm đối tượng của tài khoản
+         */
+        private fun matchAudienceCategory(target: String, userCategory: String, user: UserDoc): Boolean {
+            val t = target.trim().lowercase()
+
+            // Áp dụng cho tất cả
+            if (t == "all" || t == "tất cả" || t == "tat ca" || t == "toàn quân" || t == "toàn đơn vị" || t == "mọi đối tượng" || t == "*") {
+                return true
+            }
+
+            // Nếu đợt thi áp dụng cho cả SQ và QNCN
+            if (t.contains("sq") && t.contains("qncn")) {
+                return userCategory == "SQ" || userCategory == "QNCN"
+            }
+
+            // Đợt thi dành riêng cho SQ (Sĩ quan)
+            val isTargetSQ = (t == "sq" || t.contains("sĩ quan") || t.contains("si quan") || t.contains("cán bộ") || t.contains("can bo") || t.contains("đối tượng 1") || t.contains("đt1")) && !t.contains("qncn")
+            if (isTargetSQ) {
+                return userCategory == "SQ"
+            }
+
+            // Đợt thi dành riêng cho QNCN (Quân nhân chuyên nghiệp)
+            val isTargetQNCN = t == "qncn" || t.contains("quân nhân chuyên nghiệp") || t.contains("quan nhan chuyen nghiep") || t.contains("chuyen nghiep") || t.contains("đối tượng 2") || t.contains("đt2")
+            if (isTargetQNCN) {
+                return userCategory == "QNCN"
+            }
+
+            // Đợt thi dành cho Hạ sĩ quan - Chiến sĩ
+            val isTargetHSQCS = t.contains("hạ sĩ quan") || t.contains("ha si quan") || t.contains("binh sĩ") || t.contains("binh si") ||
+                    t.contains("chiến sĩ") || t.contains("chien si") || t.contains("hsq") || t.contains("đối tượng 3") || t.contains("đt3")
+            if (isTargetHSQCS) {
+                return userCategory == "HSQ_CS"
+            }
+
+            // Đợt thi dành cho Học viên
+            val isTargetHV = t.contains("học viên") || t.contains("hoc vien") || t.contains("sinh viên") || t == "hv" || t.contains("đối tượng 4") || t.contains("đt4")
+            if (isTargetHV) {
+                return userCategory == "HV"
+            }
+
+            // Đợt thi dành cho CNVQP
+            val isTargetCNQP = t.contains("công nhân") || t.contains("cong nhan") || t.contains("cnvqp") || t.contains("cnqp")
+            if (isTargetCNQP) {
+                return userCategory == "CNVQP"
+            }
+
+            // So khớp trực tiếp chuỗi nếu là đối tượng tùy biến
+            val userRawAudience = user.targetAudience.trim().lowercase()
+            val userRole = user.role.trim().lowercase()
+            if (userRawAudience.isNotBlank() && (t == userRawAudience || t.contains(userRawAudience) || userRawAudience.contains(t))) {
+                return true
+            }
+            if (userRole.isNotBlank() && (t == userRole || t.contains(userRole) || userRole.contains(t))) {
+                return true
+            }
+
+            return false
+        }
+
+        private fun removeAccents(input: String): String {
+            val normalized = java.text.Normalizer.normalize(input, java.text.Normalizer.Form.NFD)
+            return normalized.replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "").replace("đ", "d").replace("Đ", "D")
+        }
+
         fun fromDoc(doc: DocumentSnapshot): ExamSessionDoc {
             val rawStatus = doc.getString("status") ?: doc.getString("trangThai") ?: "open"
             val isOpenBool = doc.getBoolean("isOpen") ?: doc.getBoolean("dangMo") ?: true
@@ -673,6 +875,75 @@ data class ExamSessionDoc(
             val totalQ = parseNumber(doc.get("totalQuestions") ?: doc.get("soCauHoi") ?: doc.get("tongSoCau") ?: doc.get("soLuongCauHoi"), if (embeddedQList.isNotEmpty()) embeddedQList.size.toLong() else 20L).toInt()
             val maxAtt = parseNumber(doc.get("maxAttempts") ?: doc.get("soLuotThi") ?: doc.get("soLanThi") ?: doc.get("limitAttempts") ?: doc.get("soLuotKiemTra") ?: doc.get("soLan") ?: doc.get("luotThi"), 1L).toInt()
 
+            // 1. Phân giải danh sách Loại Đối Tượng dự thi (targetGroup / targetGroups / targetAudience / ...)
+            val rawAudience = doc.get("targetGroup")
+                ?: doc.get("targetGroups")
+                ?: doc.get("targetAudience")
+                ?: doc.get("targetAudiences")
+                ?: doc.get("doiTuong")
+                ?: doc.get("doiTuongThi")
+                ?: doc.get("loaiDoiTuong")
+                ?: doc.get("doiTuongs")
+                ?: doc.get("nhomDoiTuong")
+                ?: doc.get("audience")
+                ?: doc.get("audiences")
+                ?: doc.get("participants")
+                ?: doc.get("roles")
+                ?: doc.get("applicableRoles")
+                ?: doc.get("targetUsers")
+                ?: doc.get("userTypes")
+
+            val audienceList: List<String> = when (rawAudience) {
+                is List<*> -> rawAudience.mapNotNull { it?.toString()?.trim() }.filter { it.isNotBlank() }
+                is String -> {
+                    if (rawAudience.isBlank()) emptyList()
+                    else rawAudience.split(",", ";", "/").map { it.trim() }.filter { it.isNotBlank() }
+                }
+                else -> emptyList()
+            }
+
+            // 2. Phân giải danh sách Đơn Vị được phép dự thi (targetUnits / donVi)
+            val rawUnits = doc.get("targetUnits")
+                ?: doc.get("allowedUnits")
+                ?: doc.get("units")
+                ?: doc.get("donVi")
+                ?: doc.get("donViThi")
+
+            val unitList: List<String> = when (rawUnits) {
+                is List<*> -> rawUnits.mapNotNull { it?.toString()?.trim() }.filter { it.isNotBlank() }
+                is String -> {
+                    if (rawUnits.isBlank()) emptyList()
+                    else rawUnits.split(",", ";").map { it.trim() }.filter { it.isNotBlank() }
+                }
+                else -> emptyList()
+            }
+
+            val isAllAudience = audienceList.isEmpty() || audienceList.any {
+                val a = it.trim().lowercase()
+                a == "all" || a == "tất cả" || a == "tat ca" || a == "toàn quân" || a == "toan quan" ||
+                        a == "toàn đơn vị" || a == "toan don vi" || a == "mọi đối tượng" || a == "*" ||
+                        (a.contains("sq") && a.contains("qncn"))
+            }
+
+            val audienceDisplay = if (isAllAudience) {
+                "SQ, QNCN"
+            } else {
+                audienceList.joinToString(", ") { item ->
+                    val norm = item.trim()
+                    if (norm.equals("all", ignoreCase = true) || norm.equals("tất cả", ignoreCase = true)) {
+                        "SQ, QNCN"
+                    } else {
+                        norm
+                    }
+                }
+            }
+
+            val effectiveAudienceList = if (isAllAudience) {
+                listOf("ALL", "SQ", "QNCN", "Tất cả")
+            } else {
+                audienceList
+            }
+
             return ExamSessionDoc(
                 id = doc.id,
                 title = cleanHtml(doc.getString("title") ?: doc.getString("tenDotThi") ?: doc.getString("tieuDe") ?: "Đợt kiểm tra trực tuyến"),
@@ -695,7 +966,10 @@ data class ExamSessionDoc(
                         ?: doc.get("startTime")
                         ?: doc.get("thoiGianBatDau")
                 ),
-                maxAttempts = if (maxAtt > 0) maxAtt else 1
+                maxAttempts = if (maxAtt > 0) maxAtt else 1,
+                targetAudience = effectiveAudienceList,
+                targetAudienceText = audienceDisplay,
+                targetUnits = unitList
             )
         }
     }

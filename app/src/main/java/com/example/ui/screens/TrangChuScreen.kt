@@ -34,6 +34,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
 import com.example.model.BannerItem
 import com.example.model.Course
 import com.example.model.Lesson
@@ -160,14 +161,50 @@ fun TrangChuScreen(
                     ) {
                         val hasCustomAvatar = !userDoc?.avatarUrl.isNullOrBlank()
                         if (hasCustomAvatar) {
-                            AsyncImage(
-                                model = userDoc?.avatarUrl,
+                            val avatarModel = remember(userDoc?.avatarUrl) {
+                                val url = userDoc?.avatarUrl ?: ""
+                                if (url.startsWith("/")) java.io.File(url) else url
+                            }
+                            SubcomposeAsyncImage(
+                                model = avatarModel,
                                 contentDescription = "Ảnh đại diện người dùng",
                                 modifier = Modifier
                                     .size(42.dp)
                                     .clip(CircleShape)
                                     .border(1.5.dp, GoldPrimary, CircleShape),
-                                contentScale = ContentScale.Crop
+                                contentScale = ContentScale.Crop,
+                                error = {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(42.dp)
+                                            .clip(CircleShape)
+                                            .background(RedPrimary),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Star,
+                                            contentDescription = null,
+                                            tint = GoldPrimary,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                    }
+                                },
+                                loading = {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(42.dp)
+                                            .clip(CircleShape)
+                                            .background(RedPrimary),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Star,
+                                            contentDescription = null,
+                                            tint = GoldPrimary,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                    }
+                                }
                             )
                         } else {
                             Box(

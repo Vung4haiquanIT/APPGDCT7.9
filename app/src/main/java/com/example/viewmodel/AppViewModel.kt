@@ -224,6 +224,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 .putString("user_unit", user.unit)
                 .putString("user_rank", user.rank)
                 .putString("user_phone", user.phone)
+                .putString("user_target_audience", user.targetAudience)
                 .putString("user_avatar", user.avatarUrl)
                 .putString("user_avatar_${user.id}", user.avatarUrl)
                 .apply()
@@ -263,6 +264,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     unit = prefs.getString("user_unit", "Vùng 4 Hải Quân") ?: "Vùng 4 Hải Quân",
                     rank = prefs.getString("user_rank", "") ?: "",
                     phone = prefs.getString("user_phone", "") ?: "",
+                    targetAudience = prefs.getString("user_target_audience", "")?.ifEmpty {
+                        prefs.getString("user_role", "Học viên")
+                    } ?: "Học viên",
                     avatarUrl = localAvatar
                 )
                 _userDoc.value = restored
@@ -437,6 +441,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                                 ?: snapshot.getString("avatar")
                                 ?: snapshot.getString("avatarBase64")
                                 ?: snapshot.getString("photoUrl")
+                                ?: snapshot.getString("photoURL")
+                                ?: snapshot.getString("anhDaiDien")
+                                ?: snapshot.getString("hinhDaiDien")
                                 ?: ""
                             if (remoteAvatar.isNotBlank()) {
                                 val current = _userDoc.value
@@ -467,6 +474,21 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                             if (!remoteSession.isNullOrBlank() && localSessionId.isNotBlank() && remoteSession != localSessionId) {
                                 val otherDevice = snapshot.getString("lastDeviceId") ?: "thiết bị khác"
                                 forceKickOutDueToOtherDeviceLogin(otherDevice)
+                            } else {
+                                val remoteAvatar = snapshot.getString("avatarUrl")
+                                    ?: snapshot.getString("avatar")
+                                    ?: snapshot.getString("avatarBase64")
+                                    ?: snapshot.getString("photoUrl")
+                                    ?: snapshot.getString("photoURL")
+                                    ?: snapshot.getString("anhDaiDien")
+                                    ?: ""
+                                if (remoteAvatar.isNotBlank()) {
+                                    val current = _userDoc.value
+                                    val resolved = resolveAndCacheAvatar(userId, remoteAvatar)
+                                    if (current != null && resolved.isNotBlank() && current.avatarUrl != resolved) {
+                                        _userDoc.value = current.copy(avatarUrl = resolved)
+                                    }
+                                }
                             }
                         }
                     }
@@ -542,27 +564,48 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val avatarDir = java.io.File(context.filesDir, "avatars")
         if (!avatarDir.exists()) avatarDir.mkdirs()
         val targetFile = java.io.File(avatarDir, "avatar_${userId}.jpg")
+        val prefs = context.getSharedPreferences("vung4_auth_prefs", Context.MODE_PRIVATE)
 
         if (rawAvatar.isBlank()) {
-            return if (targetFile.exists()) targetFile.absolutePath else ""
+            if (targetFile.exists() && targetFile.length() > 0) return targetFile.absolutePath
+            val cachedBase64 = prefs.getString("user_avatar_base64_${userId}", "") ?: ""
+            if (cachedBase64.isNotBlank()) {
+                return resolveAndCacheAvatar(userId, cachedBase64)
+            }
+            return ""
         }
 
-        // Trường hợp 1: Dữ liệu ảnh là chuỗi Base64
-        if (rawAvatar.startsWith("data:image/") || (rawAvatar.length > 150 && !rawAvatar.startsWith("http") && !rawAvatar.startsWith("/"))) {
+        val trimmed = rawAvatar.trim()
+
+        // Trường hợp 1: URL Internet / Web Admin (http:// hoặc https://)
+        if (trimmed.startsWith("http://", ignoreCase = true) || trimmed.startsWith("https://", ignoreCase = true)) {
+            return trimmed
+        }
+
+        // Trường hợp 2: Dữ liệu ảnh là chuỗi Base64 (data:image/..., JPEG /9j/..., PNG iVBOR..., hoặc chuỗi base64 dài)
+        val isExplicitBase64 = trimmed.startsWith("data:image/", ignoreCase = true) ||
+                trimmed.startsWith("/9j/") ||
+                trimmed.startsWith("iVBOR") ||
+                trimmed.startsWith("R0lGOD")
+        val isLikelyBase64 = isExplicitBase64 || (trimmed.length > 80 && !trimmed.startsWith("file://") && !trimmed.endsWith(".jpg") && !trimmed.endsWith(".png") && !trimmed.endsWith(".webp"))
+
+        if (isLikelyBase64) {
             try {
-                val base64Content = if (rawAvatar.contains(",")) {
-                    rawAvatar.substringAfter(",")
+                val base64Content = if (trimmed.contains(",")) {
+                    trimmed.substringAfter(",")
                 } else {
-                    rawAvatar
+                    trimmed
                 }
-                val imageBytes = Base64.decode(base64Content.trim(), Base64.DEFAULT)
+                val cleaned = base64Content.replace("\n", "").replace("\r", "").replace(" ", "").trim()
+                val imageBytes = Base64.decode(cleaned, Base64.DEFAULT)
                 if (imageBytes != null && imageBytes.isNotEmpty()) {
                     targetFile.writeBytes(imageBytes)
-                    val prefs = context.getSharedPreferences("vung4_auth_prefs", Context.MODE_PRIVATE)
                     prefs.edit()
                         .putString("user_avatar_${userId}", targetFile.absolutePath)
                         .putString("user_avatar", targetFile.absolutePath)
+                        .putString("user_avatar_base64_${userId}", "data:image/jpeg;base64,$cleaned")
                         .apply()
+                    Log.i(TAG, "[AVATAR] Giải mã thành công avatar Base64 (${imageBytes.size} bytes) cho user: $userId")
                     return targetFile.absolutePath
                 }
             } catch (e: Exception) {
@@ -570,25 +613,24 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        // Trường hợp 2: URL Internet / Web Admin (http:// hoặc https://)
-        if (rawAvatar.startsWith("http://") || rawAvatar.startsWith("https://")) {
-            return rawAvatar
-        }
-
-        // Trường hợp 3: Đường dẫn file cục bộ (có thể từ thiết bị này hoặc thiết bị khác)
-        if (rawAvatar.startsWith("/")) {
-            val file = java.io.File(rawAvatar)
-            if (file.exists()) {
-                return rawAvatar
-            } else if (targetFile.exists()) {
-                // File từ máy khác không có, nhưng máy này đã có cache file chuẩn
+        // Trường hợp 3: Đường dẫn file cục bộ
+        if (trimmed.startsWith("/") || trimmed.startsWith("file://")) {
+            val cleanPath = if (trimmed.startsWith("file://")) trimmed.removePrefix("file://") else trimmed
+            val file = java.io.File(cleanPath)
+            if (file.exists() && file.length() > 0) {
+                return file.absolutePath
+            } else if (targetFile.exists() && targetFile.length() > 0) {
                 return targetFile.absolutePath
             } else {
+                val cachedBase64 = prefs.getString("user_avatar_base64_${userId}", "") ?: ""
+                if (cachedBase64.isNotBlank()) {
+                    return resolveAndCacheAvatar(userId, cachedBase64)
+                }
                 return ""
             }
         }
 
-        return rawAvatar
+        return if (targetFile.exists() && targetFile.length() > 0) targetFile.absolutePath else ""
     }
 
     /**
@@ -723,10 +765,38 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                             "avatarUrl" to base64Data,
                             "avatar" to base64Data,
                             "avatarBase64" to base64Data,
+                            "photoUrl" to base64Data,
+                            "photoURL" to base64Data,
+                            "anhDaiDien" to base64Data,
+                            "hinhDaiDien" to base64Data,
                             "updatedAt" to System.currentTimeMillis()
                         )
                         db.collection("users").document(current.id)
                             .set(updates, SetOptions.merge()).await()
+                        try {
+                            db.collection("accounts").document(current.id)
+                                .set(updates, SetOptions.merge())
+                        } catch (_: Exception) {}
+
+                        // Đồng bộ thêm nếu tài khoản có email
+                        if (current.email.isNotBlank()) {
+                            try {
+                                val userMatches = db.collection("users").whereEqualTo("email", current.email).get().await()
+                                for (doc in userMatches.documents) {
+                                    if (doc.id != current.id) {
+                                        doc.reference.set(updates, SetOptions.merge())
+                                    }
+                                }
+                            } catch (_: Exception) {}
+                            try {
+                                val accMatches = db.collection("accounts").whereEqualTo("email", current.email).get().await()
+                                for (doc in accMatches.documents) {
+                                    if (doc.id != current.id) {
+                                        doc.reference.set(updates, SetOptions.merge())
+                                    }
+                                }
+                            } catch (_: Exception) {}
+                        }
                         Log.i(TAG, "[AVATAR] Đã đồng bộ ảnh đại diện Base64 lên Firestore cho tài khoản ${current.id}")
                     } catch (dbEx: Exception) {
                         Log.w(TAG, "[AVATAR FIRESTORE SYNC] Lỗi đồng bộ: ${dbEx.localizedMessage}")
@@ -2040,18 +2110,44 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                             }
 
                             // Giải mã và đồng bộ ảnh đại diện (nếu tài khoản đã đổi ảnh trên máy khác)
-                            val rawAvatar = docToCheck.getString("avatarUrl")
+                            var rawAvatar = docToCheck.getString("avatarUrl")
                                 ?: docToCheck.getString("avatar")
                                 ?: docToCheck.getString("avatarBase64")
                                 ?: docToCheck.getString("photoUrl")
+                                ?: docToCheck.getString("photoURL")
+                                ?: docToCheck.getString("avatar_url")
+                                ?: docToCheck.getString("imageUrl")
+                                ?: docToCheck.getString("image")
+                                ?: docToCheck.getString("anhDaiDien")
+                                ?: docToCheck.getString("anh_dai_dien")
+                                ?: docToCheck.getString("hinhDaiDien")
+                                ?: docToCheck.getString("picture")
+                                ?: docToCheck.getString("userAvatar")
                                 ?: ""
+
+                            // Nếu chưa thấy avatar trên doc hiện tại, kiểm tra doc trong users/accounts hoặc theo email
+                            if (rawAvatar.isBlank() && db != null) {
+                                try {
+                                    val uDoc = db.collection("users").document(matchedDoc.id).get().await()
+                                    if (uDoc.exists()) {
+                                        rawAvatar = uDoc.getString("avatarUrl")
+                                            ?: uDoc.getString("avatar")
+                                            ?: uDoc.getString("avatarBase64")
+                                            ?: uDoc.getString("photoUrl")
+                                            ?: uDoc.getString("photoURL")
+                                            ?: uDoc.getString("anhDaiDien")
+                                            ?: ""
+                                    }
+                                } catch (_: Exception) {}
+                            }
+
                             val resolvedAvatar = resolveAndCacheAvatar(matchedDoc.id, rawAvatar)
 
                             val userDocObj = UserDoc.fromDoc(docToCheck)
                             val finalUserDoc = if (resolvedAvatar.isNotBlank()) {
                                 userDocObj.copy(avatarUrl = resolvedAvatar)
                             } else {
-                                userDocObj
+                                userDocObj.copy(avatarUrl = "")
                             }
                             _userDoc.value = finalUserDoc
                             _userDocStatus.value = "CONNECTED (${finalUserDoc.name})"
@@ -2374,6 +2470,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 "userRank" to userRank,
                 "rank" to userRank,
                 "capBac" to userRank,
+                "targetGroup" to (user?.targetAudience ?: ""),
+                "userTargetGroup" to (user?.targetAudience ?: ""),
+                "targetAudience" to (user?.targetAudience ?: ""),
+                "doiTuong" to (user?.targetAudience ?: ""),
                 "examId" to examId,
                 "dotThiId" to examId,
                 "examSessionId" to examId,

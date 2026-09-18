@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
 import com.example.model.ExamResultDoc
 import com.example.ui.components.LoginDialog
 import com.example.ui.components.ChangePasswordDialog
@@ -157,13 +158,37 @@ fun CaNhanScreen(
                             ) {
                                 val hasCustomAvatar = !userDoc?.avatarUrl.isNullOrEmpty()
                                 if (hasCustomAvatar) {
-                                    AsyncImage(
-                                        model = userDoc?.avatarUrl,
+                                    val avatarModel = remember(userDoc?.avatarUrl) {
+                                        val url = userDoc?.avatarUrl ?: ""
+                                        if (url.startsWith("/")) java.io.File(url) else url
+                                    }
+                                    SubcomposeAsyncImage(
+                                        model = avatarModel,
                                         contentDescription = "Ảnh đại diện cá nhân",
                                         modifier = Modifier
                                             .fillMaxSize()
                                             .clip(CircleShape),
-                                        contentScale = ContentScale.Crop
+                                        contentScale = ContentScale.Crop,
+                                        error = {
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .padding(6.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Vung4LogoBadge(size = 76.dp)
+                                            }
+                                        },
+                                        loading = {
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .padding(6.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Vung4LogoBadge(size = 76.dp)
+                                            }
+                                        }
                                     )
                                 } else {
                                     Box(
