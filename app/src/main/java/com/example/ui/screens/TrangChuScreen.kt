@@ -279,12 +279,12 @@ fun TrangChuScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            // Poster & Banner Ngang Tự Động Chuyển Động (Tối đa 5 poster)
+            // Poster & Banner Ngang Tự Động Chuyển Động (Khóa cứng tỉ lệ 16:9, hiển thị trọn vẹn 100% ảnh)
             item {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(185.dp)
+                        .aspectRatio(16f / 9f)
                 ) {
                     HorizontalPager(
                         state = pagerState,
@@ -302,17 +302,21 @@ fun TrangChuScreen(
                                         }
                                     }
                                 },
-                            shape = RoundedCornerShape(20.dp),
-                            colors = CardDefaults.cardColors(containerColor = RedPrimary)
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A1A))
                         ) {
-                            Box(modifier = Modifier.fillMaxSize()) {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
                                 if (currentBanner.imageUrl.isNotBlank()) {
-                                    // Poster dạng hình ảnh đăng tải từ Web Quản trị: Chỉ hiển thị ảnh, không đè chữ lên poster
+                                    // Poster dạng hình ảnh đăng tải từ Web Quản trị: Khóa chuẩn 16:9, hiển thị trọn vẹn không bị cắt
                                     AsyncImage(
                                         model = currentBanner.imageUrl,
                                         contentDescription = currentBanner.title.ifEmpty { "Poster tuyên truyền" },
                                         modifier = Modifier.fillMaxSize(),
-                                        contentScale = ContentScale.Crop
+                                        contentScale = ContentScale.Fit,
+                                        alignment = Alignment.Center
                                     )
                                 } else {
                                     // Poster khẩu hiệu chính trị quân sự Vùng 4 (Gradient & Huy hiệu)
