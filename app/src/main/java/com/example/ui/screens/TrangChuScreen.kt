@@ -509,9 +509,9 @@ fun TrangChuScreen(
                         UtilityEntry("GDCT", Icons.Default.Book, "gdct", RedPrimary),
                         UtilityEntry("GDPL", Icons.Default.Balance, "gdpl", NavySecondary),
                         UtilityEntry("TỦ SÁCH\nPHÁP LUẬT", Icons.Default.AutoStories, "tu_sach_phap_luat", Color(0xFF00695C)),
-                        UtilityEntry("KIỂM TRA", Icons.AutoMirrored.Filled.Assignment, "kiem_tra", Color(0xFFE65100)),
-                        UtilityEntry("LỊCH SỬ\nTRUYỀN THỐNG", Icons.Default.AccountBalance, "lich_su", Color(0xFF6A1B9A)),
                         UtilityEntry("BIỂN ĐẢO\nVIỆT NAM", Icons.Default.Map, "bien_dao", Color(0xFF0277BD)),
+                        UtilityEntry("LỊCH SỬ\nTRUYỀN THỐNG", Icons.Default.AccountBalance, "lich_su", Color(0xFF6A1B9A)),
+                        UtilityEntry("KIỂM TRA", Icons.AutoMirrored.Filled.Assignment, "kiem_tra", Color(0xFFE65100)),
                         UtilityEntry("TÀI LIỆU\nĐÃ LƯU", Icons.Default.FolderSpecial, "tai_lieu_da_luu", Color(0xFF2E7D32), badge = savedDocsCount),
                         UtilityEntry("TRUYỀN THANH\nNỘI BỘ", Icons.Default.Radio, "truyen_thanh", Color(0xFF00838F))
                     )
@@ -919,21 +919,12 @@ fun TrangChuScreen(
                                                     modifier = Modifier.weight(1f, fill = false)
                                                 )
 
-                                                if (progress?.scorePercentage != null) {
-                                                    Text(
-                                                        text = "${progress.scorePercentage}%",
-                                                        fontSize = 11.sp,
-                                                        fontWeight = FontWeight.Bold,
-                                                        color = if (progress.scorePercentage >= 70) Color(0xFF2E7D32) else Color(0xFFE65100)
-                                                    )
-                                                } else {
-                                                    Icon(
-                                                        imageVector = Icons.Default.PlayArrow,
-                                                        contentDescription = null,
-                                                        tint = RedPrimary,
-                                                        modifier = Modifier.size(16.dp)
-                                                    )
-                                                }
+                                                Icon(
+                                                    imageVector = Icons.Default.PlayArrow,
+                                                    contentDescription = null,
+                                                    tint = RedPrimary,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
                                             }
                                         }
                                     }

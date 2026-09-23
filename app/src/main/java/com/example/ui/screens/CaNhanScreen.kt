@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.example.BuildConfig
 import coil.compose.AsyncImage
 import coil.compose.SubcomposeAsyncImage
 import com.example.model.ExamResultDoc
@@ -581,16 +582,24 @@ fun CaNhanScreen(
                                         shape = RoundedCornerShape(12.dp),
                                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
                                     ) {
-                                        Row(
+                                        val isOfficial = res.isOfficialExam(examSessions)
+                                        val examScore10 = if (res.totalQuestions > 0) (res.score.toDouble() * 10.0 / res.totalQuestions.toDouble()) else (res.scorePercentage.toDouble() / 10.0)
+                                        val examScoreStr = String.format(Locale.US, "%.2f", examScore10)
+
+                                        Column(
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .padding(12.dp),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
+                                            verticalArrangement = Arrangement.spacedBy(8.dp)
                                         ) {
-                                            val isOfficial = res.isOfficialExam(examSessions)
-                                            Column(modifier = Modifier.weight(1f)) {
+                                            // Hàng 1: Phân loại + Tên bài thi (tràn rộng) và Số câu
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
                                                 Row(
+                                                    modifier = Modifier.weight(1f, fill = false),
                                                     verticalAlignment = Alignment.CenterVertically,
                                                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                                                 ) {
@@ -609,26 +618,33 @@ fun CaNhanScreen(
                                                     Text(
                                                         text = res.examName.ifEmpty { "Bài thi kiểm tra trắc nghiệm" },
                                                         fontWeight = FontWeight.Bold,
-                                                        fontSize = 13.sp,
+                                                        fontSize = 13.5.sp,
                                                         color = MaterialTheme.colorScheme.onSurface,
                                                         maxLines = 1,
                                                         overflow = TextOverflow.Ellipsis
                                                     )
                                                 }
-                                                Spacer(modifier = Modifier.height(3.dp))
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text(
+                                                    text = "${res.score}/${res.totalQuestions} câu",
+                                                    fontSize = 11.5.sp,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+
+                                            // Hàng 2: Thời gian nộp (trái) và Phần báo đạt/chưa đạt (phải) - Cùng hàng
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
                                                 Text(
                                                     text = "Thời gian nộp: ${dateFormat.format(Date(res.timestamp))}",
                                                     fontSize = 11.sp,
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                                 )
-                                            }
 
-                                            Spacer(modifier = Modifier.width(8.dp))
-
-                                            val examScore10 = if (res.totalQuestions > 0) (res.score.toDouble() * 10.0 / res.totalQuestions.toDouble()) else (res.scorePercentage.toDouble() / 10.0)
-                                            val examScoreStr = String.format(Locale.US, "%.2f", examScore10)
-
-                                            Column(horizontalAlignment = Alignment.End) {
                                                 Surface(
                                                     shape = RoundedCornerShape(8.dp),
                                                     color = if (isPassed) Color(0xFFE8F5E9) else RedPrimary.copy(alpha = 0.12f)
@@ -641,13 +657,6 @@ fun CaNhanScreen(
                                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                                                     )
                                                 }
-                                                Spacer(modifier = Modifier.height(2.dp))
-                                                Text(
-                                                    text = "${res.score}/${res.totalQuestions} câu",
-                                                    fontSize = 11.sp,
-                                                    fontWeight = FontWeight.SemiBold,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                )
                                             }
                                         }
                                     }
@@ -826,7 +835,7 @@ fun CaNhanScreen(
                         )
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                         Text(text = "Ứng dụng được phát triển trong khuôn khổ Sáng kiến “Ứng dụng phần mềm phục vụ công tác giáo dục chính trị tại Vùng 4 Hải quân”, theo Quyết định số 3871/QĐ-BTL ngày 10/8/2026 của Bộ Tư lệnh Vùng 4 Hải quân.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 18.sp)
-                        Text(text = "Phiên bản: 1.0.0", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(text = "Phiên bản: ${BuildConfig.VERSION_NAME}", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
@@ -1148,15 +1157,23 @@ fun CaNhanScreen(
                                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                                 elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
                             ) {
-                                Row(
+                                val examScore10 = if (res.totalQuestions > 0) (res.score.toDouble() * 10.0 / res.totalQuestions.toDouble()) else (res.scorePercentage.toDouble() / 10.0)
+                                val examScoreStr = String.format(Locale.US, "%.2f", examScore10)
+
+                                Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .padding(14.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    Column(modifier = Modifier.weight(1f)) {
+                                    // Hàng 1: Phân loại + Tên bài thi (tràn rộng) và Số câu
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
                                         Row(
+                                            modifier = Modifier.weight(1f, fill = false),
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
@@ -1181,7 +1198,21 @@ fun CaNhanScreen(
                                                 overflow = TextOverflow.Ellipsis
                                             )
                                         }
-                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = "${res.score}/${res.totalQuestions} câu",
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+
+                                    // Hàng 2: Thời gian nộp (trái) và Phần báo đạt/chưa đạt (phải) - Cùng hàng
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -1198,14 +1229,7 @@ fun CaNhanScreen(
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
                                         }
-                                    }
 
-                                    Spacer(modifier = Modifier.width(10.dp))
-
-                                    val examScore10 = if (res.totalQuestions > 0) (res.score.toDouble() * 10.0 / res.totalQuestions.toDouble()) else (res.scorePercentage.toDouble() / 10.0)
-                                    val examScoreStr = String.format(Locale.US, "%.2f", examScore10)
-
-                                    Column(horizontalAlignment = Alignment.End) {
                                         Surface(
                                             shape = RoundedCornerShape(8.dp),
                                             color = if (isPassed) Color(0xFFE8F5E9) else RedPrimary.copy(alpha = 0.12f)
@@ -1215,16 +1239,9 @@ fun CaNhanScreen(
                                                 fontSize = 11.sp,
                                                 fontWeight = FontWeight.Bold,
                                                 color = if (isPassed) Color(0xFF2E7D32) else RedPrimary,
-                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                                             )
                                         }
-                                        Spacer(modifier = Modifier.height(3.dp))
-                                        Text(
-                                            text = "${res.score}/${res.totalQuestions} câu",
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
                                     }
                                 }
                             }

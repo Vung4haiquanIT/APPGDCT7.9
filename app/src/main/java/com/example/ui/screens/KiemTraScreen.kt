@@ -79,9 +79,13 @@ fun KiemTraScreen(
 
     var currentMode by remember { mutableStateOf(ExamMode.OVERVIEW) }
     
-    // Thông báo trạng thái làm bài thi và xem kết quả thi cho MainScreen để ẩn BottomBar
+    // Thông báo trạng thái làm bài thi, xem kết quả và ngân hàng câu hỏi ôn tập cho MainScreen để ẩn BottomBar
     LaunchedEffect(currentMode) {
-        onExamTakingStateChange?.invoke(currentMode == ExamMode.TAKING_EXAM || currentMode == ExamMode.EXAM_RESULT)
+        onExamTakingStateChange?.invoke(
+            currentMode == ExamMode.TAKING_EXAM ||
+            currentMode == ExamMode.EXAM_RESULT ||
+            currentMode == ExamMode.QUESTION_BANK
+        )
     }
 
     DisposableEffect(Unit) {
@@ -1419,25 +1423,13 @@ private fun ExamSessionCard(
                                 }
                             }
                             Column {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Text(
-                                        text = "KẾT QUẢ CAO NHẤT",
-                                        fontSize = 10.5.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        letterSpacing = 0.5.sp
-                                    )
-                                    if (attempts.size > 1) {
-                                        Text(
-                                            text = "• ${attempts.size} lượt thi",
-                                            fontSize = 10.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
-                                        )
-                                    }
-                                }
+                                Text(
+                                    text = "KẾT QUẢ CAO NHẤT",
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    letterSpacing = 0.5.sp
+                                )
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
                                     text = "$bestScore/$bestTotal câu ($bestScoreStr điểm)",
