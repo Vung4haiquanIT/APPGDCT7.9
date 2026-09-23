@@ -23,6 +23,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -303,14 +304,30 @@ fun TrangChuScreen(
                                     }
                                 },
                             shape = RoundedCornerShape(16.dp),
-                            colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A1A))
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFFF0F0F0))
                         ) {
                             Box(
                                 modifier = Modifier.fillMaxSize(),
                                 contentAlignment = Alignment.Center
                             ) {
                                 if (currentBanner.imageUrl.isNotBlank()) {
-                                    // Poster dạng hình ảnh đăng tải từ Web Quản trị: Khóa chuẩn 16:9, hiển thị trọn vẹn không bị cắt
+                                    // 1. Lớp nền mờ đồng màu (Blurred Ambient Background) lấy từ chính ảnh:
+                                    // Giúp lấp đầy khung 16:9 hoàn toàn tự nhiên, xóa sạch 100% vệt đen 2 bên
+                                    AsyncImage(
+                                        model = currentBanner.imageUrl,
+                                        contentDescription = null,
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .blur(22.dp),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                    // Lớp phủ nhẹ tăng độ sâu và làm dịu nền
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(Color.Black.copy(alpha = 0.08f))
+                                    )
+                                    // 2. Lớp ảnh chính: Giữ nguyên vẹn 100% chi tiết, không bị cắt xén bất kỳ pixel nào
                                     AsyncImage(
                                         model = currentBanner.imageUrl,
                                         contentDescription = currentBanner.title.ifEmpty { "Poster tuyên truyền" },
