@@ -28,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -39,6 +40,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import coil.compose.AsyncImage
 import com.example.model.Lesson
 import com.example.model.NotificationItem
 import com.example.ui.components.Vung4LogoBadge
@@ -163,7 +165,7 @@ fun ThongBaoScreen(
         when (selectedFilter) {
             NotificationFilter.ALL -> notifications
             NotificationFilter.REMINDER -> notifications.filter { it.type == "reminder" }
-            NotificationFilter.ADMIN -> notifications.filter { it.type == "admin" }
+            NotificationFilter.ADMIN -> notifications.filter { it.type != "reminder" }
             NotificationFilter.UNREAD -> notifications.filter { !it.isRead }
         }
     }
@@ -327,7 +329,7 @@ fun ThongBaoScreen(
                         val count = when (filter) {
                             NotificationFilter.ALL -> notifications.size
                             NotificationFilter.REMINDER -> notifications.count { it.type == "reminder" }
-                            NotificationFilter.ADMIN -> notifications.count { it.type == "admin" }
+                            NotificationFilter.ADMIN -> notifications.count { it.type != "reminder" }
                             NotificationFilter.UNREAD -> unreadCount
                         }
 
@@ -433,9 +435,14 @@ fun NotificationCard(
 ) {
     val isReminder = item.type == "reminder"
     val isUrgent = item.priority == "urgent" || item.priority == "high"
+    val isPersonalOrFeedback = !item.targetUserId.isNullOrBlank() ||
+            item.targetUserIds.isNotEmpty() ||
+            !item.targetUserName.isNullOrBlank() ||
+            item.type in listOf("feedback", "reply", "phan_hoi", "user_feedback", "personal")
 
     val headerColor = when {
         isUrgent -> RedPrimary
+        isPersonalOrFeedback -> Color(0xFF0284C7) // Sky blue for feedback reply
         isReminder -> Color(0xFFE65100) // Dark Orange
         else -> NavyPrimary
     }
@@ -443,18 +450,25 @@ fun NotificationCard(
     val iconVector = when {
         isReminder -> Icons.Default.MenuBook
         isUrgent -> Icons.Default.Campaign
+        isPersonalOrFeedback -> Icons.Default.Feedback
         else -> Icons.Default.Announcement
     }
 
     val categoryLabel = when {
         isReminder -> "TIẾN ĐỘ HỌC TẬP"
         isUrgent -> "CHỈ ĐẠO KHẨN - WEB ADMIN"
+        isPersonalOrFeedback -> {
+            if (!item.targetUserName.isNullOrBlank()) {
+                "PHẢN HỒI RIÊNG (${item.targetUserName})"
+            } else {
+                "PHẢN HỒI TỪ WEB QUẢN TRỊ"
+            }
+        }
         else -> "THÔNG BÁO TỪ BỘ TƯ LỆNH"
     }
 
     val dateStr = remember(item.timestamp) {
-        val sdf = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
-        sdf.format(Date(item.timestamp))
+        com.example.util.TimeUtils.formatDateTime(item.timestamp)
     }
 
     Card(
@@ -539,6 +553,31 @@ fun NotificationCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     lineHeight = 18.sp
                 )
+            }
+
+            // ATTACHED IMAGES PREVIEW
+            val displayImages = if (item.images.isNotEmpty()) item.images else listOfNotNull(item.imageUrl)
+            if (displayImages.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(displayImages) { imgUrl ->
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier.size(width = 100.dp, height = 75.dp)
+                        ) {
+                            AsyncImage(
+                                model = imgUrl,
+                                contentDescription = "Hình ảnh đính kèm",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                    }
+                }
             }
 
             // ACTION BUTTON FOR REMINDERS

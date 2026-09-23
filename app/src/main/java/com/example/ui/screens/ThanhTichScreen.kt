@@ -264,8 +264,7 @@ fun ThanhTichScreen(
                 items(progressList) { progress ->
                     val lessonTitle = lessons.find { it.id == progress.lessonId }?.title ?: progress.lessonId
                     val dateFormatted = try {
-                        val sdf = SimpleDateFormat("HH:mm - dd/MM/yyyy", Locale.getDefault())
-                        sdf.format(Date(progress.updatedAt))
+                        com.example.util.TimeUtils.formatTimeAndDate(progress.updatedAt)
                     } catch (e: Exception) { "" }
 
                     Card(

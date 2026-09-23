@@ -180,6 +180,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         restoreLocalUserSession()
         loadRecentLessons()
         checkConnectionAndStartRealtime()
+
+        // Tự động cập nhật và phân loại thông báo theo tài khoản đăng nhập khi trạng thái phiên đăng nhập thay đổi
+        viewModelScope.launch {
+            _userDoc.collect {
+                updateCombinedNotifications()
+            }
+        }
+        viewModelScope.launch {
+            _currentUser.collect {
+                updateCombinedNotifications()
+            }
+        }
     }
 
     private fun loadRecentLessons() {
@@ -2226,7 +2238,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private fun getReadNotificationIds(): Set<String> {
         return try {
             val prefs = getApplication<Application>().getSharedPreferences("vung4_notif_prefs", Context.MODE_PRIVATE)
-            prefs.getStringSet("read_ids", emptySet()) ?: emptySet()
+            val uid = _userDoc.value?.id?.takeIf { it.isNotBlank() } ?: _currentUser.value?.uid?.takeIf { it.isNotBlank() } ?: "guest"
+            val userSpecificSet = prefs.getStringSet("read_ids_$uid", null)
+            if (userSpecificSet != null) {
+                userSpecificSet
+            } else {
+                prefs.getStringSet("read_ids", emptySet()) ?: emptySet()
+            }
         } catch (e: Exception) {
             emptySet()
         }
@@ -2235,9 +2253,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun markNotificationAsRead(id: String) {
         try {
             val prefs = getApplication<Application>().getSharedPreferences("vung4_notif_prefs", Context.MODE_PRIVATE)
-            val current = prefs.getStringSet("read_ids", emptySet())?.toMutableSet() ?: mutableSetOf()
+            val uid = _userDoc.value?.id?.takeIf { it.isNotBlank() } ?: _currentUser.value?.uid?.takeIf { it.isNotBlank() } ?: "guest"
+            val key = "read_ids_$uid"
+            val current = (prefs.getStringSet(key, null) ?: prefs.getStringSet("read_ids", emptySet()))?.toMutableSet() ?: mutableSetOf()
             current.add(id)
-            prefs.edit().putStringSet("read_ids", current).apply()
+            prefs.edit().putStringSet(key, current).apply()
             updateCombinedNotifications()
         } catch (e: Exception) {
             Log.e(TAG, "[NOTIF READ ERROR] ${e.localizedMessage}")
@@ -2247,8 +2267,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun markAllNotificationsAsRead() {
         try {
             val prefs = getApplication<Application>().getSharedPreferences("vung4_notif_prefs", Context.MODE_PRIVATE)
+            val uid = _userDoc.value?.id?.takeIf { it.isNotBlank() } ?: _currentUser.value?.uid?.takeIf { it.isNotBlank() } ?: "guest"
+            val key = "read_ids_$uid"
             val allIds = _notifications.value.map { it.id }.toSet()
-            prefs.edit().putStringSet("read_ids", allIds).apply()
+            prefs.edit().putStringSet(key, allIds).apply()
             updateCombinedNotifications()
         } catch (e: Exception) {
             Log.e(TAG, "[NOTIF READ ALL ERROR] ${e.localizedMessage}")
@@ -2281,8 +2303,107 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Kiểm tra xem thông báo hoặc phản hồi từ Web Quản trị có hợp lệ để hiển thị cho tài khoản hiện tại hay không.
+     * Quy tắc bảo mật phân quyền cá nhân:
+     * - Nếu thông báo là thông báo phát sóng chung (không có targetUserId hoặc targetUserId = "all") -> Hiển thị cho mọi người.
+     * - Nếu thông báo có chỉ định targetUserId / targetUserIds / targetEmail / targetUserName -> CHỈ tài khoản người nhận mới nhìn thấy.
+     *   Các tài khoản khác hoặc máy chưa đăng nhập (khách) TUYỆT ĐỐI KHÔNG nhìn thấy.
+     */
+    fun isNotificationForCurrentUser(
+        notif: NotificationItem,
+        currentUserId: String,
+        currentUserEmail: String,
+        currentUserName: String,
+        currentUserTargetGroup: String,
+        isLoggedIn: Boolean
+    ): Boolean {
+        val notifTargetId = notif.targetUserId?.trim()
+        val notifTargetIds = notif.targetUserIds.map { it.trim() }.filter { it.isNotBlank() }
+        val notifTargetEmail = notif.targetEmail?.trim()
+        val notifTargetName = notif.targetUserName?.trim()
+
+        val hasTargetUser = !notifTargetId.isNullOrBlank() ||
+                notifTargetIds.isNotEmpty() ||
+                !notifTargetEmail.isNullOrBlank() ||
+                !notifTargetName.isNullOrBlank()
+
+        if (hasTargetUser) {
+            // 1. Kiểm tra cờ phát sóng chung toàn đơn vị ("all", "tat_ca", "all_users", "*")
+            val isBroadcast = (notifTargetId != null && notifTargetId.lowercase() in listOf("all", "all_users", "tat_ca", "tất cả", "*", "public")) ||
+                    notifTargetIds.any { it.lowercase() in listOf("all", "all_users", "tat_ca", "tất cả", "*", "public") }
+
+            if (isBroadcast) {
+                return true
+            }
+
+            // 2. Nếu thông báo có chỉ định người nhận cụ thể mà máy chưa đăng nhập (khách) -> Ẩn đi
+            if (!isLoggedIn) {
+                return false
+            }
+
+            // 3. So khớp ID tài khoản (targetUserId hoặc nằm trong danh sách targetUserIds)
+            val matchId = currentUserId.isNotBlank() && (
+                (notifTargetId != null && (
+                    notifTargetId.equals(currentUserId, ignoreCase = true) ||
+                    notifTargetId == currentUserId
+                )) ||
+                notifTargetIds.any { it.equals(currentUserId, ignoreCase = true) }
+            )
+
+            // 4. So khớp Email tài khoản (nếu web dùng Email làm định danh người nhận)
+            val matchEmail = currentUserEmail.isNotBlank() && (
+                (notifTargetEmail != null && notifTargetEmail.equals(currentUserEmail, ignoreCase = true)) ||
+                (notifTargetId != null && notifTargetId.equals(currentUserEmail, ignoreCase = true)) ||
+                notifTargetIds.any { it.equals(currentUserEmail, ignoreCase = true) }
+            )
+
+            // 5. So khớp Họ tên tài khoản (nếu web gửi phản hồi theo tên quân nhân)
+            val matchName = currentUserName.isNotBlank() && (
+                (notifTargetName != null && (
+                    notifTargetName.equals(currentUserName, ignoreCase = true) ||
+                    notifTargetName.contains(currentUserName, ignoreCase = true) ||
+                    currentUserName.contains(notifTargetName, ignoreCase = true)
+                )) ||
+                (notifTargetId != null && (
+                    notifTargetId.equals(currentUserName, ignoreCase = true) ||
+                    currentUserName.contains(notifTargetId, ignoreCase = true)
+                )) ||
+                notifTargetIds.any { it.equals(currentUserName, ignoreCase = true) }
+            )
+
+            // Nếu thông báo có chỉ định targetUserId mà khác với tài khoản đang đăng nhập thì ẩn đi
+            if (!matchId && !matchEmail && !matchName) {
+                return false // Bỏ qua, chỉ tài khoản nhận mới nhìn thấy
+            }
+        }
+
+        // 6. Kiểm tra nhóm đối tượng (targetGroup nếu có phân loại theo Sĩ quan, QNCN, HSQ-BS...)
+        val notifGroup = notif.targetGroup?.trim()
+        if (!notifGroup.isNullOrBlank() &&
+            notifGroup.lowercase() !in listOf("all", "tat_ca", "tất cả", "*", "chung")) {
+            if (isLoggedIn && currentUserTargetGroup.isNotBlank()) {
+                val matchesGroup = notifGroup.contains(currentUserTargetGroup, ignoreCase = true) ||
+                        currentUserTargetGroup.contains(notifGroup, ignoreCase = true)
+                if (!matchesGroup) {
+                    return false
+                }
+            }
+        }
+
+        return true
+    }
+
     fun updateCombinedNotifications() {
-        val adminList = _firestoreNotifications.value.ifEmpty {
+        val user = _userDoc.value
+        val currentFbUser = _currentUser.value
+        val currentUserId = (user?.id ?: currentFbUser?.uid ?: "").trim()
+        val currentUserEmail = (user?.email?.ifEmpty { currentFbUser?.email ?: "" } ?: "").trim()
+        val currentUserName = (user?.name?.ifEmpty { currentFbUser?.displayName ?: "" } ?: "").trim()
+        val currentUserTargetGroup = (user?.targetGroup?.ifBlank { user.targetAudience } ?: "").trim()
+        val isLoggedIn = currentUserId.isNotBlank() && currentUserId != "guest"
+
+        val rawAdminList = _firestoreNotifications.value.ifEmpty {
             listOf(
                 NotificationItem(
                     id = "admin_notif_1",
@@ -2300,6 +2421,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     priority = "normal",
                     timestamp = System.currentTimeMillis() - 3600000L * 24
                 )
+            )
+        }
+
+        // Áp dụng bộ lọc bảo mật: Chỉ tài khoản được nhận mới nhìn thấy thông báo/phản hồi riêng
+        val adminList = rawAdminList.filter { notif ->
+            isNotificationForCurrentUser(
+                notif = notif,
+                currentUserId = currentUserId,
+                currentUserEmail = currentUserEmail,
+                currentUserName = currentUserName,
+                currentUserTargetGroup = currentUserTargetGroup,
+                isLoggedIn = isLoggedIn
             )
         }
 
@@ -2636,20 +2769,28 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private var isSendingFeedback = false
+
     fun sendUserFeedback(
         title: String,
         feedbackContent: String,
         feedbackType: String = "Góp ý chung",
+        imageUris: List<android.net.Uri> = emptyList(),
         onSuccess: () -> Unit,
         onError: (String) -> Unit
     ) {
-        viewModelScope.launch {
+        if (isSendingFeedback) return
+        isSendingFeedback = true
+
+        viewModelScope.launch(Dispatchers.IO) {
             try {
                 val user = _userDoc.value
                 val currentFbUser = _currentUser.value
                 val isAuth = currentFbUser != null || (user != null && !user.id.isNullOrBlank())
                 if (!isAuth) {
-                    onError("Bạn cần đăng nhập để thực hiện gửi phản hồi và góp ý.")
+                    withContext(Dispatchers.Main) {
+                        onError("Bạn cần đăng nhập để thực hiện gửi phản hồi và góp ý.")
+                    }
                     return@launch
                 }
 
@@ -2659,6 +2800,42 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 val userUnit = user?.unit?.ifEmpty { "Vùng 4 Hải Quân" } ?: "Vùng 4 Hải Quân"
                 val userRank = user?.rank ?: ""
                 val timestamp = System.currentTimeMillis()
+
+                // Xử lý nén các hình ảnh đính kèm sang Base64
+                val context = getApplication<Application>()
+                val base64Images = mutableListOf<String>()
+                for (uri in imageUris) {
+                    try {
+                        val inputStream = context.contentResolver.openInputStream(uri)
+                        val originalBitmap = BitmapFactory.decodeStream(inputStream)
+                        inputStream?.close()
+
+                        if (originalBitmap != null) {
+                            val maxDim = 1024
+                            val width = originalBitmap.width
+                            val height = originalBitmap.height
+                            val scaledBitmap = if (width > maxDim || height > maxDim) {
+                                val ratio = width.toFloat() / height.toFloat()
+                                val (newW, newH) = if (ratio > 1) {
+                                    maxDim to (maxDim / ratio).toInt()
+                                } else {
+                                    (maxDim * ratio).toInt() to maxDim
+                                }
+                                Bitmap.createScaledBitmap(originalBitmap, newW.coerceAtLeast(1), newH.coerceAtLeast(1), true)
+                            } else {
+                                originalBitmap
+                            }
+
+                            val baos = ByteArrayOutputStream()
+                            scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 75, baos)
+                            val bytes = baos.toByteArray()
+                            val base64 = "data:image/jpeg;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
+                            base64Images.add(base64)
+                        }
+                    } catch (ex: Exception) {
+                        Log.e(TAG, "[FEEDBACK IMAGE ERROR] Failed to process image uri: $uri", ex)
+                    }
+                }
 
                 val data = hashMapOf<String, Any>(
                     "userId" to uid,
@@ -2672,17 +2849,32 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     "type" to feedbackType,
                     "timestamp" to timestamp,
                     "createdAt" to timestamp,
-                    "status" to "pending"
+                    "status" to "pending",
+                    "images" to base64Images,
+                    "imageUrls" to base64Images,
+                    "attachedImages" to base64Images,
+                    "hinhAnh" to base64Images,
+                    "danhSachHinhAnh" to base64Images,
+                    "imageUrl" to (base64Images.firstOrNull() ?: ""),
+                    "image" to (base64Images.firstOrNull() ?: ""),
+                    "hasAttachment" to base64Images.isNotEmpty(),
+                    "attachmentCount" to base64Images.size
                 )
 
                 if (db != null) {
+                    // Chỉ lưu vào collection feedbacks để tránh nhân đôi bản ghi trên Web Quản trị
                     db.collection("feedbacks").add(data).await()
-                    db.collection("user_feedbacks").add(data).await()
-                    db.collection("gop_y").add(data).await()
                 }
-                onSuccess()
+
+                withContext(Dispatchers.Main) {
+                    onSuccess()
+                }
             } catch (e: Exception) {
-                onError(e.localizedMessage ?: "Lỗi kết nối máy chủ")
+                withContext(Dispatchers.Main) {
+                    onError(e.localizedMessage ?: "Lỗi kết nối máy chủ")
+                }
+            } finally {
+                isSendingFeedback = false
             }
         }
     }

@@ -7,6 +7,8 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -37,6 +39,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import com.example.model.ExamResultDoc
 import com.example.model.ExamSessionDoc
 import com.example.model.QuestionItem
@@ -46,7 +51,6 @@ import com.example.ui.theme.RedPrimary
 import com.example.ui.theme.NavySecondary
 import com.example.viewmodel.AppViewModel
 import kotlinx.coroutines.delay
-import java.util.Locale
 
 enum class ExamMode {
     OVERVIEW,       // Màn hình chọn chế độ
@@ -889,75 +893,21 @@ private fun ExamOverviewView(
                     .padding(top = 4.dp, bottom = 2.dp)
             ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.Assignment,
-                            contentDescription = null,
-                            tint = RedPrimary,
-                            modifier = Modifier.size(22.dp)
-                        )
-                        Text(
-                            text = "DANH SÁCH BÀI KIỂM TRA",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp,
-                            color = RedPrimary
-                        )
-                    }
-
-                    if (displaySessions.isNotEmpty()) {
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = RedPrimary.copy(alpha = 0.1f)
-                        ) {
-                            Text(
-                                text = "${displaySessions.size} đợt thi",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = RedPrimary,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                            )
-                        }
-                    }
-                }
-
-                // Hiển thị loại đối tượng của tài khoản đang đăng nhập
-                if (isAuthenticated && userDoc != null) {
-                    val rawAudience = userDoc.targetGroup.ifBlank { userDoc.targetAudience.ifBlank { userDoc.role } }
-                    val userAudience = ExamSessionDoc.formatAudienceDisplay(rawAudience)
-                    if (userAudience.isNotBlank()) {
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = RedPrimary.copy(alpha = 0.08f),
-                            border = BorderStroke(1.dp, RedPrimary.copy(alpha = 0.2f))
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.FilterList,
-                                    contentDescription = null,
-                                    tint = RedPrimary,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Text(
-                                    text = "Đợt thi dành cho: $userAudience",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = RedPrimary
-                                )
-                            }
-                        }
-                    }
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.Assignment,
+                        contentDescription = null,
+                        tint = RedPrimary,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Text(
+                        text = "DANH SÁCH BÀI KIỂM TRA",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        color = RedPrimary
+                    )
                 }
             }
         }
@@ -1085,9 +1035,7 @@ private fun ExamOverviewView(
         // Chế độ 1: Làm đề thi 20 câu ngẫu nhiên
         item {
             Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onStartExam() },
+                modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                 elevation = CardDefaults.cardElevation(3.dp)
@@ -1178,9 +1126,7 @@ private fun ExamOverviewView(
         if (isAuthenticated) {
             item {
                 Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onOpenQuestionBank() },
+                    modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                     elevation = CardDefaults.cardElevation(3.dp)
@@ -1327,7 +1273,10 @@ private fun ExamSessionCard(
 ) {
     val isOpen = session.status.equals("open", ignoreCase = true) || session.status.equals("active", ignoreCase = true)
     val attempts = if (isAuthenticated) {
-        userExamResults.filter { it.examId == session.id || it.examName.equals(session.title, ignoreCase = true) }
+        userExamResults.filter { 
+            (it.examId.isNotBlank() && it.examId == session.id) || 
+            it.examName.trim().equals(session.title.trim(), ignoreCase = true) 
+        }
     } else {
         emptyList()
     }
@@ -1336,11 +1285,43 @@ private fun ExamSessionCard(
     } else {
         false
     }
+    val remainingAttempts = if (session.maxAttempts > 0) {
+        maxOf(0, session.maxAttempts - attempts.size)
+    } else {
+        -1
+    }
+
+    var showAttemptHistoryDialog by remember { mutableStateOf(false) }
+
+    // Tìm kết quả cao nhất trong các lượt thi đã làm
+    val bestAttempt = remember(attempts) {
+        if (attempts.isEmpty()) null
+        else {
+            attempts.maxWithOrNull(
+                compareBy<ExamResultDoc> {
+                    if (it.totalQuestions > 0) (it.score.toDouble() * 10.0 / it.totalQuestions.toDouble())
+                    else (it.scorePercentage.toDouble() / 10.0)
+                }.thenBy { it.score }
+                 .thenByDescending { it.timestamp }
+            )
+        }
+    }
+
+    val bestScore = bestAttempt?.score ?: 0
+    val bestTotal = if ((bestAttempt?.totalQuestions ?: 0) > 0) bestAttempt!!.totalQuestions else session.totalQuestions
+    val bestScore10 = if (bestTotal > 0) (bestScore.toDouble() * 10.0 / bestTotal.toDouble()) else ((bestAttempt?.scorePercentage ?: 0).toDouble() / 10.0)
+    val bestScoreStr = String.format(java.util.Locale.US, "%.1f", bestScore10)
+    val isBestPassed = (bestAttempt?.passed == true) || bestScore10 >= 5.0
+    val bestRatingText = when {
+        bestScore10 >= 9.0 -> "Xuất sắc"
+        bestScore10 >= 8.0 -> "Giỏi"
+        bestScore10 >= 6.5 -> "Khá"
+        bestScore10 >= 5.0 -> "Đạt"
+        else -> "Chưa đạt"
+    }
 
     Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .then(if (isOpen && !hasCompleted) Modifier.clickable { onStartSessionExam(session) } else Modifier),
+        modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(4.dp),
@@ -1357,69 +1338,203 @@ private fun ExamSessionCard(
                 .fillMaxWidth()
                 .padding(18.dp)
         ) {
+            Text(
+                text = session.title,
+                fontWeight = FontWeight.Bold,
+                fontSize = 15.sp,
+                color = MaterialTheme.colorScheme.onSurface,
+                lineHeight = 20.sp
+            )
+
+            val rawAudience = session.targetAudienceText.ifBlank { session.targetGroupText }
+            val audienceText = ExamSessionDoc.formatAudienceDisplay(rawAudience)
+
+            Spacer(modifier = Modifier.height(8.dp))
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.weight(1f)) {
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = NavySecondary.copy(alpha = 0.08f),
+                    border = BorderStroke(0.5.dp, NavySecondary.copy(alpha = 0.25f))
+                ) {
                     Text(
-                        text = session.title,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        lineHeight = 20.sp
+                        text = "🎯 Đối tượng: $audienceText",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = NavySecondary,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                     )
-                    val audienceText = ExamSessionDoc.formatAudienceDisplay(session.targetAudienceText.ifBlank { session.targetGroupText })
-                    if (audienceText.isNotBlank()) {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = NavySecondary.copy(alpha = 0.08f),
-                            border = BorderStroke(0.5.dp, NavySecondary.copy(alpha = 0.25f))
+                }
+
+                if (isAuthenticated && session.maxAttempts > 0) {
+                    Text(
+                        text = if (hasCompleted || remainingAttempts <= 0) "Hết lượt thi" else "Còn $remainingAttempts lượt",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (hasCompleted || remainingAttempts <= 0) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            // HIỂN THỊ KẾT QUẢ CAO NHẤT NẾU ĐÃ THI
+            if (bestAttempt != null) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (isBestPassed) Color(0xFFE8F5E9) else Color(0xFFFFEBEE),
+                    border = BorderStroke(1.dp, if (isBestPassed) Color(0xFFA5D6A7) else Color(0xFFFFCDD2)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable { showAttemptHistoryDialog = true }
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 9.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.weight(1f)
                         ) {
-                            Text(
-                                text = "🎯 Đối tượng: $audienceText",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = NavySecondary,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            Surface(
+                                shape = CircleShape,
+                                color = if (isBestPassed) Color(0xFF2E7D32) else RedPrimary,
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.EmojiEvents,
+                                        contentDescription = "Kết quả cao nhất",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                            Column {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text(
+                                        text = "KẾT QUẢ CAO NHẤT",
+                                        fontSize = 10.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        letterSpacing = 0.5.sp
+                                    )
+                                    if (attempts.size > 1) {
+                                        Text(
+                                            text = "• ${attempts.size} lượt thi",
+                                            fontSize = 10.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = "$bestScore/$bestTotal câu ($bestScoreStr điểm)",
+                                    fontSize = 13.5.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = if (isBestPassed) Color(0xFF1B5E20) else RedPrimary
+                                )
+                            }
+                        }
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = if (isBestPassed) Color(0xFF2E7D32) else RedPrimary
+                            ) {
+                                Text(
+                                    text = if (isBestPassed) "ĐẠT - ${bestRatingText.uppercase()}" else "CHƯA ĐẠT",
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White,
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                                )
+                            }
+                            Icon(
+                                imageVector = Icons.Default.ChevronRight,
+                                contentDescription = "Xem lịch sử bài thi",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                modifier = Modifier.size(18.dp)
                             )
                         }
                     }
                 }
+            }
 
-                Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
-                // Badge status
-                Column(horizontalAlignment = Alignment.End) {
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = if (hasCompleted) Color(0xFFE8F5E9) else if (isOpen) Color(0xFFE8F5E9) else MaterialTheme.colorScheme.surfaceVariant
+            // Hiển thị thời gian bắt đầu và kết thúc bài kiểm tra theo Múi giờ Việt Nam
+            val startTimeStr = remember(session.startTime) {
+                if (session.startTime > 0) com.example.util.TimeUtils.formatTimeAndDate(session.startTime) else null
+            }
+            val endTimeStr = remember(session.endTime) {
+                if (session.endTime > 0) com.example.util.TimeUtils.formatTimeAndDate(session.endTime) else null
+            }
+
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
+                        Icon(
+                            imageVector = Icons.Default.DateRange,
+                            contentDescription = null,
+                            tint = RedPrimary,
+                            modifier = Modifier.size(14.dp)
+                        )
                         Text(
-                            text = if (hasCompleted) "✅ HOÀN THÀNH BÀI THI" else if (isOpen) "🟢 ĐANG MỞ" else "🔒 CHƯA MỞ",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (hasCompleted) Color(0xFF2E7D32) else if (isOpen) Color(0xFF2E7D32) else Color.Gray,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            text = "Bắt đầu: ${startTimeStr ?: "Không quy định"}",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    if (isAuthenticated && session.maxAttempts > 0) {
-                        Spacer(modifier = Modifier.height(4.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.EventAvailable,
+                            contentDescription = null,
+                            tint = RedPrimary,
+                            modifier = Modifier.size(14.dp)
+                        )
                         Text(
-                            text = if (hasCompleted) "Đã hoàn thành (${attempts.size}/${session.maxAttempts} lượt)" else "Lượt thi: ${attempts.size}/${session.maxAttempts}",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = if (hasCompleted) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSurfaceVariant
+                            text = "Kết thúc: ${endTimeStr ?: "Không quy định"}",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1437,38 +1552,270 @@ private fun ExamSessionCard(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            Button(
-                onClick = { if (isOpen && !hasCompleted) onStartSessionExam(session) },
-                enabled = isOpen && !hasCompleted,
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (hasCompleted) Color(0xFF2E7D32)
-                                     else if (!isAuthenticated) RedPrimary.copy(alpha = 0.85f)
-                                     else RedPrimary,
-                    disabledContainerColor = if (hasCompleted) Color(0xFFE8F5E9) else MaterialTheme.colorScheme.surfaceVariant,
-                    disabledContentColor = if (hasCompleted) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSurfaceVariant
-                ),
-                shape = RoundedCornerShape(10.dp)
-            ) {
-                Icon(
-                    if (hasCompleted) Icons.Default.CheckCircle
-                    else if (!isAuthenticated) Icons.Default.Lock
-                    else Icons.Default.PlayArrow,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp),
-                    tint = if (hasCompleted) Color(0xFF2E7D32) else LocalContentColor.current
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = if (hasCompleted) "HOÀN THÀNH BÀI THI"
-                           else if (!isOpen) "ĐỢT THI CHƯA MỞ"
-                           else if (!isAuthenticated) "ĐĂNG NHẬP ĐỂ VÀO THI"
-                           else "VÀO LÀM BÀI THI NGAY",
-                    fontWeight = FontWeight.Bold,
-                    color = if (hasCompleted) Color(0xFF2E7D32) else Color.White
-                )
+            if (hasCompleted) {
+                // Khi đã làm hết số lượt: Bấm để mở hộp thoại xem kết quả các lượt thi
+                Button(
+                    onClick = { showAttemptHistoryDialog = true },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF2E7D32),
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Icon(
+                        Icons.Default.CheckCircle,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                        tint = Color.White
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "ĐÃ HOÀN THÀNH (BẤM XEM KẾT QUẢ)",
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
+            } else {
+                Button(
+                    onClick = { if (isOpen) onStartSessionExam(session) },
+                    enabled = isOpen,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (!isAuthenticated) RedPrimary.copy(alpha = 0.85f)
+                                         else RedPrimary,
+                        disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                    ),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Icon(
+                        if (!isAuthenticated) Icons.Default.Lock
+                        else Icons.Default.PlayArrow,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                        tint = LocalContentColor.current
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = if (!isOpen) "ĐỢT THI CHƯA MỞ"
+                               else if (!isAuthenticated) "ĐĂNG NHẬP ĐỂ VÀO THI"
+                               else if (attempts.isNotEmpty()) {
+                                   if (remainingAttempts > 0) "THI TIẾP (CÒN $remainingAttempts LƯỢT)"
+                                   else "THI TIẾP"
+                               } else {
+                                   if (remainingAttempts > 0) "VÀO LÀM BÀI THI NGAY (CÒN $remainingAttempts LƯỢT)"
+                                   else "VÀO LÀM BÀI THI NGAY"
+                               },
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
             }
         }
+    }
+
+    // HỘP THOẠI CHI TIẾT CÁC LƯỢT THI VÀ KẾT QUẢ CAO NHẤT
+    if (showAttemptHistoryDialog && attempts.isNotEmpty()) {
+        AlertDialog(
+            onDismissRequest = { showAttemptHistoryDialog = false },
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.EmojiEvents,
+                        contentDescription = null,
+                        tint = Color(0xFFF57F17),
+                        modifier = Modifier.size(26.dp)
+                    )
+                    Column {
+                        Text(
+                            text = "Kết quả thi của đồng chí",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = session.title,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = RedPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    // Tóm tắt kết quả cao nhất
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = if (isBestPassed) Color(0xFFE8F5E9) else Color(0xFFFFEBEE),
+                        border = BorderStroke(1.dp, if (isBestPassed) Color(0xFFA5D6A7) else Color(0xFFFFCDD2)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Star,
+                                        contentDescription = null,
+                                        tint = Color(0xFFF57F17),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Text(
+                                        text = "KẾT QUẢ CAO NHẤT",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isBestPassed) Color(0xFF1B5E20) else RedPrimary
+                                    )
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = if (isBestPassed) Color(0xFF2E7D32) else RedPrimary
+                                ) {
+                                    Text(
+                                        text = if (isBestPassed) "ĐẠT - ${bestRatingText.uppercase()}" else "CHƯA ĐẠT",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                            Text(
+                                text = "$bestScore/$bestTotal câu ($bestScoreStr điểm)",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Black,
+                                color = if (isBestPassed) Color(0xFF1B5E20) else RedPrimary
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+                    val remainingHeader = if (session.maxAttempts > 0) {
+                        if (remainingAttempts > 0) " - Còn $remainingAttempts lượt" else " - Đã hết lượt"
+                    } else ""
+                    Text(
+                        text = "Chi tiết các lượt đã thi (${attempts.size} lượt$remainingHeader):",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+
+                    val sortedAttempts = remember(attempts) {
+                        attempts.sortedByDescending { it.timestamp }
+                    }
+
+                    sortedAttempts.forEachIndexed { index, att ->
+                        val attScore10 = if (att.totalQuestions > 0) (att.score.toDouble() * 10.0 / att.totalQuestions.toDouble()) else (att.scorePercentage.toDouble() / 10.0)
+                        val attScoreStr = String.format(java.util.Locale.US, "%.1f", attScore10)
+                        val isAttPassed = att.passed || attScore10 >= 5.0
+                        val isCurrentBest = (att.id.isNotBlank() && att.id == bestAttempt?.id) || (att.timestamp == bestAttempt?.timestamp && att.score == bestAttempt?.score)
+                        val timeFormatted = remember(att.timestamp) {
+                            com.example.util.TimeUtils.formatDateTime(att.timestamp)
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isCurrentBest) Color(0xFFF1F8E9) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                            border = BorderStroke(
+                                if (isCurrentBest) 1.dp else 0.5.dp,
+                                if (isCurrentBest) Color(0xFF81C784) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Text(
+                                            text = "Lượt ${sortedAttempts.size - index}",
+                                            fontSize = 12.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        if (isCurrentBest) {
+                                            Surface(
+                                                shape = RoundedCornerShape(4.dp),
+                                                color = Color(0xFFFFF9C4),
+                                                border = BorderStroke(0.5.dp, Color(0xFFFBC02D))
+                                            ) {
+                                                Text(
+                                                    text = "★ Cao nhất",
+                                                    fontSize = 9.5.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color(0xFFE65100),
+                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "${att.score}/${if (att.totalQuestions > 0) att.totalQuestions else session.totalQuestions} câu • $attScoreStr điểm",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = if (isAttPassed) Color(0xFF2E7D32) else RedPrimary
+                                    )
+                                    if (timeFormatted.isNotBlank()) {
+                                        Text(
+                                            text = timeFormatted,
+                                            fontSize = 10.5.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = if (isAttPassed) Color(0xFF2E7D32) else RedPrimary
+                                ) {
+                                    Text(
+                                        text = if (isAttPassed) "ĐẠT" else "CHƯA ĐẠT",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showAttemptHistoryDialog = false }) {
+                    Text("Đóng", fontWeight = FontWeight.Bold, color = RedPrimary)
+                }
+            }
+        )
     }
 }
 
@@ -1858,8 +2205,9 @@ private fun ExamResultView(
                         textAlign = TextAlign.Center
                     )
                     Spacer(modifier = Modifier.height(8.dp))
+                    val score10 = if (total > 0) String.format(Locale.US, "%.1f", correctCount.toDouble() * 10.0 / total.toDouble()) else "0.0"
                     Text(
-                        text = "$correctCount / $total CÂU ĐÚNG ($percent%)",
+                        text = "$correctCount / $total CÂU ĐÚNG ($score10 ĐIỂM)",
                         fontWeight = FontWeight.Bold,
                         fontSize = 18.sp,
                         color = MaterialTheme.colorScheme.onSurface

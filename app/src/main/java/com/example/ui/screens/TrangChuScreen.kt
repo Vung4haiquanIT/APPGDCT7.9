@@ -5,6 +5,7 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -500,7 +501,7 @@ fun TrangChuScreen(
                         utilityRows.forEach { rowItems ->
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 rowItems.forEach { util ->
                                     Card(
@@ -525,13 +526,13 @@ fun TrangChuScreen(
                                             Column(
                                                 modifier = Modifier
                                                     .fillMaxSize()
-                                                    .padding(horizontal = 4.dp, vertical = 8.dp),
+                                                    .padding(horizontal = 2.dp, vertical = 6.dp),
                                                 horizontalAlignment = Alignment.CenterHorizontally,
                                                 verticalArrangement = Arrangement.Center
                                             ) {
                                                 Box(
                                                     modifier = Modifier
-                                                        .size(38.dp)
+                                                        .size(36.dp)
                                                         .clip(RoundedCornerShape(10.dp))
                                                         .background(util.color.copy(alpha = 0.12f)),
                                                     contentAlignment = Alignment.Center
@@ -540,25 +541,39 @@ fun TrangChuScreen(
                                                         imageVector = util.icon,
                                                         contentDescription = util.title.replace("\n", " "),
                                                         tint = util.color,
-                                                        modifier = Modifier.size(22.dp)
+                                                        modifier = Modifier.size(20.dp)
                                                     )
                                                 }
-                                                Spacer(modifier = Modifier.height(6.dp))
+                                                Spacer(modifier = Modifier.height(5.dp))
                                                 Box(
                                                     modifier = Modifier
                                                         .fillMaxWidth()
                                                         .height(30.dp),
                                                     contentAlignment = Alignment.Center
                                                 ) {
-                                                    Text(
-                                                        text = util.title,
-                                                        fontWeight = FontWeight.Bold,
-                                                        fontSize = 10.5.sp,
-                                                        lineHeight = 13.5.sp,
-                                                        maxLines = 2,
-                                                        textAlign = TextAlign.Center,
-                                                        color = MaterialTheme.colorScheme.onSurface
-                                                    )
+                                                    val lines = util.title.split("\n")
+                                                    Column(
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                                        verticalArrangement = Arrangement.Center
+                                                    ) {
+                                                        lines.forEach { line ->
+                                                            Text(
+                                                                text = line,
+                                                                fontWeight = FontWeight.Bold,
+                                                                fontSize = 10.5.sp,
+                                                                lineHeight = 13.5.sp,
+                                                                maxLines = 1,
+                                                                textAlign = TextAlign.Center,
+                                                                color = MaterialTheme.colorScheme.onSurface,
+                                                                modifier = Modifier.basicMarquee(
+                                                                    iterations = Int.MAX_VALUE,
+                                                                    initialDelayMillis = 1200,
+                                                                    repeatDelayMillis = 1000
+                                                                )
+                                                            )
+                                                        }
+                                                    }
                                                 }
                                             }
 

@@ -509,7 +509,5 @@ private fun formatFileSize(bytes: Long): String {
 }
 
 private fun formatSavedDate(millis: Long): String {
-    if (millis <= 0) return ""
-    val sdf = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
-    return sdf.format(Date(millis))
+    return com.example.util.TimeUtils.formatDate(millis)
 }

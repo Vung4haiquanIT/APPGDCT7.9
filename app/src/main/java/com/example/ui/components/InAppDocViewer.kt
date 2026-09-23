@@ -42,6 +42,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -586,19 +587,21 @@ fun isDocumentSavedToDevice(
     fileName: String = "",
     fileTitle: String = ""
 ): Boolean {
-    // 1. Kiểm tra SharedPreferences đã lưu tệp này trước đó
-    val downloadedKeys = getDownloadedFileKeys(context)
-    if (fileId.isNotBlank() && downloadedKeys.contains(fileId)) return true
-    if (fileUrl.isNotBlank() && downloadedKeys.contains(fileUrl)) return true
-    if (fileName.isNotBlank() && downloadedKeys.contains(fileName)) return true
-    if (fileTitle.isNotBlank() && downloadedKeys.contains(fileTitle)) return true
-
-    // 2. Kiểm tra bộ nhớ đệm offline nội bộ của ứng dụng
-    if (fileUrl.isNotBlank() && isDocumentCachedInApp(context, fileUrl, fileName)) {
-        return true
+    // 1. Kiểm tra bản ghi trong danh sách tài liệu đã lưu có tệp thực tế còn tồn tại trên máy
+    val savedRecords = getSavedDocumentRecords(context)
+    val hasValidRecord = savedRecords.any { rec ->
+        val matchKey = (fileId.isNotBlank() && rec.id == fileId) ||
+                (fileUrl.isNotBlank() && rec.fileUrl == fileUrl) ||
+                (fileName.isNotBlank() && rec.fileName.equals(fileName, ignoreCase = true)) ||
+                (fileTitle.isNotBlank() && rec.title.equals(fileTitle, ignoreCase = true))
+        if (matchKey && rec.localFilePath.isNotBlank()) {
+            val f = File(rec.localFilePath)
+            f.exists() && f.length() > 100
+        } else false
     }
+    if (hasValidRecord) return true
 
-    // 3. Kiểm tra tệp trong thư mục Downloads của thiết bị
+    // 2. Kiểm tra tệp thực sự tồn tại trong thư mục Downloads của thiết bị
     try {
         val stdName = getStandardFileName(fileTitle.ifBlank { fileName }, "", fileUrl)
         val cleanName = getStandardFileName(fileName, "", fileUrl)
@@ -684,7 +687,6 @@ suspend fun downloadFileToAppStorage(
                                 }
                             }
                             if (file.exists() && file.length() > 50) {
-                                markFileAsDownloaded(context, "", urlString, fileName)
                                 return@withContext Pair(file, null)
                             }
                         }
@@ -1203,26 +1205,178 @@ object DocxToHtmlConverter {
         return sw.toString()
     }
 
+    private fun isDocChar(c: Char): Boolean {
+        val code = c.code
+        if (c == '\r' || c == '\n' || c == '\t' || c == ' ') return true
+        if (code in 0x20..0x7E) return true
+        if (code in 0x00A0..0x024F) return true // Latin-1 Supplement, Latin Extended-A, Latin Extended-B
+        if (code in 0x0300..0x036F) return true // Combining Diacritical Marks (accents in decomposed Unicode)
+        if (code in 0x1EA0..0x1EF9) return true // Vietnamese vowels with precomposed diacritics
+        if (code in 0x2000..0x206F) return true // General Punctuation (quotes, dashes, ellipsis, spaces)
+        if (code in 0x20A0..0x20CF) return true // Currency symbols (₫)
+        return false
+    }
+
+    private fun isBinaryGarbage(text: String): Boolean {
+        if (text.contains("bjbj", ignoreCase = true)) return true
+        if (text.contains("Microsoft Word", ignoreCase = true) && text.length < 35) return true
+        if (text.contains("Word.Document", ignoreCase = true)) return true
+        if (text.contains("Normal.dotm", ignoreCase = true) || text.contains("Normal.dot", ignoreCase = true)) return true
+        val letterCount = text.count { it.isLetter() }
+        if (letterCount < 2) return true
+        if (letterCount.toDouble() / text.length < 0.35 && text.length > 10) return true
+        return false
+    }
+
+    private fun isHeaderBlock(s: String): Boolean {
+        val trimmed = s.trim()
+        return trimmed.startsWith("PHẦN", ignoreCase = true) ||
+               trimmed.startsWith("CHƯƠNG", ignoreCase = true) ||
+               trimmed.startsWith("MỤC", ignoreCase = true) ||
+               trimmed.startsWith("Điều ", ignoreCase = true) ||
+               trimmed.startsWith("Khoản ", ignoreCase = true) ||
+               trimmed.startsWith("Điểm ", ignoreCase = true) ||
+               trimmed.startsWith("Câu ", ignoreCase = true) ||
+               Regex("^\\d+(\\.\\d+)*\\.?\\s+").containsMatchIn(trimmed) ||
+               (trimmed == trimmed.uppercase() && trimmed.length < 100 && trimmed.any { it.isLetter() })
+    }
+
+    private fun mergeBrokenParagraphs(rawList: List<String>): List<String> {
+        val merged = mutableListOf<String>()
+        for (raw in rawList) {
+            val p = raw.trim()
+            if (p.isEmpty()) continue
+            if (merged.isEmpty()) {
+                merged.add(p)
+                continue
+            }
+
+            val lastIndex = merged.size - 1
+            val last = merged[lastIndex]
+            val lastChar = last.last()
+            val firstChar = p.first()
+
+            val isCurrHeader = isHeaderBlock(p) || p.startsWith("-") || p.startsWith("+") || p.startsWith("*") || p.startsWith("•")
+            val isLastHeader = isHeaderBlock(last) || last.startsWith("-") || last.startsWith("+") || last.startsWith("*") || last.startsWith("•")
+            val endsSentence = lastChar in ".!?:\"”'’"
+
+            var isContinuation = false
+            if (!isCurrHeader && !isLastHeader) {
+                if (firstChar.isLowerCase() || firstChar in ",;:.?!)]}”\"'’") {
+                    isContinuation = true
+                } else if (!endsSentence) {
+                    isContinuation = true
+                }
+            }
+
+            if (isContinuation) {
+                // Xử lý từ bị ngắt giữa chừng do Word chèn mã định dạng/thuộc tính ký tự
+                if (lastChar.isLetter() && firstChar.isLetter() && (p.length == 1 || (p.length > 1 && p[1] in " ,;:.?!)]}”\"'’"))) {
+                    merged[lastIndex] = last + p
+                } else if (lastChar.isLetter() && firstChar in ",;:.?!)]}”\"'’") {
+                    merged[lastIndex] = last + p
+                } else {
+                    merged[lastIndex] = "$last $p"
+                }
+            } else {
+                merged.add(p)
+            }
+        }
+        return merged
+    }
+
     private fun fallbackBinaryDocToHtml(file: File): String {
         return try {
             val bytes = file.readBytes()
-            val sb = StringBuilder()
-            val text = String(bytes, Charsets.UTF_8)
-            // Tìm các đoạn văn bản có ý nghĩa (bỏ qua byte nhị phân)
-            val lines = text.split("\r\n", "\n", "\r")
-                .map { it.replace(Regex("[^a-zA-Z0-9_\\-\\s\u00C0-\u024F\u1EA0-\u1EF9.,:;!?'\"()/%]"), " ").trim() }
-                .filter { it.length > 5 }
+            val rawParas = mutableListOf<String>()
 
-            if (lines.isNotEmpty()) {
-                lines.forEach { line ->
-                    sb.append("<p>").append(escapeHtml(line)).append("</p>\n")
+            // 1. Quét chuỗi ký tự UTF-16LE từ tệp Word nhị phân (.doc / OLE2)
+            var curr = StringBuilder()
+            var i = 0
+            val limit = bytes.size - 1
+            var nonDocCount = 0
+
+            while (i < limit) {
+                val b1 = bytes[i].toInt() and 0xFF
+                val b2 = bytes[i + 1].toInt() and 0xFF
+                val ch = (b1 or (b2 shl 8)).toChar()
+
+                if (isDocChar(ch)) {
+                    nonDocCount = 0
+                    if (ch == '\r' || ch == '\n' || ch == '\u0007' || ch == '\u000c') {
+                        val line = curr.toString().trim()
+                        if (line.length >= 2 && !isBinaryGarbage(line)) {
+                            rawParas.add(line)
+                        }
+                        curr = StringBuilder()
+                    } else {
+                        curr.append(ch)
+                    }
+                    i += 2
+                } else {
+                    nonDocCount++
+                    // Nếu chỉ là một vài byte mã định dạng ký tự (bold/italic/field), không ngắt đoạn văn
+                    if (nonDocCount > 6) {
+                        if (curr.isNotEmpty()) {
+                            val line = curr.toString().trim()
+                            if (line.length >= 2 && !isBinaryGarbage(line)) {
+                                rawParas.add(line)
+                            }
+                            curr = StringBuilder()
+                        }
+                    }
+                    i += 2
                 }
-            } else {
-                sb.append("<p>Tài liệu đã được tải về máy thành công. Định dạng tệp Word đặc biệt, vui lòng nhấn 'Tải về máy' để xem chi tiết đầy đủ.</p>")
             }
-            wrapHtmlDocument(sb.toString())
+            if (curr.isNotEmpty()) {
+                val line = curr.toString().trim()
+                if (line.length >= 2 && !isBinaryGarbage(line)) {
+                    rawParas.add(line)
+                }
+            }
+
+            // 2. Dự phòng UTF-8 nếu UTF-16LE không thu được nội dung
+            if (rawParas.isEmpty()) {
+                val utf8Text = String(bytes, Charsets.UTF_8)
+                val lines = utf8Text.split("\r\n", "\n", "\r")
+                for (l in lines) {
+                    val cleaned = l.replace(Regex("[^a-zA-Z0-9_\\-\\s\u00A0-\u024F\u0300-\u036F\u1EA0-\u1EF9.,:;!?'\"()/%]"), " ").trim()
+                    if (cleaned.length >= 4 && !isBinaryGarbage(cleaned)) {
+                        rawParas.add(cleaned)
+                    }
+                }
+            }
+
+            // 3. Nối các đoạn bị nhảy dòng / cắt chữ giữa chừng
+            val paras = mergeBrokenParagraphs(rawParas)
+
+            if (paras.isNotEmpty()) {
+                val sb = StringBuilder()
+                for (p in paras) {
+                    val escaped = escapeHtml(p)
+                    when {
+                        p.length < 120 && p == p.uppercase() && p.any { it.isLetter() } -> {
+                            sb.append("<h2 style='color: #b91c1c; font-size: 17px; font-weight: bold; margin-top: 18px; margin-bottom: 8px; line-height: 1.45;'>").append(escaped).append("</h2>\n")
+                        }
+                        p.startsWith("1.") || p.startsWith("2.") || p.startsWith("3.") || p.startsWith("4.") || p.startsWith("5.") ||
+                        p.startsWith("PHẦN", ignoreCase = true) || p.startsWith("CHƯƠNG", ignoreCase = true) ||
+                        p.startsWith("MỤC", ignoreCase = true) || p.startsWith("Câu ", ignoreCase = true) || p.startsWith("Điều ", ignoreCase = true) -> {
+                            sb.append("<h3 style='color: #1e3a8a; font-size: 15px; font-weight: 600; margin-top: 14px; margin-bottom: 6px; line-height: 1.4;'>").append(escaped).append("</h3>\n")
+                        }
+                        p.startsWith("-") || p.startsWith("+") || p.startsWith("*") || p.startsWith("•") -> {
+                            sb.append("<li style='margin-left: 18px; margin-bottom: 6px; font-size: 14.5px;'>").append(escaped.substring(1).trim()).append("</li>\n")
+                        }
+                        else -> {
+                            sb.append("<p style='margin-bottom: 10px; font-size: 14.5px; line-height: 1.65; text-align: justify;'>").append(escaped).append("</p>\n")
+                        }
+                    }
+                }
+                wrapHtmlDocument(sb.toString())
+            } else {
+                wrapHtmlDocument("<div style='text-align: center; padding: 32px;'><p>Đồng chí vui lòng chuyển sang <b>Trình xem Web</b> để xem nội dung tài liệu này.</p></div>")
+            }
         } catch (e: Exception) {
-            wrapHtmlDocument("<p>Đã lưu tài liệu vào bộ nhớ ứng dụng.</p>")
+            wrapHtmlDocument("<div style='text-align: center; padding: 24px;'><p>Không thể đọc tệp trong App. Vui lòng chuyển sang Trình xem Web.</p></div>")
         }
     }
 
@@ -1380,11 +1534,11 @@ fun InAppDocumentViewerDialog(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
-    var isLoading by remember { mutableStateOf(true) }
+    var isLoading by remember { mutableStateOf(false) }
     var localFile by remember { mutableStateOf<File?>(null) }
     var downloadError by remember { mutableStateOf<String?>(null) }
     var wordHtmlContent by remember { mutableStateOf("") }
-    var isWebViewMode by remember { mutableStateOf(false) } // Mặc định dùng chế độ đọc bộ nhớ đệm nội bộ (hoạt động khi Ngoại tuyến / Offline)
+    var isWebViewMode by remember { mutableStateOf(false) } // Mặc định mở bằng Trình xem App theo yêu cầu
 
     var isWebLoading by remember { mutableStateOf(true) }
     var webProgress by remember { mutableStateOf(0) }
@@ -1430,43 +1584,47 @@ fun InAppDocumentViewerDialog(
         }
     }
 
-    LaunchedEffect(fileUrl) {
+    fun prepareInAppDocument() {
+        if (localFile != null && localFile!!.exists()) return
         isLoading = true
         downloadError = null
-        if (!isSavedToDeviceInDialog) {
-            isSavedToDeviceInDialog = isDocumentSavedToDevice(context, fileTitle, fileUrl, standardFileName, fileTitle)
-        }
-        val (downloaded, err) = downloadFileToAppStorage(context, fileUrl, standardFileName)
-        if (downloaded != null && downloaded.exists()) {
-            localFile = downloaded
-            isWebViewMode = false
-            if (isWord) {
-                withContext(Dispatchers.Default) {
-                    wordHtmlContent = DocxToHtmlConverter.convert(downloaded)
-                }
-            } else if (isPdf) {
-                try {
-                    val pfd = ParcelFileDescriptor.open(downloaded, ParcelFileDescriptor.MODE_READ_ONLY)
-                    parcelFileDescriptor = pfd
-                    val renderer = PdfRenderer(pfd)
-                    pdfRenderer = renderer
-                    pageCount = renderer.pageCount
-                    if (pageCount > 0) {
-                        loadPage(0)
+        coroutineScope.launch {
+            val (downloaded, err) = downloadFileToAppStorage(context, fileUrl, standardFileName)
+            if (downloaded != null && downloaded.exists()) {
+                localFile = downloaded
+                if (isWord) {
+                    withContext(Dispatchers.Default) {
+                        wordHtmlContent = DocxToHtmlConverter.convert(downloaded)
                     }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Cannot init PdfRenderer: ${e.message}", e)
-                    downloadError = "Không thể phân giải cấu trúc PDF nội bộ. Bạn có thể bấm 'Mở chế độ Web' để xem trực tuyến."
+                } else if (isPdf) {
+                    try {
+                        val pfd = ParcelFileDescriptor.open(downloaded, ParcelFileDescriptor.MODE_READ_ONLY)
+                        parcelFileDescriptor = pfd
+                        val renderer = PdfRenderer(pfd)
+                        pdfRenderer = renderer
+                        pageCount = renderer.pageCount
+                        if (pageCount > 0) {
+                            loadPage(0)
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Cannot init PdfRenderer: ${e.message}", e)
+                        downloadError = "Không thể phân giải cấu trúc PDF nội bộ. Bạn có thể bấm 'Trình xem Web' để xem trực tuyến."
+                    }
                 }
+            } else {
+                downloadError = err ?: "Không thể kết nối tải tệp."
             }
-        } else {
-            downloadError = err ?: "Không thể kết nối tải tệp."
-            // Nếu download trực tiếp gặp mã 401 hoặc lỗi, tự động chuyển sang chế độ Web Viewer dự phòng
-            if (err?.contains("401") == true || err?.contains("Access Denied") == true) {
-                isWebViewMode = true
-            }
+            isLoading = false
         }
+    }
+
+    LaunchedEffect(fileUrl) {
         isLoading = false
+        downloadError = null
+        isSavedToDeviceInDialog = isDocumentSavedToDevice(context, fileTitle, fileUrl, standardFileName, fileTitle)
+        if (!isWebViewMode) {
+            prepareInAppDocument()
+        }
     }
 
     DisposableEffect(Unit) {
@@ -1514,32 +1672,15 @@ fun InAppDocumentViewerDialog(
                                 modifier = Modifier.size(26.dp)
                             )
                             Spacer(modifier = Modifier.width(10.dp))
-                            Column {
+                            Column(modifier = Modifier.weight(1f, fill = false)) {
                                 Text(
                                     text = standardFileName,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 14.sp,
                                     color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    maxLines = 1
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Badge(
-                                        containerColor = if (isWebViewMode) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else if (isPdf) MaterialTheme.colorScheme.error.copy(alpha = 0.15f) else MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                                        contentColor = if (isWebViewMode) MaterialTheme.colorScheme.primary else if (isPdf) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-                                    ) {
-                                        Text(
-                                            text = if (isWebViewMode) "XEM TRỰC TUYẾN" else if (isPdf) "PDF CHUẨN" else "WORD ĐỊNH DẠNG",
-                                            fontSize = 9.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = if (isWebViewMode) "Trình xem Web (Mặc định)" else "Đọc trực tiếp trong App",
-                                        fontSize = 11.sp,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f)
-                                    )
-                                }
                             }
                         }
 
@@ -1650,7 +1791,13 @@ fun InAppDocumentViewerDialog(
 
                             // Chuyển đổi giữa Chế độ đọc App và Trình xem Web
                             TextButton(
-                                onClick = { isWebViewMode = !isWebViewMode },
+                                onClick = {
+                                    val targetMode = !isWebViewMode
+                                    isWebViewMode = targetMode
+                                    if (!targetMode && localFile == null) {
+                                        prepareInAppDocument()
+                                    }
+                                },
                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
                                 modifier = Modifier.height(34.dp)
                             ) {

@@ -173,7 +173,7 @@ fun HocTapContent(
         // 5. Trích xuất năm từ thời gian tạo/cập nhật (createdAt / updatedAt)
         val time = if (lesson.createdAt > 0) lesson.createdAt else if (course != null && course.createdAt > 0) course.createdAt else 0L
         if (time > 1577836800000L) { // Jan 1, 2020
-            val cal = java.util.Calendar.getInstance().apply { timeInMillis = time }
+            val cal = java.util.Calendar.getInstance(com.example.util.TimeUtils.VIETNAM_TIME_ZONE).apply { timeInMillis = time }
             val yr = cal.get(java.util.Calendar.YEAR)
             if (yr in 2020..2035) return yr.toString()
         }

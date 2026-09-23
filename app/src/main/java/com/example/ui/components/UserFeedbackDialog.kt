@@ -1,9 +1,16 @@
 package com.example.ui.components
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -13,9 +20,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.example.ui.theme.NavySecondary
 import com.example.ui.theme.RedPrimary
 
@@ -25,7 +34,7 @@ fun UserFeedbackDialog(
     userName: String,
     userUnit: String,
     onDismiss: () -> Unit,
-    onSubmit: (title: String, content: String, type: String, onComplete: (Boolean, String?) -> Unit) -> Unit
+    onSubmit: (title: String, content: String, type: String, images: List<Uri>, onComplete: (Boolean, String?) -> Unit) -> Unit
 ) {
     val feedbackTypes = remember {
         listOf(
@@ -40,9 +49,25 @@ fun UserFeedbackDialog(
     var selectedType by remember { mutableStateOf(feedbackTypes[0]) }
     var titleText by remember { mutableStateOf("") }
     var contentText by remember { mutableStateOf("") }
+    val attachedImageUris = remember { mutableStateListOf<Uri>() }
+    val maxImages = 5
+
     var isSubmitting by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
     var isError by remember { mutableStateOf(false) }
+
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickMultipleVisualMedia(maxItems = maxImages)
+    ) { uris: List<Uri> ->
+        if (uris.isNotEmpty()) {
+            for (uri in uris) {
+                if (attachedImageUris.size < maxImages && !attachedImageUris.contains(uri)) {
+                    attachedImageUris.add(uri)
+                }
+            }
+            statusMessage = null
+        }
+    }
 
     AlertDialog(
         onDismissRequest = { if (!isSubmitting) onDismiss() },
@@ -164,11 +189,177 @@ fun UserFeedbackDialog(
                     placeholder = { Text("Nhập nội dung phản ánh, góp ý hoặc kiến nghị của bạn gửi tới Web Quản trị...", fontSize = 12.sp) },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(130.dp),
+                        .height(120.dp),
                     enabled = !isSubmitting,
                     maxLines = 6,
                     shape = RoundedCornerShape(10.dp)
                 )
+
+                // PHẦN ĐÍNH KÈM HÌNH ẢNH
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AttachFile,
+                                contentDescription = null,
+                                tint = RedPrimary,
+                                modifier = Modifier.size(17.dp)
+                            )
+                            Text(
+                                text = "Hình ảnh đính kèm (Tùy chọn):",
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                        if (attachedImageUris.isNotEmpty()) {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = RedPrimary.copy(alpha = 0.12f)
+                            ) {
+                                Text(
+                                    text = "${attachedImageUris.size}/$maxImages ảnh",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = RedPrimary,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    // Danh sách ảnh đã chọn
+                    if (attachedImageUris.isNotEmpty()) {
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            contentPadding = PaddingValues(vertical = 4.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            items(attachedImageUris) { uri ->
+                                Box(
+                                    modifier = Modifier.size(76.dp)
+                                ) {
+                                    Surface(
+                                        shape = RoundedCornerShape(10.dp),
+                                        shadowElevation = 2.dp,
+                                        color = MaterialTheme.colorScheme.surfaceVariant,
+                                        modifier = Modifier
+                                            .size(70.dp)
+                                            .align(Alignment.BottomStart)
+                                    ) {
+                                        AsyncImage(
+                                            model = uri,
+                                            contentDescription = "Ảnh đính kèm",
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                    }
+
+                                    // Nút xóa ảnh
+                                    if (!isSubmitting) {
+                                        Surface(
+                                            shape = CircleShape,
+                                            color = RedPrimary,
+                                            shadowElevation = 3.dp,
+                                            modifier = Modifier
+                                                .size(24.dp)
+                                                .align(Alignment.TopEnd)
+                                                .clickable { attachedImageUris.remove(uri) }
+                                        ) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Close,
+                                                    contentDescription = "Xóa ảnh",
+                                                    tint = Color.White,
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Nút thêm ảnh nhỏ trong danh sách nếu chưa đạt giới hạn
+                            if (attachedImageUris.size < maxImages && !isSubmitting) {
+                                item {
+                                    Surface(
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                                        modifier = Modifier
+                                            .size(70.dp)
+                                            .clickable {
+                                                imagePickerLauncher.launch(
+                                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                                )
+                                            }
+                                    ) {
+                                        Column(
+                                            modifier = Modifier.fillMaxSize(),
+                                            verticalArrangement = Arrangement.Center,
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.AddPhotoAlternate,
+                                                contentDescription = "Thêm ảnh",
+                                                tint = RedPrimary,
+                                                modifier = Modifier.size(22.dp)
+                                            )
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text(
+                                                text = "Thêm ảnh",
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = RedPrimary
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        // Nút chọn ảnh khi chưa có ảnh nào
+                        OutlinedButton(
+                            onClick = {
+                                imagePickerLauncher.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                )
+                            },
+                            enabled = !isSubmitting,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(44.dp),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = RedPrimary
+                            ),
+                            border = BorderStroke(1.dp, RedPrimary.copy(alpha = 0.4f)),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AddPhotoAlternate,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Chọn hình ảnh đính kèm (Tối đa 5 ảnh)",
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
 
                 // Thông báo trạng thái
                 if (statusMessage != null) {
@@ -204,6 +395,7 @@ fun UserFeedbackDialog(
         confirmButton = {
             Button(
                 onClick = {
+                    if (isSubmitting) return@Button
                     if (contentText.isBlank()) {
                         statusMessage = "Vui lòng nhập nội dung chi tiết trước khi gửi!"
                         isError = true
@@ -214,14 +406,17 @@ fun UserFeedbackDialog(
                     onSubmit(
                         titleText.ifBlank { selectedType },
                         contentText,
-                        selectedType
+                        selectedType,
+                        attachedImageUris.toList()
                     ) { success, error ->
                         isSubmitting = false
                         if (success) {
                             isError = false
-                            statusMessage = "Đã gửi ý kiến thành công về Web Quản trị!"
+                            statusMessage = "Đã gửi ý kiến và hình ảnh đính kèm thành công về Web Quản trị!"
                             contentText = ""
                             titleText = ""
+                            attachedImageUris.clear()
+                            onDismiss()
                         } else {
                             isError = true
                             statusMessage = "Lỗi gửi phản hồi: ${error ?: "Lỗi kết nối"}"
@@ -238,7 +433,8 @@ fun UserFeedbackDialog(
                         color = Color.White
                     )
                 } else {
-                    Text("GỬI Ý KIẾN", fontWeight = FontWeight.Bold)
+                    val countStr = if (attachedImageUris.isNotEmpty()) " (${attachedImageUris.size} ẢNH)" else ""
+                    Text("GỬI Ý KIẾN$countStr", fontWeight = FontWeight.Bold)
                 }
             }
         },

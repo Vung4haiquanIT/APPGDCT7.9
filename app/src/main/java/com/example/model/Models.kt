@@ -427,23 +427,141 @@ data class NotificationItem(
     val id: String = "",
     val title: String = "",
     val message: String = "",
-    val type: String = "admin", // "admin", "reminder", "system"
+    val type: String = "admin", // "admin", "reminder", "system", "feedback", "reply"
+    val targetUserId: String? = null,
+    val targetUserIds: List<String> = emptyList(),
+    val targetEmail: String? = null,
+    val targetUserName: String? = null,
+    val targetGroup: String? = null,
     val targetLessonId: String? = null,
     val targetCourseId: String? = null,
+    val imageUrl: String? = null,
+    val images: List<String> = emptyList(),
     val timestamp: Long = System.currentTimeMillis(),
     val isRead: Boolean = false,
     val priority: String = "normal" // "urgent", "high", "normal"
 ) {
     companion object {
         fun fromDoc(doc: DocumentSnapshot): NotificationItem {
+            val rawTargetUserIds = mutableListOf<String>()
+            val singleTargetUserId = (
+                doc.getString("targetUserId")
+                    ?: doc.getString("userId")
+                    ?: doc.getString("receiverId")
+                    ?: doc.getString("recipientId")
+                    ?: doc.getString("toUserId")
+                    ?: doc.getString("target_user_id")
+                    ?: doc.getString("user_id")
+                    ?: doc.getString("nguoiNhanId")
+                    ?: doc.getString("idNguoiNhan")
+                    ?: doc.getString("targetUser")
+                    ?: doc.getString("receiver")
+                    ?: doc.get("targetUserId")?.toString()
+                    ?: doc.get("userId")?.toString()
+            )?.trim()?.takeIf { it.isNotBlank() }
+
+            if (!singleTargetUserId.isNullOrBlank()) {
+                rawTargetUserIds.addAll(singleTargetUserId.split(",").map { it.trim() }.filter { it.isNotBlank() })
+            }
+
+            val arrayFields = listOf("targetUserIds", "targetUsers", "userIds", "recipients", "danhSachNguoiNhan", "danhSachId")
+            for (field in arrayFields) {
+                val rawObj = doc.get(field)
+                if (rawObj is List<*>) {
+                    rawTargetUserIds.addAll(rawObj.mapNotNull { it?.toString()?.trim() }.filter { it.isNotBlank() })
+                }
+            }
+
+            val targetEmail = (
+                doc.getString("targetEmail")
+                    ?: doc.getString("userEmail")
+                    ?: doc.getString("email")
+                    ?: doc.getString("target_email")
+                    ?: doc.getString("user_email")
+                    ?: doc.getString("emailNguoiNhan")
+            )?.trim()?.takeIf { it.isNotBlank() }
+
+            val targetUserName = (
+                doc.getString("targetUserName")
+                    ?: doc.getString("userName")
+                    ?: doc.getString("nguoiNhan")
+                    ?: doc.getString("target_user_name")
+                    ?: doc.getString("user_name")
+                    ?: doc.getString("tenNguoiNhan")
+                    ?: doc.getString("hoTen")
+                    ?: doc.getString("ho_ten")
+            )?.trim()?.takeIf { it.isNotBlank() }
+
+            val targetGroup = (
+                doc.getString("targetGroup")
+                    ?: doc.getString("target_group")
+                    ?: doc.getString("doiTuong")
+                    ?: doc.getString("targetAudience")
+            )?.trim()?.takeIf { it.isNotBlank() }
+
+            val title = cleanHtml(
+                doc.getString("title")
+                    ?: doc.getString("tieuDe")
+                    ?: doc.getString("subject")
+                    ?: doc.getString("tieu_de")
+                    ?: if (singleTargetUserId != null || !targetUserName.isNullOrBlank()) "Phản hồi từ Web Quản trị" else "Thông báo từ Web Quản trị"
+            )
+
+            val message = cleanHtml(
+                doc.getString("message")
+                    ?: doc.getString("content")
+                    ?: doc.getString("noiDung")
+                    ?: doc.getString("phanHoi")
+                    ?: doc.getString("reply")
+                    ?: doc.getString("feedbackReply")
+                    ?: doc.getString("noi_dung")
+                    ?: doc.getString("adminReply")
+                    ?: ""
+            )
+
+            val rawType = doc.getString("type") ?: doc.getString("loai") ?: doc.getString("loaiThongBao") ?: doc.getString("loai_thong_bao")
+            val type = when {
+                !rawType.isNullOrBlank() -> rawType
+                !singleTargetUserId.isNullOrBlank() || !targetUserName.isNullOrBlank() -> "feedback"
+                else -> "admin"
+            }
+
+            val notifImages = mutableListOf<String>()
+            val singleImageUrl = (
+                doc.getString("imageUrl")
+                    ?: doc.getString("image")
+                    ?: doc.getString("hinhAnh")
+                    ?: doc.getString("hinh_anh")
+                    ?: doc.getString("photoUrl")
+            )?.trim()?.takeIf { it.isNotBlank() }
+
+            if (!singleImageUrl.isNullOrBlank()) {
+                notifImages.add(singleImageUrl)
+            }
+
+            val imageListFields = listOf("images", "imageUrls", "attachedImages", "danhSachHinhAnh", "photos")
+            for (field in imageListFields) {
+                val rawObj = doc.get(field)
+                if (rawObj is List<*>) {
+                    notifImages.addAll(rawObj.mapNotNull { it?.toString()?.trim() }.filter { it.isNotBlank() })
+                }
+            }
+
             return NotificationItem(
                 id = doc.id,
-                title = cleanHtml(doc.getString("title") ?: doc.getString("tieuDe") ?: "Thông báo từ Web Quản trị"),
-                message = cleanHtml(doc.getString("message") ?: doc.getString("content") ?: doc.getString("noiDung") ?: ""),
-                type = doc.getString("type") ?: doc.getString("loai") ?: "admin",
+                title = title,
+                message = message,
+                type = type,
+                targetUserId = singleTargetUserId,
+                targetUserIds = rawTargetUserIds.distinct(),
+                targetEmail = targetEmail,
+                targetUserName = targetUserName,
+                targetGroup = targetGroup,
                 targetLessonId = doc.getString("targetLessonId") ?: doc.getString("lessonId"),
                 targetCourseId = doc.getString("targetCourseId") ?: doc.getString("courseId"),
-                timestamp = parseTime(doc.get("timestamp") ?: doc.get("createdAt") ?: doc.get("date")),
+                imageUrl = singleImageUrl ?: notifImages.firstOrNull(),
+                images = notifImages.distinct(),
+                timestamp = parseTime(doc.get("timestamp") ?: doc.get("createdAt") ?: doc.get("date") ?: doc.get("thoiGian")),
                 isRead = doc.getBoolean("isRead") ?: false,
                 priority = doc.getString("priority") ?: doc.getString("mucDo") ?: "normal"
             )
@@ -751,21 +869,45 @@ data class ExamSessionDoc(
     companion object {
         /**
          * Định dạng chuỗi hiển thị đối tượng:
-         * Chuyển "ALL", "Tất cả", "SQ, QNCN" thành "SQ và QNCN"
+         * Xử lý các đối tượng chính: SQ, QNCN, HSQ-BS
          */
         fun formatAudienceDisplay(raw: String): String {
             val trimmed = raw.trim()
-            if (trimmed.isBlank()) return "SQ và QNCN"
+            if (trimmed.isBlank()) return "Tất cả"
             val norm = removeAccents(trimmed).lowercase()
-            if (norm == "all" || norm == "tat ca" || norm == "toan quan" || norm == "toan don vi" || norm == "moi doi tuong" || norm == "*" || (norm.contains("sq") && norm.contains("qncn"))) {
+            if (norm == "all" || norm == "tat ca" || norm == "toan quan" || norm == "toan don vi" || norm == "moi doi tuong" || norm == "*") {
+                return "Tất cả"
+            }
+
+            val hasSQ = norm.contains("sq") || norm.contains("si quan")
+            val hasQNCN = norm.contains("qncn") || norm.contains("quan nhan chuyen nghiep")
+            val hasHSQBS = norm.contains("hsq") || norm.contains("bs") || norm.contains("cs") || norm.contains("binh si") || norm.contains("chien si") || norm.contains("ha si quan")
+
+            if (hasSQ && hasQNCN && hasHSQBS) {
+                return "Tất cả"
+            }
+            if (hasSQ && hasQNCN && !hasHSQBS) {
                 return "SQ và QNCN"
             }
+            if (hasSQ && hasHSQBS && !hasQNCN) {
+                return "SQ và HSQ-BS"
+            }
+            if (hasQNCN && hasHSQBS && !hasSQ) {
+                return "QNCN và HSQ-BS"
+            }
+
             val parts = trimmed.split(",", ";").map { it.trim() }.filter { it.isNotBlank() }
-            if (parts.isEmpty()) return "SQ và QNCN"
+            if (parts.isEmpty()) return "Tất cả"
             return parts.joinToString(", ") { part ->
                 val pNorm = removeAccents(part).lowercase()
-                if (pNorm == "all" || pNorm == "tat ca" || pNorm == "toan quan" || (pNorm.contains("sq") && pNorm.contains("qncn"))) {
-                    "SQ và QNCN"
+                if (pNorm == "all" || pNorm == "tat ca" || pNorm == "toan quan" || pNorm == "moi doi tuong") {
+                    "Tất cả"
+                } else if (pNorm.contains("hsq") || pNorm.contains("binh si") || pNorm.contains("chien si") || pNorm.contains("bs") || pNorm.contains("ha si quan")) {
+                    "HSQ-BS"
+                } else if (pNorm == "sq" || pNorm.contains("si quan")) {
+                    "SQ"
+                } else if (pNorm == "qncn" || pNorm.contains("quan nhan chuyen nghiep")) {
+                    "QNCN"
                 } else {
                     part
                 }
@@ -1059,25 +1201,17 @@ data class ExamSessionDoc(
 
             val isAllAudience = effectiveAudienceRaw.isEmpty() || effectiveAudienceRaw.any {
                 val a = removeAccents(it.trim().lowercase())
-                a == "all" || a == "tat ca" || a == "toan quan" || a == "toan don vi" || a == "moi doi tuong" || a == "*" ||
-                        (a.contains("sq") && a.contains("qncn"))
+                a == "all" || a == "tat ca" || a == "toan quan" || a == "toan don vi" || a == "moi doi tuong" || a == "*"
             }
 
             val audienceDisplay = if (isAllAudience) {
-                "SQ và QNCN"
+                "Tất cả"
             } else {
-                effectiveAudienceRaw.joinToString(", ") { item ->
-                    val norm = removeAccents(item.trim().lowercase())
-                    if (norm == "all" || norm == "tat ca" || norm == "toan quan" || norm == "toan don vi" || (norm.contains("sq") && norm.contains("qncn"))) {
-                        "SQ và QNCN"
-                    } else {
-                        item.trim()
-                    }
-                }
+                formatAudienceDisplay(effectiveAudienceRaw.joinToString(", "))
             }
 
             val effectiveAudienceList = if (isAllAudience) {
-                listOf("ALL", "SQ", "QNCN", "SQ và QNCN", "Tất cả")
+                listOf("ALL", "SQ", "QNCN", "HSQ-BS", "Tất cả")
             } else {
                 effectiveAudienceRaw
             }
@@ -1351,25 +1485,7 @@ private fun parseNumber(value: Any?, default: Long = 0L): Long {
 }
 
 private fun parseTime(value: Any?): Long {
-    return when (value) {
-        is Number -> value.toLong()
-        is Timestamp -> value.seconds * 1000L + (value.nanoseconds / 1_000_000L)
-        is java.util.Date -> value.time
-        is String -> {
-            val str = value.trim()
-            str.toLongOrNull() ?: try {
-                java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.getDefault()).parse(str)?.time
-                    ?: java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).parse(str)?.time
-                    ?: java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).parse(str)?.time
-                    ?: java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale.getDefault()).parse(str)?.time
-                    ?: java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.getDefault()).parse(str)?.time
-                    ?: 0L
-            } catch (e: Exception) {
-                0L
-            }
-        }
-        else -> 0L
-    }
+    return com.example.util.TimeUtils.parseTime(value)
 }
 
 fun cleanHtml(html: String): String {

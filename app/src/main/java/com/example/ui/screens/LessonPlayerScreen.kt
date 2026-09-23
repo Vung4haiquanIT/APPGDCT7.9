@@ -325,12 +325,7 @@ fun LessonPlayerScreen(
 
     LaunchedEffect(lessonFiles) {
         withContext(Dispatchers.IO) {
-            val downloadedKeys = com.example.ui.components.getDownloadedFileKeys(context)
             val saved = lessonFiles.filter { f ->
-                downloadedKeys.contains(f.id) ||
-                downloadedKeys.contains(f.downloadUrl) ||
-                downloadedKeys.contains(f.fileName) ||
-                downloadedKeys.contains(f.title) ||
                 com.example.ui.components.isDocumentSavedToDevice(context, f.id, f.downloadUrl, f.fileName, f.title)
             }.map { it.id }.toSet()
             savedToDeviceFileIds = saved
@@ -1039,7 +1034,6 @@ fun LessonPlayerScreen(
                                                 Button(
                                                     onClick = {
                                                         viewingFile = file
-                                                        cachedFileIds = cachedFileIds + file.id
                                                     },
                                                     colors = ButtonDefaults.buttonColors(containerColor = RedPrimary),
                                                     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
@@ -1149,7 +1143,6 @@ fun LessonPlayerScreen(
                                             if (com.example.ui.components.isDocumentSavedToDevice(context, f.id, f.downloadUrl, f.fileName, f.title)) {
                                                 savedToDeviceFileIds = savedToDeviceFileIds + f.id
                                             }
-                                            cachedFileIds = cachedFileIds + f.id
                                         }
                                     )
                                 }

@@ -78,7 +78,11 @@ fun CaNhanScreen(
     var showAllExamHistoryDialog by remember { mutableStateOf(false) }
     var showChangePasswordDialog by remember { mutableStateOf(false) }
     var showFeedbackDialog by remember { mutableStateOf(false) }
-    val dateFormat = remember { SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()) }
+    val dateFormat = remember {
+        SimpleDateFormat("dd/MM/yyyy HH:mm", com.example.util.TimeUtils.VIETNAM_LOCALE).apply {
+            timeZone = com.example.util.TimeUtils.VIETNAM_TIME_ZONE
+        }
+    }
 
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
@@ -821,7 +825,7 @@ fun CaNhanScreen(
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                        Text(text = "Đơn vị: Vùng 4 Hải Quân", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(text = "Ứng dụng được phát triển trong khuôn khổ Sáng kiến “Ứng dụng phần mềm phục vụ công tác giáo dục chính trị tại Vùng 4 Hải quân”, theo Quyết định số 3871/QĐ-BTL ngày 10/8/2026 của Bộ Tư lệnh Vùng 4 Hải quân.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 18.sp)
                         Text(text = "Phiên bản: 1.0.0", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
@@ -880,14 +884,20 @@ fun CaNhanScreen(
             userName = userName,
             userUnit = userUnit,
             onDismiss = { showFeedbackDialog = false },
-            onSubmit = { title, content, type, onComplete ->
+            onSubmit = { title, content, type, imageUris, onComplete ->
                 viewModel.sendUserFeedback(
                     title = title,
                     feedbackContent = content,
                     feedbackType = type,
+                    imageUris = imageUris,
                     onSuccess = {
                         onComplete(true, null)
-                        Toast.makeText(context, "Đã gửi ý kiến góp ý thành công!", Toast.LENGTH_SHORT).show()
+                        val msg = if (imageUris.isNotEmpty()) {
+                            "Đã gửi ý kiến và ${imageUris.size} hình ảnh đính kèm thành công!"
+                        } else {
+                            "Đã gửi ý kiến góp ý thành công!"
+                        }
+                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                     },
                     onError = { err ->
                         onComplete(false, err)
