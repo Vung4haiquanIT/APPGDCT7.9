@@ -109,9 +109,14 @@ fun LessonPlayerScreen(
     val authActionLoading by viewModel.authActionLoading.collectAsState()
     val isAuthenticated = currentUser != null || (userDoc != null && !userDoc?.id.isNullOrBlank() && userDoc?.id != "guest")
 
-    // Tìm dữ liệu tiến độ đã lưu trước đó của bài học này
-    val existingProgress = remember(progressList, lesson.id) {
-        progressList.find { it.lessonId == lesson.id }
+    // Tìm dữ liệu tiến độ đã lưu trước đó của bài học này (khớp theo lesson.id hoặc lesson.title)
+    val existingProgress = remember(progressList, lesson.id, lesson.title) {
+        progressList.find { p ->
+            p.lessonId.isNotBlank() && (
+                p.lessonId.equals(lesson.id, ignoreCase = true) ||
+                (lesson.title.isNotBlank() && p.lessonId.equals(lesson.title, ignoreCase = true))
+            )
+        }
     }
 
     // Danh sách các slide đã xem đủ ít nhất 5 giây (ghi nhớ theo lesson.id, không bị reset khi lưu tiến độ)
@@ -219,13 +224,11 @@ fun LessonPlayerScreen(
     val hasReadContent = maxContentScrollRatio >= 0.95f
 
     // 2. TIẾN ĐỘ HOÀN THÀNH BÀI HỌC:
-    // ĐIỀU KIỆN TIÊN QUYẾT: Đã đăng nhập và trả lời ĐÚNG câu hỏi kiểm tra đánh giá cuối bài mới được tính là Hoàn thành!
-    val isAlreadyCompleted = isAuthenticated && existingProgress?.completed == true
-    val isAnsweredCorrectly = isAuthenticated && (if (lessonQuestions.isEmpty()) {
-        isAlreadyCompleted
-    } else {
-        lastAttemptResult == true || (isAlreadyCompleted && lastAttemptResult != false)
-    })
+    val isAlreadyCompleted = existingProgress?.completed == true ||
+                             existingProgress?.passedQuiz == true ||
+                             ((existingProgress?.scorePercentage ?: 0) >= 50) ||
+                             (existingProgress?.score != null && existingProgress?.score!! > 0)
+    val isAnsweredCorrectly = lastAttemptResult == true || (isAlreadyCompleted && lastAttemptResult != false)
     val progressPercentage = if (isAnsweredCorrectly) 100 else 0
     val isFullyCompleted = isAnsweredCorrectly
 
@@ -1338,32 +1341,34 @@ fun LessonPlayerScreen(
                                             }
                                         }
 
-                                        // Nút bấm "VÀO KIỂM TRA ĐÁNH GIÁ CUỐI BÀI"
-                                        Button(
-                                            onClick = {
-                                                randomQuestionSeed++
-                                                selectedSingleOptionIndex = null
-                                                isAnsweringQuizOverlayOpen = true
-                                            },
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .height(48.dp),
-                                            colors = ButtonDefaults.buttonColors(
-                                                containerColor = if (isAnsweredCorrectly) Color(0xFF2E7D32) else RedPrimary
-                                            ),
-                                            shape = RoundedCornerShape(12.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = if (isAnsweredCorrectly) Icons.Default.CheckCircle else Icons.Default.Quiz,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(20.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(8.dp))
-                                            Text(
-                                                text = if (isAnsweredCorrectly) "LÀM LẠI KIỂM TRA ĐÁNH GIÁ" else "VÀO KIỂM TRA ĐÁNH GIÁ CUỐI BÀI",
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 14.sp
-                                            )
+                                        // Nút bấm "VÀO KIỂM TRA ĐÁNH GIÁ CUỐI BÀI" (chỉ hiển thị khi chưa hoàn thành)
+                                        if (!isAnsweredCorrectly && !isAlreadyCompleted && lastAttemptResult != true) {
+                                            Button(
+                                                onClick = {
+                                                    randomQuestionSeed++
+                                                    selectedSingleOptionIndex = null
+                                                    isAnsweringQuizOverlayOpen = true
+                                                },
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .height(48.dp),
+                                                colors = ButtonDefaults.buttonColors(
+                                                    containerColor = RedPrimary
+                                                ),
+                                                shape = RoundedCornerShape(12.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Quiz,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text(
+                                                    text = "VÀO KIỂM TRA ĐÁNH GIÁ CUỐI BÀI",
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 14.sp
+                                                )
+                                            }
                                         }
                                     } else {
                                         // Bài học không có câu hỏi kiểm tra đánh giá: không hiển thị câu hỏi tự tạo
