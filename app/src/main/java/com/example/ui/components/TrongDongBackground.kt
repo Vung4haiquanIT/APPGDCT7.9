@@ -33,7 +33,7 @@ import com.example.ui.theme.GoldPrimary
 @Composable
 fun TrongDongBackground(
     modifier: Modifier = Modifier,
-    watermarkAlpha: Float = 0.13f,
+    watermarkAlpha: Float = 0.7f,
     showCornerBorders: Boolean = true,
     showTopBottomBorders: Boolean = true,
     content: @Composable BoxScope.() -> Unit
@@ -51,40 +51,15 @@ fun TrongDongBackground(
                 )
             )
     ) {
-        // 1. HOA VĂN TRỐNG ĐỒNG ĐÔNG SƠN MỜ CHÍNH GIỮA MÀN HÌNH (WATERMARK LỚN)
-        Box(
+        // 1. HOA VĂN TRỐNG ĐỒNG ĐÔNG SƠN MỜ TOÀN MÀN HÌNH (SỬ DỤNG ẢNH TRỐNG ĐỒNG WEBP)
+        Image(
+            painter = painterResource(id = R.drawable.trongdong),
+            contentDescription = null,
             modifier = Modifier
                 .fillMaxSize()
-                .padding(bottom = 30.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Image(
-                painter = painterResource(id = R.drawable.ic_trong_dong_pattern),
-                contentDescription = null,
-                modifier = Modifier
-                    .fillMaxWidth(0.88f)
-                    .aspectRatio(1f)
-                    .alpha(watermarkAlpha),
-                contentScale = ContentScale.Fit
-            )
-        }
-
-        // 2. HOA VĂN TRỐNG ĐỒNG ĐÔNG SƠN PHỤ Ở GÓC TRÊN BÊN PHẢI (TẠO ĐỘ CHIỀU SÂU)
-        Box(
-            modifier = Modifier
-                .fillMaxSize(),
-            contentAlignment = Alignment.TopEnd
-        ) {
-            Image(
-                painter = painterResource(id = R.drawable.ic_trong_dong_pattern),
-                contentDescription = null,
-                modifier = Modifier
-                    .size(220.dp)
-                    .offset(x = 60.dp, y = (-50).dp)
-                    .alpha(watermarkAlpha * 0.7f),
-                contentScale = ContentScale.Fit
-            )
-        }
+                .alpha(watermarkAlpha),
+            contentScale = ContentScale.Crop
+        )
 
         // 3. KHUNG VIỀN HỌA TIẾT VÀNG KIM TRỐNG ĐỒNG (CANVAS VẼ ĐỒNG TÂM VÀ GÓC HOA VĂN)
         if (showCornerBorders || showTopBottomBorders) {
