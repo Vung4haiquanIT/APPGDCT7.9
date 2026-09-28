@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.example.util.SearchUtils
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
@@ -111,14 +112,19 @@ fun TruyenThanhNoiBoDialog(
     }
 
     val filteredList = remember(allBroadcasts, searchQuery, selectedCategoryFilter) {
-        allBroadcasts.filter { item ->
-            val matchCat = if (selectedCategoryFilter == "Tất cả") true else item.category.equals(selectedCategoryFilter, ignoreCase = true)
-            val matchSearch = if (searchQuery.isBlank()) true else {
-                item.title.contains(searchQuery, ignoreCase = true) ||
-                item.description.contains(searchQuery, ignoreCase = true) ||
-                item.category.contains(searchQuery, ignoreCase = true)
+        val baseList = allBroadcasts.filter { item ->
+            if (selectedCategoryFilter == "Tất cả") true else item.category.equals(selectedCategoryFilter, ignoreCase = true)
+        }
+        if (searchQuery.isBlank()) {
+            baseList
+        } else {
+            SearchUtils.filterAndRank(baseList, searchQuery) { item ->
+                listOf(
+                    SearchUtils.Field(item.title, weight = 5.0),
+                    SearchUtils.Field(item.category, weight = 2.5),
+                    SearchUtils.Field(item.description, weight = 2.0)
+                )
             }
-            matchCat && matchSearch
         }
     }
 

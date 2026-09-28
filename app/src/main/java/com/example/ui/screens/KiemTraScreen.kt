@@ -43,6 +43,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import com.example.model.ExamResultDoc
+import com.example.util.SearchUtils
 import com.example.model.ExamSessionDoc
 import com.example.model.QuestionItem
 import com.example.model.UserDoc
@@ -2271,8 +2272,8 @@ private fun QuestionBankView(
     )
 
     val filteredQuestions = remember(allQuestions, searchQuery, selectedCategoryFilter) {
-        allQuestions.filter { q ->
-            val matchCat = when (selectedCategoryFilter) {
+        val categoryFiltered = allQuestions.filter { q ->
+            when (selectedCategoryFilter) {
                 "ALL" -> true
                 "GDCT" -> q.category.equals("GDCT", ignoreCase = true) || q.categoryName.contains("chính trị", ignoreCase = true)
                 "GDPL" -> q.category.equals("GDPL", ignoreCase = true) || q.categoryName.contains("pháp luật", ignoreCase = true)
@@ -2281,11 +2282,18 @@ private fun QuestionBankView(
                 "DIEULENH" -> q.category.contains("DIEU", ignoreCase = true) || q.categoryName.contains("điều lệnh", ignoreCase = true)
                 else -> true
             }
-            val matchSearch = searchQuery.isBlank() || 
-                q.question.contains(searchQuery, ignoreCase = true) ||
-                q.options.any { it.contains(searchQuery, ignoreCase = true) } ||
-                q.explanation.contains(searchQuery, ignoreCase = true)
-            matchCat && matchSearch
+        }
+        if (searchQuery.isBlank()) {
+            categoryFiltered
+        } else {
+            SearchUtils.filterAndRank(categoryFiltered, searchQuery) { q ->
+                listOf(
+                    SearchUtils.Field(q.question, weight = 5.0),
+                    SearchUtils.Field(q.categoryName, weight = 2.5),
+                    SearchUtils.Field(q.explanation, weight = 2.0),
+                    SearchUtils.Field(q.options.joinToString(" "), weight = 1.0)
+                )
+            }
         }
     }
 

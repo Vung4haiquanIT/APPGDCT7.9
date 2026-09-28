@@ -30,6 +30,7 @@ import com.example.ui.components.Vung4LogoBadge
 import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.theme.RedPrimary
 import com.example.ui.theme.NavySecondary
+import com.example.util.SearchUtils
 import com.example.viewmodel.AppViewModel
 import androidx.compose.ui.tooling.preview.Preview
 
@@ -213,7 +214,7 @@ fun HocTapContent(
 
     // Filter lessons based on selected filter and search query
     val filteredLessons = remember(lessons, selectedFilterKey, searchQuery, courses, selectedYear) {
-        lessons.filter { lesson ->
+        val baseFiltered = lessons.filter { lesson ->
             val course = findCourseForLesson(lesson)
             val courseTitle = course?.title ?: ""
             val lessonTitle = lesson.title
@@ -333,20 +334,26 @@ fun HocTapContent(
                 else -> true
             }
 
-            val matchesSearch = searchQuery.isBlank() ||
-                lessonTitle.contains(searchQuery, ignoreCase = true) ||
-                lessonDesc.contains(searchQuery, ignoreCase = true) ||
-                courseTitle.contains(searchQuery, ignoreCase = true)
-
             val matchesYear = if (selectedYear == "ALL") true else {
                 getLessonYear(lesson, course) == selectedYear
             }
 
-            matchesFilter && matchesSearch && matchesYear
-        }.sortedWith(
-            compareByDescending<Lesson> { it.createdAt.coerceAtLeast(it.updatedAt) }
-                .thenByDescending { it.id }
-        )
+            matchesFilter && matchesYear
+        }
+
+        if (searchQuery.isBlank()) {
+            baseFiltered.sortedWith(
+                compareByDescending<Lesson> { it.createdAt.coerceAtLeast(it.updatedAt) }
+                    .thenByDescending { it.id }
+            )
+        } else {
+            // Chỉ tìm kiếm theo tên bài học (không tìm theo chuyên đề/mô tả), khớp từ 2 từ khóa trở lên
+            SearchUtils.filterAndRank(baseFiltered, searchQuery) { lesson ->
+                listOf(
+                    SearchUtils.Field(lesson.title, weight = 10.0)
+                )
+            }
+        }
     }
 
     // Helper function to check if a course belongs to fixed categories
@@ -449,7 +456,7 @@ fun HocTapContent(
                         value = searchQuery,
                         onValueChange = { searchQuery = it },
                         modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("Tìm kiếm bài học, chuyên đề...", fontSize = 13.sp) },
+                        placeholder = { Text("Tìm kiếm tên bài học theo từ khóa...", fontSize = 13.sp) },
                         leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = RedPrimary) },
                         trailingIcon = {
                             if (searchQuery.isNotEmpty()) {

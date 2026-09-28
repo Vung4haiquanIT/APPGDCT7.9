@@ -30,6 +30,7 @@ import com.example.model.Lesson
 import com.example.model.StorageFileItem
 import com.example.ui.theme.NavySecondary
 import com.example.ui.theme.RedPrimary
+import com.example.util.SearchUtils
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -55,10 +56,14 @@ fun SavedDocumentsDialog(
 
     val filteredDocs = remember(savedDocs, searchQuery) {
         if (searchQuery.isBlank()) savedDocs
-        else savedDocs.filter {
-            it.title.contains(searchQuery, ignoreCase = true) ||
-            it.fileName.contains(searchQuery, ignoreCase = true) ||
-            it.lessonTitle.contains(searchQuery, ignoreCase = true)
+        else {
+            SearchUtils.filterAndRank(savedDocs, searchQuery) { doc ->
+                listOf(
+                    SearchUtils.Field(doc.title, weight = 5.0),
+                    SearchUtils.Field(doc.fileName, weight = 3.0),
+                    SearchUtils.Field(doc.lessonTitle, weight = 2.0)
+                )
+            }
         }
     }
 
