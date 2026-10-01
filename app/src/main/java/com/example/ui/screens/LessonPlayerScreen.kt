@@ -51,6 +51,7 @@ import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import com.example.model.Lesson
 import com.example.model.QuestionItem
+import com.example.ui.components.EnhancedSlideViewer
 import com.example.ui.components.InAppDocumentViewerDialog
 import com.example.ui.components.LoginDialog
 import com.example.ui.components.TrongDongBackground
@@ -664,131 +665,52 @@ fun LessonPlayerScreen(
                 when (selectedTab) {
                     0 -> {
                         // TAB 0: SLIDES
-                        Column(
-                            modifier = Modifier.fillMaxSize(),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            if (lessonSlides.isNotEmpty()) {
-                                val pagerState = rememberPagerState(pageCount = { lessonSlides.size })
+                        if (lessonSlides.isNotEmpty()) {
+                            val pagerState = rememberPagerState(pageCount = { lessonSlides.size })
 
-                                // Bộ đếm thời gian từng slide: Đồng chí phải xem mỗi slide ít nhất 5 giây mới được tính là đã xem
-                                LaunchedEffect(pagerState.currentPage, selectedTab, lessonSlides.size) {
-                                    if (selectedTab == 0 && lessonSlides.isNotEmpty()) {
-                                        val page = pagerState.currentPage
-                                        if (viewedSlideIndices.contains(page)) {
-                                            currentSlideDwellSeconds = 5
-                                        } else {
-                                            var dwell = slideDwellMap[page] ?: 0
+                            // Bộ đếm thời gian từng slide: Đồng chí phải xem mỗi slide ít nhất 5 giây mới được tính là đã xem
+                            LaunchedEffect(pagerState.currentPage, selectedTab, lessonSlides.size) {
+                                if (selectedTab == 0 && lessonSlides.isNotEmpty()) {
+                                    val page = pagerState.currentPage
+                                    if (viewedSlideIndices.contains(page)) {
+                                        currentSlideDwellSeconds = 5
+                                    } else {
+                                        var dwell = slideDwellMap[page] ?: 0
+                                        currentSlideDwellSeconds = dwell
+                                        while (dwell < 5 && pagerState.currentPage == page && selectedTab == 0) {
+                                            kotlinx.coroutines.delay(1000L)
+                                            dwell++
                                             currentSlideDwellSeconds = dwell
-                                            while (dwell < 5 && pagerState.currentPage == page && selectedTab == 0) {
-                                                kotlinx.coroutines.delay(1000L)
-                                                dwell++
-                                                currentSlideDwellSeconds = dwell
-                                                slideDwellMap = slideDwellMap + (page to dwell)
-                                                if (dwell >= 5) {
-                                                    viewedSlideIndices = viewedSlideIndices + page
-                                                    break
-                                                }
+                                            slideDwellMap = slideDwellMap + (page to dwell)
+                                            if (dwell >= 5) {
+                                                viewedSlideIndices = viewedSlideIndices + page
+                                                break
                                             }
                                         }
                                     }
                                 }
+                            }
 
-                                 Card(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .weight(1f),
-                                    shape = RoundedCornerShape(16.dp),
-                                    elevation = CardDefaults.cardElevation(2.dp)
-                                ) {
-                                    Box(modifier = Modifier.fillMaxSize()) {
-                                        HorizontalPager(
-                                            state = pagerState,
-                                            modifier = Modifier.fillMaxSize()
-                                        ) { page ->
-                                            val slide = lessonSlides[page]
-                                            Box(
-                                                modifier = Modifier.fillMaxSize(),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                if (slide.imageUrl.isNotBlank()) {
-                                                    AsyncImage(
-                                                        model = slide.imageUrl,
-                                                        contentDescription = "Slide ${page + 1}",
-                                                        modifier = Modifier.fillMaxSize()
-                                                    )
-                                                } else {
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .fillMaxSize()
-                                                            .background(RedPrimary.copy(alpha = 0.08f)),
-                                                        contentAlignment = Alignment.Center
-                                                    ) {
-                                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                                            Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(64.dp), tint = RedPrimary)
-                                                            Spacer(modifier = Modifier.height(10.dp))
-                                                            Text("Slide số ${page + 1}", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Button(
-                                        onClick = {
-                                            if (pagerState.currentPage > 0) {
-                                                coroutineScope.launch {
-                                                    pagerState.animateScrollToPage(pagerState.currentPage - 1)
-                                                }
-                                            }
-                                        },
-                                        enabled = pagerState.currentPage > 0,
-                                        colors = ButtonDefaults.buttonColors(containerColor = RedPrimary),
-                                        shape = RoundedCornerShape(10.dp)
-                                    ) {
-                                        Icon(Icons.Default.ChevronLeft, contentDescription = null)
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Slide trước", fontSize = 14.sp)
-                                    }
-
-                                    Button(
-                                        onClick = {
-                                            if (pagerState.currentPage < lessonSlides.size - 1) {
-                                                coroutineScope.launch {
-                                                    pagerState.animateScrollToPage(pagerState.currentPage + 1)
-                                                }
-                                            }
-                                        },
-                                        enabled = pagerState.currentPage < lessonSlides.size - 1,
-                                        colors = ButtonDefaults.buttonColors(containerColor = RedPrimary),
-                                        shape = RoundedCornerShape(10.dp)
-                                    ) {
-                                        Text("Slide sau", fontSize = 14.sp)
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Icon(Icons.Default.ChevronRight, contentDescription = null)
-                                    }
-                                }
-                            } else {
-                                Box(
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Icon(Icons.Default.Slideshow, contentDescription = null, modifier = Modifier.size(64.dp), tint = RedPrimary)
-                                        Spacer(modifier = Modifier.height(12.dp))
-                                        Text(
-                                            text = "Chưa có nội dung slide bài giảng",
-                                            fontSize = 14.sp,
-                                            fontWeight = FontWeight.Medium,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
+                            EnhancedSlideViewer(
+                                lessonSlides = lessonSlides,
+                                pagerState = pagerState,
+                                currentSlideDwellSeconds = currentSlideDwellSeconds,
+                                isSlideCompleted = viewedSlideIndices.contains(pagerState.currentPage)
+                            )
+                        } else {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Icon(Icons.Default.Slideshow, contentDescription = null, modifier = Modifier.size(64.dp), tint = RedPrimary)
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Text(
+                                        text = "Chưa có nội dung slide bài giảng",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
                                 }
                             }
                         }
