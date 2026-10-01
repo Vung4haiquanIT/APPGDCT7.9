@@ -2064,22 +2064,6 @@ private fun ExamTakingView(
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     item {
-                        // Category Chip
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = RedPrimary.copy(alpha = 0.12f)
-                        ) {
-                            Text(
-                                text = pageQuestion.categoryName.ifEmpty { "Chuyên đề Vùng 4" },
-                                color = RedPrimary,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 11.sp,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
                         // Question Text
                         Text(
                             text = "Câu ${pageIndex + 1}: ${pageQuestion.cleanQuestion}",
