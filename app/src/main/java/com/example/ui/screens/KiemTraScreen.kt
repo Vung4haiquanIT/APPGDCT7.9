@@ -2716,24 +2716,11 @@ private fun QuestionBankView(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = RedPrimary.copy(alpha = 0.12f)
-                                ) {
-                                    Text(
-                                        text = question.categoryName,
-                                        color = RedPrimary,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 11.sp,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                                    )
-                                }
-
                                 Text(
                                     text = "Câu ${index + 1}",
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 13.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = RedPrimary
                                 )
                             }
 

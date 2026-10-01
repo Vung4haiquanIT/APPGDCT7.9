@@ -625,7 +625,7 @@ data class QuestionItem(
     val examSessionId: String = "",
     val bankId: String = "",
     val category: String = "GDCT", // "GDCT", "GDPL", "LICHSU", "BIENDAO", "DIEULENH"
-    val categoryName: String = "Giáo dục chính trị",
+    val categoryName: String = "",
     val question: String = "",
     val options: List<String> = emptyList(),
     val correctIndex: Int = 0,
@@ -865,7 +865,7 @@ data class QuestionItem(
                 examSessionId = examSession,
                 bankId = bank,
                 category = cat,
-                categoryName = (map["categoryName"] ?: map["tenChuyenDe"] ?: getCategoryDisplayName(cat)).toString(),
+                categoryName = (map["categoryName"] ?: map["tenChuyenDe"] ?: "").toString(),
                 question = cleanHtml(q),
                 options = optList,
                 correctIndex = cIndex,
