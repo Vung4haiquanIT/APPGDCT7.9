@@ -10,8 +10,12 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateCentroidSize
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
@@ -26,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -68,6 +73,7 @@ fun ZoomableSlideImage(
     isFullScreen: Boolean,
     currentScale: Float,
     onScaleChanged: (Float) -> Unit,
+    onTap: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var scale by remember(imageUrl, pageIndex) { mutableFloatStateOf(currentScale) }
@@ -93,6 +99,9 @@ fun ZoomableSlideImage(
             .onSizeChanged { containerSize = it }
             .pointerInput(imageUrl, pageIndex) {
                 detectTapGestures(
+                    onTap = {
+                        onTap?.invoke()
+                    },
                     onDoubleTap = {
                         if (scale > 1.2f) {
                             scale = 1f
@@ -105,21 +114,80 @@ fun ZoomableSlideImage(
                     }
                 )
             }
-            .pointerInput(imageUrl, pageIndex) {
-                detectTransformGestures { _, pan, zoom, _ ->
-                    val newScale = (scale * zoom).coerceIn(1f, 5f)
-                    scale = newScale
-                    onScaleChanged(newScale)
+            .pointerInput(imageUrl, pageIndex, scale) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    var zoom = 1f
+                    var pan = Offset.Zero
+                    var pastTouchSlop = false
+                    val touchSlop = viewConfiguration.touchSlop
 
-                    if (newScale > 1.02f && containerSize.width > 0 && containerSize.height > 0) {
-                        val maxPanX = ((containerSize.width * (newScale - 1f)) / 2f).coerceAtLeast(0f)
-                        val maxPanY = ((containerSize.height * (newScale - 1f)) / 2f).coerceAtLeast(0f)
-                        offsetX = (offsetX + pan.x).coerceIn(-maxPanX, maxPanX)
-                        offsetY = (offsetY + pan.y).coerceIn(-maxPanY, maxPanY)
-                    } else {
-                        offsetX = 0f
-                        offsetY = 0f
-                    }
+                    do {
+                        val event = awaitPointerEvent()
+                        val canceled = event.changes.any { it.isConsumed }
+                        if (canceled) break
+
+                        val pressedPointers = event.changes.filter { it.pressed }
+                        val pointerCount = pressedPointers.size
+
+                        if (pointerCount >= 2) {
+                            // Khi có từ 2 ngón tay trở lên: luôn xử lý pinch-to-zoom và pan 2 ngón
+                            val zoomChange = event.calculateZoom()
+                            val panChange = event.calculatePan()
+
+                            if (!pastTouchSlop) {
+                                zoom *= zoomChange
+                                pan += panChange
+                                val centroidSize = event.calculateCentroidSize(useCurrent = false)
+                                val zoomMotion = kotlin.math.abs(1 - zoom) * centroidSize
+                                val panMotion = pan.getDistance()
+
+                                if (zoomMotion > touchSlop || panMotion > touchSlop) {
+                                    pastTouchSlop = true
+                                }
+                            }
+
+                            if (pastTouchSlop) {
+                                val newScale = (scale * zoomChange).coerceIn(1f, 5f)
+                                scale = newScale
+                                onScaleChanged(newScale)
+
+                                if (newScale > 1.02f && containerSize.width > 0 && containerSize.height > 0) {
+                                    val maxPanX = ((containerSize.width * (newScale - 1f)) / 2f).coerceAtLeast(0f)
+                                    val maxPanY = ((containerSize.height * (newScale - 1f)) / 2f).coerceAtLeast(0f)
+                                    offsetX = (offsetX + panChange.x).coerceIn(-maxPanX, maxPanX)
+                                    offsetY = (offsetY + panChange.y).coerceIn(-maxPanY, maxPanY)
+                                } else {
+                                    offsetX = 0f
+                                    offsetY = 0f
+                                }
+
+                                event.changes.forEach { it.consume() }
+                            }
+                        } else if (pointerCount == 1 && scale > 1.05f) {
+                            // Khi đang thu phóng lớn (>1.05x), cho phép 1 ngón tay pan kéo rê slide xem các góc
+                            val panChange = event.calculatePan()
+                            if (!pastTouchSlop) {
+                                pan += panChange
+                                if (pan.getDistance() > touchSlop) {
+                                    pastTouchSlop = true
+                                }
+                            }
+
+                            if (pastTouchSlop) {
+                                if (containerSize.width > 0 && containerSize.height > 0) {
+                                    val maxPanX = ((containerSize.width * (scale - 1f)) / 2f).coerceAtLeast(0f)
+                                    val maxPanY = ((containerSize.height * (scale - 1f)) / 2f).coerceAtLeast(0f)
+                                    offsetX = (offsetX + panChange.x).coerceIn(-maxPanX, maxPanX)
+                                    offsetY = (offsetY + panChange.y).coerceIn(-maxPanY, maxPanY)
+                                }
+                                event.changes.forEach { it.consume() }
+                            }
+                        } else {
+                            // pointerCount == 1 && scale <= 1.05f: CHẾ ĐỘ BÌNH THƯỜNG
+                            // KHÔNG consume touch events để HorizontalPager tự do lướt sang 2 bên chuyển slide mượt mà!
+                        }
+                    } while (event.changes.any { it.pressed })
                 }
             },
         contentAlignment = Alignment.Center
@@ -442,6 +510,7 @@ fun EnhancedSlideViewer(
         )
         var fullScreenZoomScale by remember { mutableFloatStateOf(1f) }
         var isLandscape by remember { mutableStateOf(false) }
+        var showFullScreenControls by remember { mutableStateOf(true) }
 
         // Đồng bộ trang giữa full screen và màn hình chính
         LaunchedEffect(fullScreenPagerState.currentPage) {
@@ -465,7 +534,7 @@ fun EnhancedSlideViewer(
             properties = DialogProperties(
                 usePlatformDefaultWidth = false,
                 dismissOnBackPress = true,
-                dismissOnClickOutside = false
+                dismissOnClickOutside = true
             )
         ) {
             BackHandler {
@@ -493,169 +562,234 @@ fun EnhancedSlideViewer(
                                 if (page == fullScreenPagerState.currentPage) {
                                     fullScreenZoomScale = newScale
                                 }
+                            },
+                            onTap = {
+                                showFullScreenControls = !showFullScreenControls
                             }
                         )
                     }
 
-                    // THANH TIÊU ĐỀ PHÍA TRÊN (TOP BAR OVERLAY)
-                    Surface(
+                    // Nút đóng nhanh nổi khi thanh công cụ ẩn
+                    AnimatedVisibility(
+                        visible = !showFullScreenControls,
+                        enter = fadeIn(),
+                        exit = fadeOut(),
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .align(Alignment.TopCenter),
-                        color = Color.Black.copy(alpha = 0.7f)
+                            .align(Alignment.TopEnd)
+                            .statusBarsPadding()
+                            .padding(14.dp)
                     ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .statusBarsPadding()
-                                .padding(horizontal = 12.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                        Surface(
+                            shape = CircleShape,
+                            color = Color.Black.copy(alpha = 0.65f),
+                            shadowElevation = 4.dp,
+                            modifier = Modifier.clickable { isFullScreenOpen = false }
                         ) {
-                            // Nút đóng Fullscreen
-                            IconButton(onClick = { isFullScreenOpen = false }) {
-                                Icon(
-                                    Icons.Default.Close,
-                                    contentDescription = "Đóng",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(26.dp)
-                                )
-                            }
-
-                            // Tiêu đề số Slide
-                            Text(
-                                "Slide ${fullScreenPagerState.currentPage + 1} / ${lessonSlides.size}",
-                                color = Color.White,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = "Đóng toàn màn hình",
+                                tint = Color.White,
+                                modifier = Modifier
+                                    .padding(10.dp)
+                                    .size(24.dp)
                             )
+                        }
+                    }
 
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                // Nút xoay ngang/dọc màn hình
-                                IconButton(onClick = {
-                                    isLandscape = !isLandscape
-                                    activity?.requestedOrientation = if (isLandscape) {
-                                        ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-                                    } else {
-                                        ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                    // THANH TIÊU ĐỀ PHÍA TRÊN (TOP BAR OVERLAY)
+                    AnimatedVisibility(
+                        visible = showFullScreenControls,
+                        enter = fadeIn() + slideInVertically(initialOffsetY = { -it }),
+                        exit = fadeOut() + slideOutVertically(targetOffsetY = { -it }),
+                        modifier = Modifier.align(Alignment.TopCenter)
+                    ) {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            color = Color.Black.copy(alpha = 0.75f)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .statusBarsPadding()
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                // Nút đóng Fullscreen
+                                Surface(
+                                    shape = RoundedCornerShape(20.dp),
+                                    color = Color.White.copy(alpha = 0.18f),
+                                    modifier = Modifier.clickable { isFullScreenOpen = false }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Close,
+                                            contentDescription = "Đóng",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            "Đóng",
+                                            color = Color.White,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
                                     }
-                                }) {
-                                    Icon(
-                                        Icons.Default.ScreenRotation,
-                                        contentDescription = "Xoay màn hình",
-                                        tint = if (isLandscape) GoldPrimary else Color.White
-                                    )
                                 }
 
-                                // Nút thu nhỏ lại màn hình thường
-                                IconButton(onClick = { isFullScreenOpen = false }) {
-                                    Icon(
-                                        Icons.Default.FullscreenExit,
-                                        contentDescription = "Thoát toàn màn hình",
-                                        tint = Color.White
-                                    )
+                                // Tiêu đề số Slide
+                                Text(
+                                    "Slide ${fullScreenPagerState.currentPage + 1} / ${lessonSlides.size}",
+                                    color = Color.White,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    // Nút ẩn thanh điều khiển
+                                    IconButton(onClick = { showFullScreenControls = false }) {
+                                        Icon(
+                                            Icons.Default.VisibilityOff,
+                                            contentDescription = "Ẩn thanh điều khiển",
+                                            tint = Color.White
+                                        )
+                                    }
+
+                                    // Nút xoay ngang/dọc màn hình
+                                    IconButton(onClick = {
+                                        isLandscape = !isLandscape
+                                        activity?.requestedOrientation = if (isLandscape) {
+                                            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                                        } else {
+                                            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                                        }
+                                    }) {
+                                        Icon(
+                                            Icons.Default.ScreenRotation,
+                                            contentDescription = "Xoay màn hình",
+                                            tint = if (isLandscape) GoldPrimary else Color.White
+                                        )
+                                    }
+
+                                    // Nút thu nhỏ lại màn hình thường
+                                    IconButton(onClick = { isFullScreenOpen = false }) {
+                                        Icon(
+                                            Icons.Default.FullscreenExit,
+                                            contentDescription = "Thoát toàn màn hình",
+                                            tint = Color.White
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
 
                     // THANH ĐIỀU KHIỂN PHÍA DƯỚI (BOTTOM BAR OVERLAY)
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .align(Alignment.BottomCenter),
-                        color = Color.Black.copy(alpha = 0.75f)
+                    AnimatedVisibility(
+                        visible = showFullScreenControls,
+                        enter = fadeIn() + slideInVertically(initialOffsetY = { it }),
+                        exit = fadeOut() + slideOutVertically(targetOffsetY = { it }),
+                        modifier = Modifier.align(Alignment.BottomCenter)
                     ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .navigationBarsPadding()
-                                .padding(horizontal = 16.dp, vertical = 10.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            color = Color.Black.copy(alpha = 0.78f)
                         ) {
-                            // Nút Slide trước
-                            IconButton(
-                                onClick = {
-                                    if (fullScreenPagerState.currentPage > 0) {
-                                        coroutineScope.launch {
-                                            fullScreenPagerState.animateScrollToPage(fullScreenPagerState.currentPage - 1)
-                                        }
-                                    }
-                                },
-                                enabled = fullScreenPagerState.currentPage > 0
-                            ) {
-                                Icon(
-                                    Icons.Default.ChevronLeft,
-                                    contentDescription = "Slide trước",
-                                    tint = if (fullScreenPagerState.currentPage > 0) Color.White else Color.Gray,
-                                    modifier = Modifier.size(32.dp)
-                                )
-                            }
-
-                            // Bộ nút thu phóng giữa màn hình
                             Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .navigationBarsPadding()
+                                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
+                                // Nút Slide trước
                                 IconButton(
                                     onClick = {
-                                        fullScreenZoomScale = (fullScreenZoomScale - 0.5f).coerceAtLeast(1f)
-                                    },
-                                    enabled = fullScreenZoomScale > 1.05f
-                                ) {
-                                    Icon(
-                                        Icons.Default.ZoomOut,
-                                        contentDescription = "Thu nhỏ",
-                                        tint = if (fullScreenZoomScale > 1.05f) Color.White else Color.Gray
-                                    )
-                                }
-
-                                Surface(
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = Color.White.copy(alpha = 0.2f),
-                                    modifier = Modifier.clickable { fullScreenZoomScale = 1f }
-                                ) {
-                                    Text(
-                                        "${(fullScreenZoomScale * 100).toInt()}%",
-                                        color = GoldPrimary,
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                                    )
-                                }
-
-                                IconButton(
-                                    onClick = {
-                                        fullScreenZoomScale = (fullScreenZoomScale + 0.5f).coerceAtMost(5f)
-                                    },
-                                    enabled = fullScreenZoomScale < 5f
-                                ) {
-                                    Icon(
-                                        Icons.Default.ZoomIn,
-                                        contentDescription = "Phóng to",
-                                        tint = if (fullScreenZoomScale < 5f) Color.White else Color.Gray
-                                    )
-                                }
-                            }
-
-                            // Nút Slide sau
-                            IconButton(
-                                onClick = {
-                                    if (fullScreenPagerState.currentPage < lessonSlides.size - 1) {
-                                        coroutineScope.launch {
-                                            fullScreenPagerState.animateScrollToPage(fullScreenPagerState.currentPage + 1)
+                                        if (fullScreenPagerState.currentPage > 0) {
+                                            coroutineScope.launch {
+                                                fullScreenPagerState.animateScrollToPage(fullScreenPagerState.currentPage - 1)
+                                            }
                                         }
+                                    },
+                                    enabled = fullScreenPagerState.currentPage > 0
+                                ) {
+                                    Icon(
+                                        Icons.Default.ChevronLeft,
+                                        contentDescription = "Slide trước",
+                                        tint = if (fullScreenPagerState.currentPage > 0) Color.White else Color.Gray,
+                                        modifier = Modifier.size(32.dp)
+                                    )
+                                }
+
+                                // Bộ nút thu phóng giữa màn hình
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    IconButton(
+                                        onClick = {
+                                            fullScreenZoomScale = (fullScreenZoomScale - 0.5f).coerceAtLeast(1f)
+                                        },
+                                        enabled = fullScreenZoomScale > 1.05f
+                                    ) {
+                                        Icon(
+                                            Icons.Default.ZoomOut,
+                                            contentDescription = "Thu nhỏ",
+                                            tint = if (fullScreenZoomScale > 1.05f) Color.White else Color.Gray
+                                        )
                                     }
-                                },
-                                enabled = fullScreenPagerState.currentPage < lessonSlides.size - 1
-                            ) {
-                                Icon(
-                                    Icons.Default.ChevronRight,
-                                    contentDescription = "Slide sau",
-                                    tint = if (fullScreenPagerState.currentPage < lessonSlides.size - 1) Color.White else Color.Gray,
-                                    modifier = Modifier.size(32.dp)
-                                )
+
+                                    Surface(
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = Color.White.copy(alpha = 0.2f),
+                                        modifier = Modifier.clickable { fullScreenZoomScale = 1f }
+                                    ) {
+                                        Text(
+                                            "${(fullScreenZoomScale * 100).toInt()}%",
+                                            color = GoldPrimary,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                        )
+                                    }
+
+                                    IconButton(
+                                        onClick = {
+                                            fullScreenZoomScale = (fullScreenZoomScale + 0.5f).coerceAtMost(5f)
+                                        },
+                                        enabled = fullScreenZoomScale < 5f
+                                    ) {
+                                        Icon(
+                                            Icons.Default.ZoomIn,
+                                            contentDescription = "Phóng to",
+                                            tint = if (fullScreenZoomScale < 5f) Color.White else Color.Gray
+                                        )
+                                    }
+                                }
+
+                                // Nút Slide sau
+                                IconButton(
+                                    onClick = {
+                                        if (fullScreenPagerState.currentPage < lessonSlides.size - 1) {
+                                            coroutineScope.launch {
+                                                fullScreenPagerState.animateScrollToPage(fullScreenPagerState.currentPage + 1)
+                                            }
+                                        }
+                                    },
+                                    enabled = fullScreenPagerState.currentPage < lessonSlides.size - 1
+                                ) {
+                                    Icon(
+                                        Icons.Default.ChevronRight,
+                                        contentDescription = "Slide sau",
+                                        tint = if (fullScreenPagerState.currentPage < lessonSlides.size - 1) Color.White else Color.Gray,
+                                        modifier = Modifier.size(32.dp)
+                                    )
+                                }
                             }
                         }
                     }

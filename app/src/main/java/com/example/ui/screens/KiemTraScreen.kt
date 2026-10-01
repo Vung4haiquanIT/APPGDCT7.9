@@ -273,15 +273,15 @@ fun KiemTraScreen(
                         return@getQuestionsForBank
                     }
 
-                    // Tự lấy ngẫu nhiên đúng số lượng câu hỏi cần trả lời từ ngân hàng câu hỏi
+                    // Tự lấy ngẫu nhiên đúng số lượng câu hỏi cần trả lời từ ngân hàng câu hỏi, giữ nguyên thứ tự đáp án gốc
                     val rawList = if (questionsToUse.size > targetCount) {
                         questionsToUse.shuffled().take(targetCount)
                     } else {
                         questionsToUse.shuffled()
                     }
 
-                    // Đảo ngẫu nhiên câu hỏi và đảo thứ tự các đáp án với thuật toán bảo toàn đáp án đúng 100%
-                    examQuestions = rawList.map { it.withShuffledOptions() }
+                    // Giữ nguyên thứ tự các phương án lựa chọn trong câu hỏi theo đúng ngân hàng đề
+                    examQuestions = rawList
                     examTimerSeconds = if (session.durationMinutes > 0) session.durationMinutes * 60 else 20 * 60
 
                     userAnswers = mutableMapOf()
@@ -313,7 +313,7 @@ fun KiemTraScreen(
             } else {
                 sessionQuestions.shuffled()
             }
-            examQuestions = rawList.map { it.withShuffledOptions() }
+            examQuestions = rawList
 
             examTimerSeconds = if (session.durationMinutes > 0) session.durationMinutes * 60 else 20 * 60
         } else {
@@ -327,7 +327,7 @@ fun KiemTraScreen(
             activeExamId = "random_practice_${System.currentTimeMillis()}"
             val totalToPick = minOf(20, examQuestionsPool.size)
             activeExamName = "Luyện tập ngẫu nhiên ($totalToPick câu)"
-            examQuestions = examQuestionsPool.shuffled().take(totalToPick).map { it.withShuffledOptions() }
+            examQuestions = examQuestionsPool.shuffled().take(totalToPick)
             examTimerSeconds = 20 * 60
         }
 

@@ -657,44 +657,11 @@ data class QuestionItem(
     val explanation: String = ""
 ) {
     /**
-     * Đảo ngẫu nhiên thứ tự các đáp án trong câu hỏi, đồng thời bảo toàn chính xác 100%
-     * đáp án đúng thông qua cờ boolean tương ứng, tránh nhầm lẫn do trùng văn bản đáp án.
-     * Tự động phát hiện các câu hỏi có phương án tham chiếu lẫn nhau (như "Cả A và B", "Tất cả các đáp án")
-     * để không đảo, giữ tính chuẩn xác tuyệt đối cho đề thi.
+     * Giữ nguyên thứ tự các phương án theo cấu hình gốc từ ngân hàng câu hỏi,
+     * không xáo trộn đáp án theo yêu cầu người dùng để đảm bảo tính chuẩn xác tuyệt đối 100% khi làm bài và chấm điểm.
      */
     fun withShuffledOptions(seed: Long = System.currentTimeMillis()): QuestionItem {
-        if (options.size <= 1) return this
-
-        // 1. Kiểm tra phương án tham chiếu liên quan đến vị trí A, B, C, D
-        val hasReferenceOption = options.any { opt ->
-            val oNorm = ExamSessionDoc.removeAccents(opt.lowercase())
-            oNorm.contains("ca a va b") || oNorm.contains("ca b va c") || oNorm.contains("ca a, b") ||
-            oNorm.contains("ca 2 dap an") || oNorm.contains("ca hai dap an") || oNorm.contains("ca 3 dap an") ||
-            oNorm.contains("tat ca cac dap an") || oNorm.contains("tat ca cac y") || oNorm.contains("tat ca deu") ||
-            oNorm.contains("khong co dap an") || oNorm.contains("ca 4 dap an") || oNorm.contains("dap an a") ||
-            oNorm.contains("dap an b") || oNorm.contains("dap an c") || oNorm.contains("dap an d") ||
-            oNorm.contains("phuong an a") || oNorm.contains("phuong an b")
-        }
-        if (hasReferenceOption) {
-            return this
-        }
-
-        // 2. Chuẩn hóa làm sạch tiền tố A. B. C. D. nếu có
-        val cleanedOptions = options.map { cleanOptionText(it) }
-
-        // 3. Ghép cặp giữ vị trí đúng theo cờ isCorrect
-        val indexed = cleanedOptions.mapIndexed { idx, txt ->
-            Triple(idx, txt, idx == correctIndex)
-        }
-
-        val rnd = java.util.Random(seed)
-        val shuffled = indexed.shuffled(rnd)
-
-        val newOptions = shuffled.map { it.second }
-        val newCorrectIndex = shuffled.indexOfFirst { it.third }
-
-        val finalCorrectIndex = if (newCorrectIndex >= 0) newCorrectIndex else correctIndex
-        return copy(options = newOptions, correctIndex = finalCorrectIndex)
+        return this
     }
 
     companion object {

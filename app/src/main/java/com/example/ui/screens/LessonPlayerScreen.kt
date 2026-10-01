@@ -14,10 +14,14 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.animation.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -34,6 +38,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -200,8 +205,7 @@ fun LessonPlayerScreen(
     val currentRandomQuestion = remember(lessonQuestions, randomQuestionSeed) {
         if (lessonQuestions.isNotEmpty()) {
             val randomIndex = (Math.abs(randomQuestionSeed) % lessonQuestions.size).toInt()
-            val picked = lessonQuestions[randomIndex]
-            picked.withShuffledOptions(randomQuestionSeed + 777L)
+            lessonQuestions[randomIndex]
         } else null
     }
 
@@ -234,6 +238,7 @@ fun LessonPlayerScreen(
     val isFullyCompleted = isAnsweredCorrectly
 
     var showLoginDialog by remember { mutableStateOf(false) }
+    var contentFontScale by remember { mutableFloatStateOf(1.0f) }
     var completionCelebrationDialog by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -747,18 +752,112 @@ fun LessonPlayerScreen(
                                 .verticalScroll(contentScrollState),
                             verticalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
-                            // 1. Nội dung bài học
-                            Text(
-                                text = "Nội dung bài học",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 16.sp,
-                                color = RedPrimary
-                            )
+                            // 1. Tiêu đề Nội dung bài học và Thanh công cụ Zoom cỡ chữ bằng tay
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Article,
+                                        contentDescription = null,
+                                        tint = RedPrimary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Text(
+                                        text = "Nội dung bài học",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 16.sp,
+                                        color = RedPrimary
+                                    )
+                                }
+
+                                // THANH CÔNG CỤ ĐIỀU CHỈNH CỠ CHỮ BẰNG TAY (A- / Cỡ chữ % / A+)
+                                Surface(
+                                    shape = RoundedCornerShape(20.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                    ) {
+                                        // Nút thu nhỏ chữ A-
+                                        IconButton(
+                                            onClick = {
+                                                contentFontScale = (contentFontScale - 0.15f).coerceAtLeast(0.75f)
+                                            },
+                                            enabled = contentFontScale > 0.75f,
+                                            modifier = Modifier.size(32.dp)
+                                        ) {
+                                            Text(
+                                                "A-",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 13.sp,
+                                                color = if (contentFontScale > 0.75f) RedPrimary else Color.Gray
+                                            )
+                                        }
+
+                                        // Hiển thị phần trăm cỡ chữ, bấm vào để đặt lại 100%
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = RedPrimary.copy(alpha = 0.12f),
+                                            modifier = Modifier.clickable { contentFontScale = 1.0f }
+                                        ) {
+                                            Text(
+                                                text = "${(contentFontScale * 100).toInt()}%",
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = RedPrimary,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                                            )
+                                        }
+
+                                        // Nút phóng to chữ A+
+                                        IconButton(
+                                            onClick = {
+                                                contentFontScale = (contentFontScale + 0.15f).coerceAtMost(2.5f)
+                                            },
+                                            enabled = contentFontScale < 2.5f,
+                                            modifier = Modifier.size(32.dp)
+                                        ) {
+                                            Text(
+                                                "A+",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 15.sp,
+                                                color = if (contentFontScale < 2.5f) RedPrimary else Color.Gray
+                                            )
+                                        }
+                                    }
+                                }
+                            }
 
                             if (lessonContents.isNotEmpty()) {
                                 lessonContents.forEach { content ->
                                     Card(
-                                        modifier = Modifier.fillMaxWidth(),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .pointerInput(Unit) {
+                                                awaitEachGesture {
+                                                    awaitFirstDown(requireUnconsumed = false)
+                                                    do {
+                                                        val event = awaitPointerEvent()
+                                                        val pressedList = event.changes.filter { it.pressed }
+                                                        if (pressedList.size >= 2) {
+                                                            val zoomChange = event.calculateZoom()
+                                                            if (kotlin.math.abs(zoomChange - 1f) > 0.01f) {
+                                                                contentFontScale = (contentFontScale * zoomChange).coerceIn(0.75f, 2.5f)
+                                                                event.changes.forEach { it.consume() }
+                                                            }
+                                                        }
+                                                    } while (event.changes.any { it.pressed })
+                                                }
+                                            },
                                         shape = RoundedCornerShape(12.dp),
                                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                                         elevation = CardDefaults.cardElevation(1.dp)
@@ -768,7 +867,7 @@ fun LessonPlayerScreen(
                                                 Text(
                                                     text = content.title,
                                                     fontWeight = FontWeight.Bold,
-                                                    fontSize = 16.sp,
+                                                    fontSize = (16 * contentFontScale).sp,
                                                     color = RedPrimary
                                                 )
                                                 Spacer(modifier = Modifier.height(8.dp))
@@ -777,12 +876,14 @@ fun LessonPlayerScreen(
                                             AndroidView(
                                                 factory = { ctx ->
                                                     TextView(ctx).apply {
-                                                        textSize = 15f
+                                                        textSize = 15f * contentFontScale
                                                         setTextColor(AndroidColor.parseColor("#222222"))
-                                                        setLineSpacing(8f, 1.3f)
+                                                        setLineSpacing(8f * contentFontScale, 1.3f)
                                                     }
                                                 },
                                                 update = { tv ->
+                                                    tv.textSize = 15f * contentFontScale
+                                                    tv.setLineSpacing(8f * contentFontScale, 1.3f)
                                                     tv.text = HtmlCompat.fromHtml(
                                                         content.bodyHtml.ifEmpty { "Chưa có nội dung chi tiết." },
                                                         HtmlCompat.FROM_HTML_MODE_LEGACY
@@ -795,7 +896,24 @@ fun LessonPlayerScreen(
                                 }
                             } else {
                                 Card(
-                                    modifier = Modifier.fillMaxWidth(),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .pointerInput(Unit) {
+                                            awaitEachGesture {
+                                                awaitFirstDown(requireUnconsumed = false)
+                                                do {
+                                                    val event = awaitPointerEvent()
+                                                    val pressedList = event.changes.filter { it.pressed }
+                                                    if (pressedList.size >= 2) {
+                                                        val zoomChange = event.calculateZoom()
+                                                        if (kotlin.math.abs(zoomChange - 1f) > 0.01f) {
+                                                            contentFontScale = (contentFontScale * zoomChange).coerceIn(0.75f, 2.5f)
+                                                            event.changes.forEach { it.consume() }
+                                                        }
+                                                    }
+                                                } while (event.changes.any { it.pressed })
+                                            }
+                                        },
                                     shape = RoundedCornerShape(12.dp),
                                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                                 ) {
@@ -810,11 +928,11 @@ fun LessonPlayerScreen(
                                         val descText = lesson.description.ifBlank { "Chưa có nội dung" }
                                         Text(
                                             text = descText,
-                                            fontSize = 14.sp,
+                                            fontSize = (14 * contentFontScale).sp,
                                             fontWeight = if (descText == "Chưa có nội dung") FontWeight.Medium else FontWeight.Normal,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                            lineHeight = 20.sp
+                                            lineHeight = (20 * contentFontScale).sp
                                         )
                                     }
                                 }
