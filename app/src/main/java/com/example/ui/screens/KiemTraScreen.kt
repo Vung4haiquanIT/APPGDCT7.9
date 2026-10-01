@@ -2082,7 +2082,7 @@ private fun ExamTakingView(
 
                         // Question Text
                         Text(
-                            text = "Câu ${pageIndex + 1}: ${pageQuestion.question}",
+                            text = "Câu ${pageIndex + 1}: ${pageQuestion.cleanQuestion}",
                             fontWeight = FontWeight.Bold,
                             fontSize = 16.sp,
                             lineHeight = 22.sp,
@@ -2414,7 +2414,7 @@ private fun ExamResultView(
                         Spacer(modifier = Modifier.height(6.dp))
 
                         Text(
-                            text = question.question,
+                            text = question.cleanQuestion,
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 14.5.sp,
                             color = MaterialTheme.colorScheme.onSurface,
@@ -2755,7 +2755,7 @@ private fun QuestionBankView(
 
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                text = question.question,
+                                text = question.cleanQuestion,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 15.sp,
                                 lineHeight = 20.sp,

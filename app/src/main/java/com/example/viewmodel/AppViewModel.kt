@@ -2910,6 +2910,29 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun extractQuestionsFromBankDoc(doc: DocumentSnapshot): List<QuestionItem> {
         val bankId = doc.id
         val list = mutableListOf<QuestionItem>()
+
+        // 1. Kiểm tra cấu trúc lưu câu hỏi trực tiếp dưới dạng các field "0", "1", "2", "3"... trong doc (như Firebase thực tế)
+        val docData = doc.data ?: emptyMap<String, Any>()
+        for ((key, value) in docData) {
+            if (value is Map<*, *>) {
+                val hasQuestionOrOptions = value.containsKey("question") || 
+                    value.containsKey("options") || 
+                    value.containsKey("cauHoi") || 
+                    value.containsKey("dapAn") ||
+                    value.containsKey("correctOptionIndex") ||
+                    value.containsKey("correctAnswerText")
+                if (hasQuestionOrOptions) {
+                    val qId = (value["id"] ?: "${bankId}_$key").toString()
+                    QuestionItem.parseFromMap(
+                        map = value,
+                        docId = qId,
+                        defaultBankId = bankId
+                    )?.let { list.add(it) }
+                }
+            }
+        }
+
+        // 2. Kiểm tra nếu câu hỏi nằm trong mảng hoặc map questions, dsCauHoi, cauHoiList...
         val rawQuestions = doc.get("questions") 
             ?: doc.get("dsCauHoi") 
             ?: doc.get("cauHoiList") 
@@ -2932,7 +2955,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         map = item,
                         docId = "${bankId}_$idx",
                         defaultBankId = bankId
-                    )?.let { list.add(it) }
+                    )?.let { q ->
+                        if (list.none { it.id == q.id }) list.add(q)
+                    }
                 }
             }
         } else if (rawQuestions is Map<*, *>) {
@@ -2942,18 +2967,25 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         map = item,
                         docId = "${bankId}_$idx",
                         defaultBankId = bankId
-                    )?.let { list.add(it) }
+                    )?.let { q ->
+                        if (list.none { it.id == q.id }) list.add(q)
+                    }
                 }
             }
         }
 
-        // Nếu bản thân doc này là một câu hỏi độc lập trong exam_banks
+        // 3. Nếu bản thân doc này là một câu hỏi độc lập trong exam_banks
         val qText = doc.getString("question") ?: doc.getString("cauHoi") ?: doc.getString("cau_hoi") ?: doc.getString("content") ?: doc.getString("noiDung") ?: doc.getString("noi_dung") ?: doc.getString("title") ?: ""
-        if (qText.isNotBlank()) {
+        if (qText.isNotBlank() && list.none { it.id == doc.id }) {
             val q = QuestionItem.fromDoc(doc).copy(bankId = (doc.getString("bankId") ?: doc.getString("bank_id") ?: bankId))
             list.add(q)
         }
-        return list
+
+        // Sắp xếp câu hỏi theo số thứ tự (stt) hoặc thứ tự nhập
+        return list.sortedWith(
+            compareBy<QuestionItem> { if (it.stt > 0) it.stt else Int.MAX_VALUE }
+                .thenBy { it.id }
+        )
     }
 
     private fun processExamBanksSnapshot(docs: List<DocumentSnapshot>) {

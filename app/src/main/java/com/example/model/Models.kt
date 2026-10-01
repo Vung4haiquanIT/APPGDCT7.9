@@ -629,8 +629,12 @@ data class QuestionItem(
     val question: String = "",
     val options: List<String> = emptyList(),
     val correctIndex: Int = 0,
-    val explanation: String = ""
+    val explanation: String = "",
+    val stt: Int = 0
 ) {
+    val cleanQuestion: String
+        get() = question.replace(Regex("^câu\\s*\\d+[\\.\\:\\-]\\s*", RegexOption.IGNORE_CASE), "").trim().ifBlank { question }
+
     /**
      * Giữ nguyên thứ tự các phương án theo cấu hình gốc từ ngân hàng câu hỏi,
      * không xáo trộn đáp án theo yêu cầu người dùng để đảm bảo tính chuẩn xác tuyệt đối 100% khi làm bài và chấm điểm.
@@ -811,7 +815,11 @@ data class QuestionItem(
             if (optList.isEmpty()) return null
 
             // Trích xuất rawCorrect từ TẤT CẢ các key có thể có trong Firebase / Web Quản trị
-            val rawCorrect = map["correctIndex"] 
+            val rawCorrect = map["correctOptionIndex"]
+                ?: map["correct_option_index"]
+                ?: map["correctAnswerText"]
+                ?: map["correct_answer_text"]
+                ?: map["correctIndex"] 
                 ?: map["correct_index"]
                 ?: map["correctAnswer"] 
                 ?: map["correct_answer"]
@@ -848,6 +856,7 @@ data class QuestionItem(
             val cat = (map["category"] ?: map["chuyenDe"] ?: map["loai"] ?: defaultCategory).toString()
             val bank = (map["bankId"] ?: map["bank_id"] ?: map["examBankId"] ?: defaultBankId).toString()
             val examSession = (map["examSessionId"] ?: map["examId"] ?: map["dotThiId"] ?: defaultExamSessionId).toString()
+            val sttVal = parseNumber(map["stt"] ?: map["order"] ?: map["index"] ?: 0, 0L).toInt()
 
             return QuestionItem(
                 id = id,
@@ -860,7 +869,8 @@ data class QuestionItem(
                 question = cleanHtml(q),
                 options = optList,
                 correctIndex = cIndex,
-                explanation = cleanHtml((map["explanation"] ?: map["giaiThich"] ?: map["huongDanGiai"] ?: "").toString())
+                explanation = cleanHtml((map["explanation"] ?: map["giaiThich"] ?: map["huongDanGiai"] ?: "").toString()),
+                stt = sttVal
             )
         }
 
