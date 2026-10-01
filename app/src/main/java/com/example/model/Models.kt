@@ -648,6 +648,7 @@ data class QuestionItem(
     val lessonId: String = "",
     val courseId: String = "",
     val examSessionId: String = "",
+    val bankId: String = "",
     val category: String = "GDCT", // "GDCT", "GDPL", "LICHSU", "BIENDAO", "DIEULENH"
     val categoryName: String = "Giáo dục chính trị",
     val question: String = "",
@@ -656,62 +657,169 @@ data class QuestionItem(
     val explanation: String = ""
 ) {
     /**
-     * Đảo ngẫu nhiên thứ tự các đáp án trong câu hỏi, đồng thời tự động cập nhật
-     * lại correctIndex tương ứng với đáp án đúng để chấm điểm hoàn toàn chính xác.
+     * Đảo ngẫu nhiên thứ tự các đáp án trong câu hỏi, đồng thời bảo toàn chính xác 100%
+     * đáp án đúng thông qua cờ boolean tương ứng, tránh nhầm lẫn do trùng văn bản đáp án.
+     * Tự động phát hiện các câu hỏi có phương án tham chiếu lẫn nhau (như "Cả A và B", "Tất cả các đáp án")
+     * để không đảo, giữ tính chuẩn xác tuyệt đối cho đề thi.
      */
     fun withShuffledOptions(seed: Long = System.currentTimeMillis()): QuestionItem {
         if (options.size <= 1) return this
-        // Chuẩn hóa loại bỏ tiền tố A. B. C. D. nếu người dùng lỡ nhập vào
-        val cleanedOptions = options.map { opt ->
-            opt.replace(Regex("^[A-Da-d][\\.\\)]\\s*"), "").trim()
+
+        // 1. Kiểm tra phương án tham chiếu liên quan đến vị trí A, B, C, D
+        val hasReferenceOption = options.any { opt ->
+            val oNorm = ExamSessionDoc.removeAccents(opt.lowercase())
+            oNorm.contains("ca a va b") || oNorm.contains("ca b va c") || oNorm.contains("ca a, b") ||
+            oNorm.contains("ca 2 dap an") || oNorm.contains("ca hai dap an") || oNorm.contains("ca 3 dap an") ||
+            oNorm.contains("tat ca cac dap an") || oNorm.contains("tat ca cac y") || oNorm.contains("tat ca deu") ||
+            oNorm.contains("khong co dap an") || oNorm.contains("ca 4 dap an") || oNorm.contains("dap an a") ||
+            oNorm.contains("dap an b") || oNorm.contains("dap an c") || oNorm.contains("dap an d") ||
+            oNorm.contains("phuong an a") || oNorm.contains("phuong an b")
         }
-        val correctOptionText = cleanedOptions.getOrNull(correctIndex) ?: ""
+        if (hasReferenceOption) {
+            return this
+        }
+
+        // 2. Chuẩn hóa làm sạch tiền tố A. B. C. D. nếu có
+        val cleanedOptions = options.map { cleanOptionText(it) }
+
+        // 3. Ghép cặp giữ vị trí đúng theo cờ isCorrect
+        val indexed = cleanedOptions.mapIndexed { idx, txt ->
+            Triple(idx, txt, idx == correctIndex)
+        }
+
         val rnd = java.util.Random(seed)
-        val indexed = cleanedOptions.mapIndexed { idx, txt -> idx to txt }
-        val shuffledIndexed = indexed.shuffled(rnd)
-        val newOptions = shuffledIndexed.map { it.second }
-        val newCorrectIndex = if (correctOptionText.isNotBlank()) {
-            val found = newOptions.indexOf(correctOptionText)
-            if (found >= 0) found else correctIndex
-        } else {
-            val found = shuffledIndexed.indexOfFirst { it.first == correctIndex }
-            if (found >= 0) found else 0
-        }
-        return copy(options = newOptions, correctIndex = newCorrectIndex)
+        val shuffled = indexed.shuffled(rnd)
+
+        val newOptions = shuffled.map { it.second }
+        val newCorrectIndex = shuffled.indexOfFirst { it.third }
+
+        val finalCorrectIndex = if (newCorrectIndex >= 0) newCorrectIndex else correctIndex
+        return copy(options = newOptions, correctIndex = finalCorrectIndex)
     }
 
     companion object {
-        fun fromDoc(doc: DocumentSnapshot): QuestionItem {
-            val q = doc.getString("question") ?: doc.getString("cauHoi") ?: doc.getString("content") ?: doc.getString("title") ?: ""
-            val rawOptions = doc.get("options") ?: doc.get("dapAn") ?: doc.get("choices") ?: doc.get("answers")
-            val optList: List<String> = when (rawOptions) {
-                is List<*> -> rawOptions.mapNotNull { it?.toString() }
-                else -> {
-                    val a = doc.getString("optionA") ?: doc.getString("dapAnA") ?: ""
-                    val b = doc.getString("optionB") ?: doc.getString("dapAnB") ?: ""
-                    val c = doc.getString("optionC") ?: doc.getString("dapAnC") ?: ""
-                    val d = doc.getString("optionD") ?: doc.getString("dapAnD") ?: ""
-                    if (a.isNotEmpty() || b.isNotEmpty()) listOf(a, b, c, d).filter { it.isNotEmpty() }
-                    else emptyList()
-                }
+        fun cleanOptionText(opt: String): String {
+            val trimmed = opt.trim()
+            if (trimmed.length <= 1) return trimmed
+            return trimmed.replace(Regex("^(?:[A-Da-d]|[1-4])[\\.\\)]\\s*"), "").trim().ifBlank { trimmed }
+        }
+
+        fun resolveCorrectIndex(rawCorrect: Any?, options: List<String>, detectedIndex: Int? = null): Int {
+            if (detectedIndex != null && detectedIndex in options.indices) {
+                return detectedIndex
             }
-            val rawCorrect = doc.get("correctIndex") ?: doc.get("correctAnswer") ?: doc.get("dapAnDung") ?: doc.get("correct")
-            val cIndex = when (rawCorrect) {
-                is Number -> rawCorrect.toInt()
-                is String -> {
-                    when (rawCorrect.trim().uppercase()) {
-                        "A", "0" -> 0
-                        "B", "1" -> 1
-                        "C", "2" -> 2
-                        "D", "3" -> 3
-                        else -> rawCorrect.toIntOrNull() ?: 0
+            if (rawCorrect == null) return 0
+            if (rawCorrect is Number) {
+                val num = rawCorrect.toInt()
+                if (num in options.indices) return num
+                // 1-based index (ví dụ 1..4 ứng với A..D)
+                if (num > 0 && (num - 1) in options.indices) return num - 1
+                return 0
+            }
+            val str = rawCorrect.toString().trim()
+            val upper = str.uppercase()
+
+            // 1. Kiểm tra ký tự A, B, C, D đơn lẻ hoặc có dấu chấm/ngoặc
+            if (upper == "A" || upper == "0" || upper.startsWith("A.") || upper.startsWith("A)") || upper == "ĐÁP ÁN A" || upper == "CÂU A" || upper == "OPTIONA" || upper == "DAPANA") return 0
+            if (upper == "B" || upper == "1" || upper.startsWith("B.") || upper.startsWith("B)") || upper == "ĐÁP ÁN B" || upper == "CÂU B" || upper == "OPTIONB" || upper == "DAPANB") return 1
+            if (upper == "C" || upper == "2" || upper.startsWith("C.") || upper.startsWith("C)") || upper == "ĐÁP ÁN C" || upper == "CÂU C" || upper == "OPTIONC" || upper == "DAPANC") return 2
+            if (upper == "D" || upper == "3" || upper.startsWith("D.") || upper.startsWith("D)") || upper == "ĐÁP ÁN D" || upper == "CÂU D" || upper == "OPTIOND" || upper == "DAPAND") return 3
+
+            // 2. Kiểm tra nếu là số dạng chuỗi "1", "2", "3", "4"
+            val intVal = str.toIntOrNull()
+            if (intVal != null) {
+                if (intVal in options.indices) return intVal
+                if (intVal > 0 && (intVal - 1) in options.indices) return intVal - 1
+            }
+
+            // 3. Kiểm tra nếu rawCorrect là chính nội dung của đáp án đúng (ví dụ: "Cam Ranh")
+            val cleanRaw = cleanOptionText(cleanHtml(str))
+            val foundIdx = options.indexOfFirst { opt ->
+                val cleanOpt = cleanOptionText(cleanHtml(opt))
+                cleanOpt.equals(cleanRaw, ignoreCase = true) || opt.trim().equals(str, ignoreCase = true)
+            }
+            if (foundIdx >= 0) return foundIdx
+
+            return 0
+        }
+
+        fun parseFromMap(
+            map: Map<*, *>,
+            docId: String = "",
+            defaultCategory: String = "GDCT",
+            defaultBankId: String = "",
+            defaultExamSessionId: String = ""
+        ): QuestionItem? {
+            val q = (map["question"] ?: map["cauHoi"] ?: map["content"] ?: map["title"] ?: map["noiDung"] ?: "").toString().trim()
+            if (q.isBlank()) return null
+
+            val rawOpts = map["options"] ?: map["dapAn"] ?: map["choices"] ?: map["answers"] ?: map["phuongAn"]
+            var optList: List<String> = emptyList()
+            var detectedCorrectIdx: Int? = null
+
+            when (rawOpts) {
+                is List<*> -> {
+                    val list = mutableListOf<String>()
+                    rawOpts.forEachIndexed { idx, item ->
+                        when (item) {
+                            is Map<*, *> -> {
+                                val txt = (item["text"] ?: item["content"] ?: item["cauTraLoi"] ?: item["dapAn"] ?: item["title"] ?: item["value"] ?: item["noiDung"] ?: "").toString()
+                                val isCorr = (item["isCorrect"] ?: item["correct"] ?: item["dapAnDung"] ?: item["is_correct"]) == true ||
+                                        (item["isCorrect"]?.toString()?.equals("true", true) == true)
+                                if (isCorr) detectedCorrectIdx = idx
+                                list.add(cleanHtml(txt))
+                            }
+                            else -> list.add(cleanHtml(item?.toString() ?: ""))
+                        }
+                    }
+                    optList = list
+                }
+                else -> {
+                    val a = (map["optionA"] ?: map["dapAnA"] ?: map["cauA"] ?: "").toString()
+                    val b = (map["optionB"] ?: map["dapAnB"] ?: map["cauB"] ?: "").toString()
+                    val c = (map["optionC"] ?: map["dapAnC"] ?: map["cauC"] ?: "").toString()
+                    val d = (map["optionD"] ?: map["dapAnD"] ?: map["cauD"] ?: "").toString()
+                    if (a.isNotEmpty() || b.isNotEmpty()) {
+                        optList = listOf(a, b, c, d).filter { it.isNotEmpty() }.map { cleanHtml(it) }
                     }
                 }
-                else -> 0
             }
-            val cat = doc.getString("category") ?: doc.getString("chuyenDe") ?: doc.getString("loai") ?: "GDCT"
+
+            if (optList.isEmpty()) return null
+
+            val rawCorrect = map["correctIndex"] ?: map["correctAnswer"] ?: map["dapAnDung"] ?: map["correct"] ?: map["answer"] ?: map["key"] ?: map["dapAn"]
+            val cIndex = resolveCorrectIndex(rawCorrect, optList, detectedCorrectIdx)
+
+            val id = (map["id"] ?: map["_id"] ?: map["questionId"] ?: docId).toString().ifBlank { 
+                "${defaultBankId}_${System.currentTimeMillis()}_${q.hashCode()}" 
+            }
+            val cat = (map["category"] ?: map["chuyenDe"] ?: map["loai"] ?: defaultCategory).toString()
+            val bank = (map["bankId"] ?: map["bank_id"] ?: map["examBankId"] ?: defaultBankId).toString()
+            val examSession = (map["examSessionId"] ?: map["examId"] ?: map["dotThiId"] ?: defaultExamSessionId).toString()
+
+            return QuestionItem(
+                id = id,
+                lessonId = (map["lessonId"] ?: map["baiHocId"] ?: "").toString(),
+                courseId = (map["courseId"] ?: map["chuyenDeId"] ?: "").toString(),
+                examSessionId = examSession,
+                bankId = bank,
+                category = cat,
+                categoryName = (map["categoryName"] ?: map["tenChuyenDe"] ?: getCategoryDisplayName(cat)).toString(),
+                question = cleanHtml(q),
+                options = optList,
+                correctIndex = cIndex,
+                explanation = cleanHtml((map["explanation"] ?: map["giaiThich"] ?: map["huongDanGiai"] ?: "").toString())
+            )
+        }
+
+        fun fromDoc(doc: DocumentSnapshot): QuestionItem {
+            val data = doc.data ?: emptyMap<String, Any>()
             val parentId = try { doc.reference.parent.parent?.id ?: "" } catch (_: Exception) { "" }
             val parentColl = try { doc.reference.parent.id } catch (_: Exception) { "" }
+
+            val bId = (doc.getString("bankId") ?: doc.getString("bank_id") ?: doc.getString("examBankId") ?: "").ifBlank {
+                if (parentColl in listOf("exam_banks", "examBanks", "ngan_hang_cau_hoi", "banks")) parentId else ""
+            }
             val lId = (doc.getString("lessonId") ?: doc.getString("baiHocId") ?: doc.getString("lesson_id") ?: "").ifBlank {
                 if (parentColl in listOf("questions", "quiz", "cauHoi", "cau_hoi")) parentId else ""
             }
@@ -719,17 +827,32 @@ data class QuestionItem(
                 if (parentColl in listOf("exam_questions", "cauHoiKiemTra", "exam_sessions")) parentId else ""
             }
 
+            val parsed = parseFromMap(
+                map = data,
+                docId = doc.id,
+                defaultCategory = doc.getString("category") ?: doc.getString("chuyenDe") ?: "GDCT",
+                defaultBankId = bId,
+                defaultExamSessionId = eId
+            )
+
+            if (parsed != null) {
+                return parsed.copy(
+                    id = doc.id,
+                    lessonId = lId.ifBlank { parsed.lessonId },
+                    courseId = (doc.getString("courseId") ?: doc.getString("chuyenDeId") ?: "").ifBlank { parsed.courseId },
+                    examSessionId = eId.ifBlank { parsed.examSessionId },
+                    bankId = bId.ifBlank { parsed.bankId }
+                )
+            }
+
             return QuestionItem(
                 id = doc.id,
                 lessonId = lId,
                 courseId = doc.getString("courseId") ?: doc.getString("chuyenDeId") ?: "",
                 examSessionId = eId,
-                category = cat,
-                categoryName = doc.getString("categoryName") ?: doc.getString("tenChuyenDe") ?: getCategoryDisplayName(cat),
-                question = cleanHtml(q),
-                options = optList.map { cleanHtml(it) },
-                correctIndex = cIndex,
-                explanation = cleanHtml(doc.getString("explanation") ?: doc.getString("giaiThich") ?: "")
+                bankId = bId,
+                category = doc.getString("category") ?: "GDCT",
+                question = cleanHtml(doc.getString("question") ?: doc.getString("cauHoi") ?: "")
             )
         }
 
@@ -769,7 +892,8 @@ data class ExamSessionDoc(
     val targetGroupText: String = "",
     val targetAudience: List<String> = emptyList(),
     val targetAudienceText: String = "",
-    val targetUnits: List<String> = emptyList()
+    val targetUnits: List<String> = emptyList(),
+    val bankId: String = ""
 ) {
     /**
      * Kiểm tra đợt thi có phù hợp với loại đối tượng của tài khoản người dùng đang đăng nhập hay không
@@ -1050,6 +1174,18 @@ data class ExamSessionDoc(
             val isOpenBool = doc.getBoolean("isOpen") ?: doc.getBoolean("dangMo") ?: true
             val effectiveStatus = if (!isOpenBool) "closed" else rawStatus.lowercase()
 
+            val rawBankId = (doc.getString("bankId")
+                ?: doc.getString("bank_id")
+                ?: doc.getString("examBankId")
+                ?: doc.getString("exam_bank_id")
+                ?: doc.getString("nganHangId")
+                ?: doc.getString("nganHangDeId")
+                ?: doc.getString("nganHangCauHoiId")
+                ?: doc.getString("questionBankId")
+                ?: doc.getString("boDeId")
+                ?: (doc.get("bankId") ?: doc.get("bank_id"))?.toString()
+                ?: "").trim()
+
             val rawQIds = doc.get("questionIds") ?: doc.get("dsCauHoiId") ?: doc.get("listQuestionIds")
             val qIdList = when (rawQIds) {
                 is List<*> -> rawQIds.mapNotNull { it?.toString() }
@@ -1061,48 +1197,16 @@ data class ExamSessionDoc(
             val parsedQIds = mutableListOf<String>()
 
             if (rawQuestions is List<*>) {
-                rawQuestions.forEach { item ->
+                rawQuestions.forEachIndexed { idx, item ->
                     if (item is Map<*, *>) {
                         try {
-                            val qText = (item["question"] ?: item["cauHoi"] ?: item["content"] ?: item["title"] ?: "").toString()
-                            val rawOpts = item["options"] ?: item["dapAn"] ?: item["choices"] ?: item["answers"]
-                            val opts = when (rawOpts) {
-                                is List<*> -> rawOpts.mapNotNull { it?.toString() }
-                                else -> {
-                                    val a = (item["optionA"] ?: item["dapAnA"] ?: "").toString()
-                                    val b = (item["optionB"] ?: item["dapAnB"] ?: "").toString()
-                                    val c = (item["optionC"] ?: item["dapAnC"] ?: "").toString()
-                                    val d = (item["optionD"] ?: item["dapAnD"] ?: "").toString()
-                                    listOf(a, b, c, d).filter { it.isNotEmpty() }
-                                }
-                            }
-                            val rawCorr = item["correctIndex"] ?: item["correctAnswer"] ?: item["dapAnDung"] ?: item["correct"] ?: 0
-                            val corrIdx = when (rawCorr) {
-                                is Number -> rawCorr.toInt()
-                                is String -> {
-                                    when (rawCorr.trim().uppercase()) {
-                                        "A", "0" -> 0
-                                        "B", "1" -> 1
-                                        "C", "2" -> 2
-                                        "D", "3" -> 3
-                                        else -> rawCorr.toIntOrNull() ?: 0
-                                    }
-                                }
-                                else -> 0
-                            }
-                            val qId = (item["id"] ?: item["_id"] ?: item["questionId"] ?: System.currentTimeMillis().toString()).toString()
-                            if (qText.isNotBlank()) {
-                                embeddedQList.add(
-                                    QuestionItem(
-                                        id = qId,
-                                        question = cleanHtml(qText),
-                                        options = opts.map { cleanHtml(it) },
-                                        correctIndex = corrIdx,
-                                        category = doc.getString("category") ?: "GDCT",
-                                        explanation = cleanHtml((item["explanation"] ?: item["giaiThich"] ?: "").toString())
-                                    )
-                                )
-                            }
+                            QuestionItem.parseFromMap(
+                                map = item,
+                                docId = "${doc.id}_$idx",
+                                defaultCategory = doc.getString("category") ?: "GDCT",
+                                defaultBankId = rawBankId,
+                                defaultExamSessionId = doc.id
+                            )?.let { embeddedQList.add(it) }
                         } catch (e: Exception) {
                             // Skip item on error
                         }
@@ -1115,7 +1219,17 @@ data class ExamSessionDoc(
             val finalQIds = if (qIdList.isNotEmpty()) qIdList else parsedQIds
 
             val dur = parseNumber(doc.get("durationMinutes") ?: doc.get("thoiGianLamBai") ?: doc.get("thoiGian") ?: doc.get("thoiGianThi"), 20L).toInt()
-            val totalQ = parseNumber(doc.get("totalQuestions") ?: doc.get("soCauHoi") ?: doc.get("tongSoCau") ?: doc.get("soLuongCauHoi"), if (embeddedQList.isNotEmpty()) embeddedQList.size.toLong() else 20L).toInt()
+            val totalQ = parseNumber(
+                doc.get("totalQuestions")
+                    ?: doc.get("soCauHoi")
+                    ?: doc.get("soCauHoiCanTraLoi")
+                    ?: doc.get("soCauCanTraLoi")
+                    ?: doc.get("soCau")
+                    ?: doc.get("tongSoCau")
+                    ?: doc.get("soLuongCauHoi")
+                    ?: doc.get("numberOfQuestions"),
+                if (embeddedQList.isNotEmpty()) embeddedQList.size.toLong() else 10L
+            ).toInt()
             val maxAtt = parseNumber(doc.get("maxAttempts") ?: doc.get("soLuotThi") ?: doc.get("soLanThi") ?: doc.get("limitAttempts") ?: doc.get("soLuotKiemTra") ?: doc.get("soLan") ?: doc.get("luotThi"), 1L).toInt()
 
             // 1. Phân giải danh sách Loại Đối Tượng dự thi (targetGroup / targetGroups / target_group / ...)
@@ -1243,7 +1357,8 @@ data class ExamSessionDoc(
                 targetGroupText = audienceDisplay,
                 targetAudience = effectiveAudienceList,
                 targetAudienceText = audienceDisplay,
-                targetUnits = unitList
+                targetUnits = unitList,
+                bankId = rawBankId
             )
         }
     }

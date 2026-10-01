@@ -99,6 +99,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _examSessions = MutableStateFlow<List<ExamSessionDoc>>(emptyList())
     val examSessions: StateFlow<List<ExamSessionDoc>> = _examSessions.asStateFlow()
 
+    private val _examBanks = MutableStateFlow<Map<String, List<QuestionItem>>>(emptyMap())
+    val examBanks: StateFlow<Map<String, List<QuestionItem>>> = _examBanks.asStateFlow()
+    private var examBanksListener: ListenerRegistration? = null
+
     private val _broadcasts = MutableStateFlow<List<InternalBroadcastItem>>(emptyList())
     val broadcasts: StateFlow<List<InternalBroadcastItem>> = _broadcasts.asStateFlow()
 
@@ -1425,6 +1429,30 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
         } catch (e: Exception) {
             Log.w(TAG, "[EXAM_SESSIONS EXCEPTION] ${e.localizedMessage}")
+        }
+
+        // 9b. exam_banks / examBanks / ngan_hang_cau_hoi từ Web Quản Trị
+        try {
+            examBanksListener?.remove()
+            examBanksListener = db.collection("exam_banks")
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        Log.w(TAG, "[EXAM_BANKS ERROR] ${error.code}: ${error.message}")
+                        return@addSnapshotListener
+                    }
+                    if (snapshot != null && !snapshot.isEmpty) {
+                        processExamBanksSnapshot(snapshot.documents)
+                    } else {
+                        // Thử fallback sang examBanks nếu collection tên viết liền
+                        db.collection("examBanks").get().addOnSuccessListener { ebSnap ->
+                            if (ebSnap != null && !ebSnap.isEmpty) {
+                                processExamBanksSnapshot(ebSnap.documents)
+                            }
+                        }
+                    }
+                }
+        } catch (e: Exception) {
+            Log.w(TAG, "[EXAM_BANKS EXCEPTION] ${e.localizedMessage}")
         }
 
         // 10. radio_broadcasts / broadcasts / truyen_thanh / ban_tin từ Web Quản Trị
@@ -2879,6 +2907,173 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun extractQuestionsFromBankDoc(doc: DocumentSnapshot): List<QuestionItem> {
+        val bankId = doc.id
+        val list = mutableListOf<QuestionItem>()
+        val rawQuestions = doc.get("questions") 
+            ?: doc.get("dsCauHoi") 
+            ?: doc.get("cauHoiList") 
+            ?: doc.get("questionsList") 
+            ?: doc.get("items") 
+            ?: doc.get("listCauHoi") 
+            ?: doc.get("cauHoi")
+
+        if (rawQuestions is List<*>) {
+            rawQuestions.forEachIndexed { idx, item ->
+                if (item is Map<*, *>) {
+                    QuestionItem.parseFromMap(
+                        map = item,
+                        docId = "${bankId}_$idx",
+                        defaultBankId = bankId
+                    )?.let { list.add(it) }
+                }
+            }
+        } else if (rawQuestions is Map<*, *>) {
+            rawQuestions.values.forEachIndexed { idx, item ->
+                if (item is Map<*, *>) {
+                    QuestionItem.parseFromMap(
+                        map = item,
+                        docId = "${bankId}_$idx",
+                        defaultBankId = bankId
+                    )?.let { list.add(it) }
+                }
+            }
+        }
+
+        // Nếu bản thân doc này là một câu hỏi độc lập trong exam_banks
+        val qText = doc.getString("question") ?: doc.getString("cauHoi") ?: doc.getString("content") ?: ""
+        if (qText.isNotBlank()) {
+            val q = QuestionItem.fromDoc(doc).copy(bankId = (doc.getString("bankId") ?: doc.getString("bank_id") ?: bankId))
+            list.add(q)
+        }
+        return list
+    }
+
+    private fun processExamBanksSnapshot(docs: List<DocumentSnapshot>) {
+        val newMap = _examBanks.value.toMutableMap()
+        for (doc in docs) {
+            val questions = extractQuestionsFromBankDoc(doc)
+            val bId = (doc.getString("bankId") ?: doc.getString("bank_id") ?: doc.id).trim()
+            if (questions.isNotEmpty()) {
+                val existing = newMap[bId]?.toMutableList() ?: mutableListOf()
+                val seenIds = existing.map { it.id }.toMutableSet()
+                for (q in questions) {
+                    if (seenIds.add(q.id)) {
+                        existing.add(q)
+                    }
+                }
+                newMap[bId] = existing
+            }
+        }
+        _examBanks.value = newMap
+        Log.i(TAG, "[EXAM_BANKS] Synced: ${newMap.size} banks, total questions: ${newMap.values.sumOf { it.size }}")
+    }
+
+    /**
+     * Lấy danh sách câu hỏi thuộc ngân hàng đề (exam_banks) theo bankId
+     * Kết hợp cache bộ nhớ và tải thời gian thực từ Firestore để đảm bảo luôn lấy đủ đề
+     */
+    fun getQuestionsForBank(bankId: String, onComplete: (List<QuestionItem>) -> Unit) {
+        val bId = bankId.trim()
+        if (bId.isBlank()) {
+            onComplete(emptyList())
+            return
+        }
+        val cached = _examBanks.value[bId]
+        if (!cached.isNullOrEmpty()) {
+            onComplete(cached)
+            return
+        }
+
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                val found = mutableListOf<QuestionItem>()
+                val seenIds = mutableSetOf<String>()
+
+                fun addIfNew(items: List<QuestionItem>) {
+                    for (item in items) {
+                        val key = if (item.id.isNotBlank()) item.id else item.question.trim().lowercase()
+                        if (seenIds.add(key)) {
+                            found.add(item)
+                        }
+                    }
+                }
+
+                // 1. Lấy trực tiếp doc /exam_banks/{bId}
+                try {
+                    val doc = db?.collection("exam_banks")?.document(bId)?.get()?.await()
+                    if (doc != null && doc.exists()) {
+                        addIfNew(extractQuestionsFromBankDoc(doc))
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Error fetching exam_banks/$bId: ${e.message}")
+                }
+
+                // 2. Thử collection fallback: /examBanks/{bId}
+                if (found.isEmpty()) {
+                    try {
+                        val doc = db?.collection("examBanks")?.document(bId)?.get()?.await()
+                        if (doc != null && doc.exists()) {
+                            addIfNew(extractQuestionsFromBankDoc(doc))
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Error fetching examBanks/$bId: ${e.message}")
+                    }
+                }
+
+                // 3. Thử subcollections: /exam_banks/{bId}/questions, cauHoi, exam_questions
+                if (found.isEmpty()) {
+                    listOf("questions", "cauHoi", "exam_questions", "cau_hoi").forEach { subColl ->
+                        try {
+                            val subSnap = db?.collection("exam_banks")?.document(bId)?.collection(subColl)?.get()?.await()
+                            if (subSnap != null && !subSnap.isEmpty) {
+                                val list = subSnap.documents.mapNotNull { 
+                                    try { QuestionItem.fromDoc(it).copy(bankId = bId) } catch (_: Exception) { null }
+                                }
+                                addIfNew(list)
+                            }
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Error fetching subcollection exam_banks/$bId/$subColl: ${e.message}")
+                        }
+                    }
+                }
+
+                // 4. Thử truy vấn các doc trong exam_banks có field bankId == bId hoặc bank_id == bId
+                if (found.isEmpty()) {
+                    listOf("bankId", "bank_id", "examBankId").forEach { fieldName ->
+                        try {
+                            val querySnap = db?.collection("exam_banks")?.whereEqualTo(fieldName, bId)?.get()?.await()
+                            if (querySnap != null && !querySnap.isEmpty) {
+                                val list = querySnap.documents.mapNotNull { 
+                                    try { QuestionItem.fromDoc(it).copy(bankId = bId) } catch (_: Exception) { null }
+                                }
+                                addIfNew(list)
+                            }
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Error querying exam_banks by $fieldName: ${e.message}")
+                        }
+                    }
+                }
+
+                // 5. Thử tìm trong allQuestions đã sync xem có câu hỏi nào khớp bankId không
+                if (found.isEmpty()) {
+                    val fromAll = _questions.value.filter { it.bankId == bId || it.examSessionId == bId }
+                    addIfNew(fromAll)
+                }
+
+                found
+            }
+
+            if (result.isNotEmpty()) {
+                val currentMap = _examBanks.value.toMutableMap()
+                currentMap[bId] = result
+                _examBanks.value = currentMap
+            }
+
+            onComplete(result)
+        }
+    }
+
     override fun onCleared() {
         super.onCleared()
         stopUserAccountRealtimeMonitoring()
@@ -2895,6 +3090,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         postersListener?.remove()
         questionsListener?.remove()
         examSessionsListener?.remove()
+        examBanksListener?.remove()
         examResultsListener?.remove()
         broadcastsListener?.remove()
         extraFirestoreListeners.forEach { it.remove() }

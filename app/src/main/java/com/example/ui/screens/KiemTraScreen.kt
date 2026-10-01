@@ -100,6 +100,7 @@ fun KiemTraScreen(
     var showLoginRequiredDialog by remember { mutableStateOf(false) }
     var showNoExamQuestionsDialog by remember { mutableStateOf(false) }
     var showNoSessionQuestionsDialog by remember { mutableStateOf(false) }
+    var isLoadingBankQuestions by remember { mutableStateOf(false) }
 
     // Câu hỏi cho chế độ Luyện tập ngẫu nhiên: lấy từ danh sách câu hỏi của các đợt kiểm tra
     val examQuestionsPool = remember(examSessions, allQuestions) {
@@ -248,8 +249,51 @@ fun KiemTraScreen(
             isOfficialWebExam = true
             activeExamId = session.id
             activeExamName = session.title
-            
-            // 1. Lấy trực tiếp danh sách câu hỏi của đợt thi từ Web Quản trị
+
+            val targetCount = if (session.totalQuestions > 0) session.totalQuestions else 10
+
+            // 1. Nếu đợt thi có cấu hình bankId -> tự động đọc ngân hàng câu hỏi từ collection exam_banks
+            if (session.bankId.isNotBlank()) {
+                isLoadingBankQuestions = true
+                viewModel.getQuestionsForBank(session.bankId) { bankQuestions ->
+                    isLoadingBankQuestions = false
+                    val questionsToUse = if (bankQuestions.isNotEmpty()) {
+                        bankQuestions
+                    } else if (session.questionsList.isNotEmpty()) {
+                        session.questionsList
+                    } else if (session.questionIds.isNotEmpty()) {
+                        val qSet = session.questionIds.toSet()
+                        allQuestions.filter { it.id in qSet }
+                    } else {
+                        allQuestions.filter { it.examSessionId == session.id || it.bankId == session.bankId }
+                    }
+
+                    if (questionsToUse.isEmpty()) {
+                        showNoSessionQuestionsDialog = true
+                        return@getQuestionsForBank
+                    }
+
+                    // Tự lấy ngẫu nhiên đúng số lượng câu hỏi cần trả lời từ ngân hàng câu hỏi
+                    val rawList = if (questionsToUse.size > targetCount) {
+                        questionsToUse.shuffled().take(targetCount)
+                    } else {
+                        questionsToUse.shuffled()
+                    }
+
+                    // Đảo ngẫu nhiên câu hỏi và đảo thứ tự các đáp án với thuật toán bảo toàn đáp án đúng 100%
+                    examQuestions = rawList.map { it.withShuffledOptions() }
+                    examTimerSeconds = if (session.durationMinutes > 0) session.durationMinutes * 60 else 20 * 60
+
+                    userAnswers = mutableMapOf()
+                    currentQuestionIndex = 0
+                    examTimeSpentSeconds = 0
+                    isTimerRunning = true
+                    currentMode = ExamMode.TAKING_EXAM
+                }
+                return
+            }
+
+            // 2. Trường hợp đợt thi cấu hình câu hỏi nhúng trực tiếp hoặc qua questionIds
             val sessionQuestions = if (session.questionsList.isNotEmpty()) {
                 session.questionsList
             } else if (session.questionIds.isNotEmpty()) {
@@ -264,14 +308,11 @@ fun KiemTraScreen(
                 return
             }
 
-            val targetCount = if (session.totalQuestions > 0) session.totalQuestions else sessionQuestions.size
-
             val rawList = if (sessionQuestions.size > targetCount) {
                 sessionQuestions.shuffled().take(targetCount)
             } else {
                 sessionQuestions.shuffled()
             }
-            // Đảo ngẫu nhiên câu hỏi và đảo ngẫu nhiên thứ tự các đáp án trong từng câu hỏi
             examQuestions = rawList.map { it.withShuffledOptions() }
 
             examTimerSeconds = if (session.durationMinutes > 0) session.durationMinutes * 60 else 20 * 60
@@ -849,6 +890,31 @@ fun KiemTraScreen(
                 }
             }
         )
+    }
+
+    // Hộp thoại đang tải câu hỏi từ ngân hàng đề exam_banks
+    if (isLoadingBankQuestions) {
+        Dialog(onDismissRequest = {}) {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surface,
+                shadowElevation = 8.dp
+            ) {
+                Row(
+                    modifier = Modifier.padding(24.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    CircularProgressIndicator(color = RedPrimary)
+                    Text(
+                        text = "Đang tải đề thi từ ngân hàng câu hỏi...",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -2240,6 +2306,199 @@ private fun ExamResultView(
                         Icon(Icons.Default.Feedback, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(6.dp))
                         Text("Phản ánh sai sót về đề thi", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
+                }
+            }
+        }
+
+        // BẢNG CHI TIẾT KẾT QUẢ TỪNG CÂU HỎI & ĐÁP ÁN ĐÚNG
+        if (examQuestions.isNotEmpty()) {
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 10.dp, bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.Assignment,
+                        contentDescription = null,
+                        tint = RedPrimary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "CHI TIẾT KẾT QUẢ BÀI THI",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                }
+            }
+
+            itemsIndexed(examQuestions) { qIdx, question ->
+                val userAnswerIdx = userAnswers[qIdx]
+                val isCorrect = userAnswerIdx == question.correctIndex
+                val isAnswered = userAnswerIdx != null
+
+                val itemBorderColor = when {
+                    !isAnswered -> MaterialTheme.colorScheme.outlineVariant
+                    isCorrect -> Color(0xFF2E7D32)
+                    else -> RedPrimary
+                }
+
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    border = BorderStroke(1.dp, itemBorderColor.copy(alpha = 0.4f))
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Câu ${qIdx + 1}",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                color = RedPrimary
+                            )
+
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = when {
+                                    !isAnswered -> Color.Gray.copy(alpha = 0.15f)
+                                    isCorrect -> Color(0xFF2E7D32).copy(alpha = 0.15f)
+                                    else -> RedPrimary.copy(alpha = 0.15f)
+                                }
+                            ) {
+                                Text(
+                                    text = when {
+                                        !isAnswered -> "Chưa làm"
+                                        isCorrect -> "Đúng"
+                                        else -> "Sai"
+                                    },
+                                    color = when {
+                                        !isAnswered -> Color.Gray
+                                        isCorrect -> Color(0xFF2E7D32)
+                                        else -> RedPrimary
+                                    },
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.sp,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        Text(
+                            text = question.question,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 14.5.sp,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            lineHeight = 20.sp
+                        )
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        question.options.forEachIndexed { optIdx, optText ->
+                            val letter = when (optIdx) {
+                                0 -> "A"
+                                1 -> "B"
+                                2 -> "C"
+                                3 -> "D"
+                                else -> "${optIdx + 1}"
+                            }
+                            val isUserChoice = userAnswerIdx == optIdx
+                            val isRightChoice = question.correctIndex == optIdx
+
+                            val optBg = when {
+                                isUserChoice && isRightChoice -> Color(0xFF2E7D32).copy(alpha = 0.12f)
+                                isUserChoice && !isRightChoice -> RedPrimary.copy(alpha = 0.12f)
+                                isRightChoice -> Color(0xFF2E7D32).copy(alpha = 0.08f)
+                                else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                            }
+
+                            val optBorder = when {
+                                isUserChoice && isRightChoice -> BorderStroke(1.dp, Color(0xFF2E7D32))
+                                isUserChoice && !isRightChoice -> BorderStroke(1.dp, RedPrimary)
+                                isRightChoice -> BorderStroke(1.dp, Color(0xFF2E7D32).copy(alpha = 0.6f))
+                                else -> null
+                            }
+
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = optBg,
+                                border = optBorder,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 3.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(24.dp)
+                                            .clip(CircleShape)
+                                            .background(
+                                                when {
+                                                    isUserChoice && isRightChoice -> Color(0xFF2E7D32)
+                                                    isUserChoice && !isRightChoice -> RedPrimary
+                                                    isRightChoice -> Color(0xFF2E7D32).copy(alpha = 0.8f)
+                                                    else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+                                                }
+                                            ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = letter,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.sp,
+                                            color = if (isUserChoice || isRightChoice) Color.White else MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+
+                                    Text(
+                                        text = optText,
+                                        fontSize = 13.sp,
+                                        fontWeight = if (isUserChoice || isRightChoice) FontWeight.SemiBold else FontWeight.Normal,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.weight(1f)
+                                    )
+
+                                    if (isUserChoice && isRightChoice) {
+                                        Text("(Bạn chọn - Đúng)", fontSize = 11.sp, color = Color(0xFF2E7D32), fontWeight = FontWeight.Bold)
+                                    } else if (isUserChoice && !isRightChoice) {
+                                        Text("(Bạn chọn)", fontSize = 11.sp, color = RedPrimary, fontWeight = FontWeight.Bold)
+                                    } else if (isRightChoice) {
+                                        Text("(Đáp án đúng)", fontSize = 11.sp, color = Color(0xFF2E7D32), fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+
+                        if (question.explanation.isNotBlank()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = "💡 Giải thích: ${question.explanation}",
+                                    fontSize = 12.sp,
+                                    fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(8.dp)
+                                )
+                            }
+                        }
                     }
                 }
             }
