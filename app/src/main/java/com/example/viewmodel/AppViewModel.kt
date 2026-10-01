@@ -2914,9 +2914,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             ?: doc.get("dsCauHoi") 
             ?: doc.get("cauHoiList") 
             ?: doc.get("questionsList") 
+            ?: doc.get("cau_hoi_list")
+            ?: doc.get("danhSachCauHoi")
+            ?: doc.get("danh_sach_cau_hoi")
+            ?: doc.get("bankQuestions")
+            ?: doc.get("bank_questions")
+            ?: doc.get("quiz")
             ?: doc.get("items") 
             ?: doc.get("listCauHoi") 
             ?: doc.get("cauHoi")
+            ?: doc.get("cau_hoi")
 
         if (rawQuestions is List<*>) {
             rawQuestions.forEachIndexed { idx, item ->
@@ -2941,7 +2948,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         // Nếu bản thân doc này là một câu hỏi độc lập trong exam_banks
-        val qText = doc.getString("question") ?: doc.getString("cauHoi") ?: doc.getString("content") ?: ""
+        val qText = doc.getString("question") ?: doc.getString("cauHoi") ?: doc.getString("cau_hoi") ?: doc.getString("content") ?: doc.getString("noiDung") ?: doc.getString("noi_dung") ?: doc.getString("title") ?: ""
         if (qText.isNotBlank()) {
             val q = QuestionItem.fromDoc(doc).copy(bankId = (doc.getString("bankId") ?: doc.getString("bank_id") ?: bankId))
             list.add(q)
@@ -2951,10 +2958,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun processExamBanksSnapshot(docs: List<DocumentSnapshot>) {
         val newMap = _examBanks.value.toMutableMap()
+        val allExtracted = mutableListOf<QuestionItem>()
         for (doc in docs) {
             val questions = extractQuestionsFromBankDoc(doc)
             val bId = (doc.getString("bankId") ?: doc.getString("bank_id") ?: doc.id).trim()
             if (questions.isNotEmpty()) {
+                allExtracted.addAll(questions)
                 val existing = newMap[bId]?.toMutableList() ?: mutableListOf()
                 val seenIds = existing.map { it.id }.toMutableSet()
                 for (q in questions) {
@@ -2966,6 +2975,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         _examBanks.value = newMap
+        if (allExtracted.isNotEmpty()) {
+            mergeQuestions(allExtracted)
+        }
         Log.i(TAG, "[EXAM_BANKS] Synced: ${newMap.size} banks, total questions: ${newMap.values.sumOf { it.size }}")
     }
 

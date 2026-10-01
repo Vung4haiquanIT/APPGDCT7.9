@@ -86,43 +86,18 @@ data class Lesson(
                 rawQs.forEachIndexed { idx, item ->
                     if (item is Map<*, *>) {
                         try {
-                            val qText = (item["question"] ?: item["cauHoi"] ?: item["content"] ?: item["title"] ?: "").toString()
-                            val rawOpts = item["options"] ?: item["dapAn"] ?: item["choices"] ?: item["answers"]
-                            val opts = when (rawOpts) {
-                                is List<*> -> rawOpts.mapNotNull { it?.toString() }
-                                else -> {
-                                    val a = (item["optionA"] ?: item["dapAnA"] ?: "").toString()
-                                    val b = (item["optionB"] ?: item["dapAnB"] ?: "").toString()
-                                    val c = (item["optionC"] ?: item["dapAnC"] ?: "").toString()
-                                    val d = (item["optionD"] ?: item["dapAnD"] ?: "").toString()
-                                    listOf(a, b, c, d).filter { it.isNotEmpty() }
-                                }
-                            }
-                            val rawCorr = item["correctIndex"] ?: item["correctAnswer"] ?: item["dapAnDung"] ?: item["correct"] ?: 0
-                            val corrIdx = when (rawCorr) {
-                                is Number -> rawCorr.toInt()
-                                is String -> when (rawCorr.trim().uppercase()) {
-                                    "A", "0" -> 0
-                                    "B", "1" -> 1
-                                    "C", "2" -> 2
-                                    "D", "3" -> 3
-                                    else -> rawCorr.toIntOrNull() ?: 0
-                                }
-                                else -> 0
-                            }
-                            val qId = (item["id"] ?: item["_id"] ?: item["questionId"] ?: "${doc.id}_q_$idx").toString()
-                            if (qText.isNotBlank()) {
+                            QuestionItem.parseFromMap(
+                                map = item,
+                                docId = (item["id"] ?: item["_id"] ?: item["questionId"] ?: "${doc.id}_q_$idx").toString(),
+                                defaultCategory = cat.ifBlank { "GDCT" },
+                                defaultBankId = "",
+                                defaultExamSessionId = ""
+                            )?.let { parsedQ ->
                                 embeddedQs.add(
-                                    QuestionItem(
-                                        id = qId,
+                                    parsedQ.copy(
                                         lessonId = doc.id,
                                         courseId = cId,
-                                        category = cat.ifBlank { "GDCT" },
-                                        categoryName = title.ifBlank { "Bài học" },
-                                        question = cleanHtml(qText),
-                                        options = opts.map { cleanHtml(it) },
-                                        correctIndex = corrIdx,
-                                        explanation = cleanHtml((item["explanation"] ?: item["giaiThich"] ?: "").toString())
+                                        categoryName = title.ifBlank { "Bài học" }
                                     )
                                 )
                             }
@@ -668,44 +643,110 @@ data class QuestionItem(
         fun cleanOptionText(opt: String): String {
             val trimmed = opt.trim()
             if (trimmed.length <= 1) return trimmed
-            return trimmed.replace(Regex("^(?:[A-Da-d]|[1-4])[\\.\\)]\\s*"), "").trim().ifBlank { trimmed }
+            // Loại bỏ tiền tố: A., B., C., D., A), B), C), D), A:, B:, [A], (A), 1., 2., 3., 4., 1), 2), v.v.
+            var res = trimmed.replace(
+                Regex("^(?:[\\[\\(]?[A-Da-d1-4][\\]\\)]?[\\.\\:\\-\\s\\/]+)\\s*"),
+                ""
+            ).trim()
+            // Loại bỏ các hậu tố đánh dấu đúng như (Đúng), (Đáp án đúng), *
+            res = res.replace(Regex("\\s*\\((?:đúng|dung|đáp án đúng|dap an dung|chính xác)\\)\\s*$", RegexOption.IGNORE_CASE), "")
+                .replace(Regex("^\\*\\s*"), "")
+                .replace(Regex("\\s*\\*\\s*$"), "")
+                .trim()
+            return res.ifBlank { trimmed }
         }
 
         fun resolveCorrectIndex(rawCorrect: Any?, options: List<String>, detectedIndex: Int? = null): Int {
             if (detectedIndex != null && detectedIndex in options.indices) {
                 return detectedIndex
             }
-            if (rawCorrect == null) return 0
+            if (rawCorrect == null || options.isEmpty()) return 0
+
+            // 1. Nếu rawCorrect là Number
             if (rawCorrect is Number) {
                 val num = rawCorrect.toInt()
+                // Số 0 luôn là index 0 (Đáp án A)
+                if (num == 0) return 0
+                // Số bằng tổng số đáp án (ví dụ 4 khi có 4 đáp án) -> chắc chắn là 1-based (Đáp án D, index 3)
+                if (num == options.size) return options.size - 1
+                // Kiểm tra xem có option nào có nội dung chính là số này không
+                val exactNumMatch = options.indexOfFirst { cleanOptionText(cleanHtml(it)).trim() == num.toString() }
+                if (exactNumMatch >= 0) return exactNumMatch
+
+                // Nếu num trong khoảng 0..options.size-1
                 if (num in options.indices) return num
-                // 1-based index (ví dụ 1..4 ứng với A..D)
                 if (num > 0 && (num - 1) in options.indices) return num - 1
                 return 0
             }
-            val str = rawCorrect.toString().trim()
-            val upper = str.uppercase()
 
-            // 1. Kiểm tra ký tự A, B, C, D đơn lẻ hoặc có dấu chấm/ngoặc
-            if (upper == "A" || upper == "0" || upper.startsWith("A.") || upper.startsWith("A)") || upper == "ĐÁP ÁN A" || upper == "CÂU A" || upper == "OPTIONA" || upper == "DAPANA") return 0
-            if (upper == "B" || upper == "1" || upper.startsWith("B.") || upper.startsWith("B)") || upper == "ĐÁP ÁN B" || upper == "CÂU B" || upper == "OPTIONB" || upper == "DAPANB") return 1
-            if (upper == "C" || upper == "2" || upper.startsWith("C.") || upper.startsWith("C)") || upper == "ĐÁP ÁN C" || upper == "CÂU C" || upper == "OPTIONC" || upper == "DAPANC") return 2
-            if (upper == "D" || upper == "3" || upper.startsWith("D.") || upper.startsWith("D)") || upper == "ĐÁP ÁN D" || upper == "CÂU D" || upper == "OPTIOND" || upper == "DAPAND") return 3
+            val rawStr = cleanHtml(rawCorrect.toString()).trim()
+            if (rawStr.isBlank()) return 0
 
-            // 2. Kiểm tra nếu là số dạng chuỗi "1", "2", "3", "4"
-            val intVal = str.toIntOrNull()
-            if (intVal != null) {
-                if (intVal in options.indices) return intVal
-                if (intVal > 0 && (intVal - 1) in options.indices) return intVal - 1
+            // 2. Kiểm tra nếu rawStr là ký tự đáp án A, B, C, D (hỗ trợ "Đáp án A", "Đáp án: A", "[A]", "(A)", "A.", "A:", "Chọn A", "Phương án A", v.v.)
+            val letterMatch = Regex(
+                "(?:^|đáp\\s*án\\s*đúng\\s*là|đáp\\s*án\\s*đúng|đáp\\s*án|phương\\s*án|câu\\s*hỏi|câu|chọn|option|answer|key)\\s*[:\\-]?\\s*[\\[\\(]?([A-Da-d])[\\]\\)\\.\\:\\-\\s]?",
+                RegexOption.IGNORE_CASE
+            ).find(rawStr)
+
+            if (letterMatch != null) {
+                val letter = letterMatch.groupValues[1].uppercase()
+                val letterIdx = when (letter) {
+                    "A" -> 0
+                    "B" -> 1
+                    "C" -> 2
+                    "D" -> 3
+                    else -> -1
+                }
+                if (letterIdx in options.indices) {
+                    return letterIdx
+                }
             }
 
-            // 3. Kiểm tra nếu rawCorrect là chính nội dung của đáp án đúng (ví dụ: "Cam Ranh")
-            val cleanRaw = cleanOptionText(cleanHtml(str))
-            val foundIdx = options.indexOfFirst { opt ->
+            // 3. Kiểm tra số dạng chuỗi: "0", "1", "2", "3", "4" hoặc "Đáp án 1", "Đáp án: 1", "(1)", "[1]"
+            val numMatch = Regex(
+                "(?:^|đáp\\s*án\\s*đúng\\s*là|đáp\\s*án\\s*đúng|đáp\\s*án|phương\\s*án|câu|chọn|option|answer)\\s*[:\\-]?\\s*[\\[\\(]?([0-9]+)[\\]\\)\\.\\:\\-\\s]?",
+                RegexOption.IGNORE_CASE
+            ).find(rawStr)
+
+            if (numMatch != null) {
+                val intVal = numMatch.groupValues[1].toIntOrNull()
+                if (intVal != null) {
+                    val exactNumIdx = options.indexOfFirst { cleanOptionText(cleanHtml(it)).trim() == intVal.toString() }
+                    if (exactNumIdx >= 0) return exactNumIdx
+
+                    if (intVal == 0) return 0
+                    if (intVal == options.size) return options.size - 1
+                    if (intVal in options.indices) return intVal
+                    if (intVal > 0 && (intVal - 1) in options.indices) return intVal - 1
+                }
+            }
+
+            // 4. Kiểm tra nếu rawCorrect là chính nội dung của đáp án đúng (ví dụ: "Cam Ranh", "Đại tướng Võ Nguyên Giáp")
+            val cleanRaw = cleanOptionText(rawStr)
+            // 4a. Khớp chính xác (ignore case)
+            var foundIdx = options.indexOfFirst { opt ->
                 val cleanOpt = cleanOptionText(cleanHtml(opt))
-                cleanOpt.equals(cleanRaw, ignoreCase = true) || opt.trim().equals(str, ignoreCase = true)
+                cleanOpt.equals(cleanRaw, ignoreCase = true) || opt.trim().equals(rawStr, ignoreCase = true)
             }
             if (foundIdx >= 0) return foundIdx
+
+            // 4b. Khớp chứa chuỗi nếu độ dài đặc trưng (>= 3 ký tự)
+            if (cleanRaw.length >= 3) {
+                foundIdx = options.indexOfFirst { opt ->
+                    val cleanOpt = cleanOptionText(cleanHtml(opt))
+                    cleanOpt.contains(cleanRaw, ignoreCase = true) || cleanRaw.contains(cleanOpt, ignoreCase = true)
+                }
+                if (foundIdx >= 0) return foundIdx
+            }
+
+            // 5. Kiểm tra nếu có bất kỳ đáp án nào trong options có cờ đánh dấu đúng dạng text như "(Đúng)", "(Đáp án đúng)", "*" ở cuối
+            val markedIdx = options.indexOfFirst { opt ->
+                val lower = opt.lowercase().trim()
+                lower.endsWith("(đúng)") || lower.endsWith("(dung)") || 
+                lower.endsWith("(đáp án đúng)") || lower.endsWith("(dap an dung)") || 
+                lower.endsWith("(chính xác)") || lower.endsWith("*") || lower.startsWith("*")
+            }
+            if (markedIdx >= 0) return markedIdx
 
             return 0
         }
@@ -717,10 +758,10 @@ data class QuestionItem(
             defaultBankId: String = "",
             defaultExamSessionId: String = ""
         ): QuestionItem? {
-            val q = (map["question"] ?: map["cauHoi"] ?: map["content"] ?: map["title"] ?: map["noiDung"] ?: "").toString().trim()
+            val q = (map["question"] ?: map["cauHoi"] ?: map["cau_hoi"] ?: map["content"] ?: map["title"] ?: map["noiDung"] ?: map["noi_dung"] ?: "").toString().trim()
             if (q.isBlank()) return null
 
-            val rawOpts = map["options"] ?: map["dapAn"] ?: map["choices"] ?: map["answers"] ?: map["phuongAn"]
+            val rawOpts = map["options"] ?: map["dapAn"] ?: map["dap_an"] ?: map["choices"] ?: map["answers"] ?: map["phuongAn"] ?: map["phuong_an"] ?: map["dsDapAn"] ?: map["listDapAn"]
             var optList: List<String> = emptyList()
             var detectedCorrectIdx: Int? = null
 
@@ -730,31 +771,75 @@ data class QuestionItem(
                     rawOpts.forEachIndexed { idx, item ->
                         when (item) {
                             is Map<*, *> -> {
-                                val txt = (item["text"] ?: item["content"] ?: item["cauTraLoi"] ?: item["dapAn"] ?: item["title"] ?: item["value"] ?: item["noiDung"] ?: "").toString()
-                                val isCorr = (item["isCorrect"] ?: item["correct"] ?: item["dapAnDung"] ?: item["is_correct"]) == true ||
-                                        (item["isCorrect"]?.toString()?.equals("true", true) == true)
+                                val txt = (item["text"] ?: item["content"] ?: item["cauTraLoi"] ?: item["cau_tra_loi"] ?: item["dapAn"] ?: item["dap_an"] ?: item["title"] ?: item["value"] ?: item["noiDung"] ?: "").toString()
+                                val isCorrRaw = item["isCorrect"] ?: item["correct"] ?: item["dapAnDung"] ?: item["dap_an_dung"] ?: item["is_correct"] ?: item["dung"] ?: item["isTrue"]
+                                val isCorr = isCorrRaw == true ||
+                                        isCorrRaw?.toString()?.equals("true", ignoreCase = true) == true ||
+                                        isCorrRaw == 1 || isCorrRaw == 1L || isCorrRaw?.toString() == "1"
                                 if (isCorr) detectedCorrectIdx = idx
-                                list.add(cleanHtml(txt))
+                                list.add(cleanOptionText(cleanHtml(txt)))
                             }
-                            else -> list.add(cleanHtml(item?.toString() ?: ""))
+                            else -> list.add(cleanOptionText(cleanHtml(item?.toString() ?: "")))
                         }
                     }
                     optList = list
                 }
+                is Map<*, *> -> {
+                    // Trường hợp options là Map {"A": "...", "B": "...", "C": "...", "D": "..."}
+                    val a = (rawOpts["A"] ?: rawOpts["a"] ?: rawOpts["optionA"] ?: rawOpts["dapAnA"] ?: "").toString()
+                    val b = (rawOpts["B"] ?: rawOpts["b"] ?: rawOpts["optionB"] ?: rawOpts["dapAnB"] ?: "").toString()
+                    val c = (rawOpts["C"] ?: rawOpts["c"] ?: rawOpts["optionC"] ?: rawOpts["dapAnC"] ?: "").toString()
+                    val d = (rawOpts["D"] ?: rawOpts["d"] ?: rawOpts["optionD"] ?: rawOpts["dapAnD"] ?: "").toString()
+                    val rawList = listOf(a, b, c, d)
+                    if (rawList.any { it.isNotBlank() }) {
+                        optList = rawList.filter { it.isNotBlank() }.map { cleanOptionText(cleanHtml(it)) }
+                    }
+                }
                 else -> {
-                    val a = (map["optionA"] ?: map["dapAnA"] ?: map["cauA"] ?: "").toString()
-                    val b = (map["optionB"] ?: map["dapAnB"] ?: map["cauB"] ?: "").toString()
-                    val c = (map["optionC"] ?: map["dapAnC"] ?: map["cauC"] ?: "").toString()
-                    val d = (map["optionD"] ?: map["dapAnD"] ?: map["cauD"] ?: "").toString()
-                    if (a.isNotEmpty() || b.isNotEmpty()) {
-                        optList = listOf(a, b, c, d).filter { it.isNotEmpty() }.map { cleanHtml(it) }
+                    // Trường hợp các phương án nằm trực tiếp trên document/map
+                    val a = (map["optionA"] ?: map["option_a"] ?: map["dapAnA"] ?: map["dap_an_a"] ?: map["cauA"] ?: map["cau_a"] ?: map["phuongAnA"] ?: map["phuong_an_a"] ?: map["answerA"] ?: map["answer_a"] ?: map["A"] ?: map["a"] ?: "").toString()
+                    val b = (map["optionB"] ?: map["option_b"] ?: map["dapAnB"] ?: map["dap_an_b"] ?: map["cauB"] ?: map["cau_b"] ?: map["phuongAnB"] ?: map["phuong_an_b"] ?: map["answerB"] ?: map["answer_b"] ?: map["B"] ?: map["b"] ?: "").toString()
+                    val c = (map["optionC"] ?: map["option_c"] ?: map["dapAnC"] ?: map["dap_an_c"] ?: map["cauC"] ?: map["cau_c"] ?: map["phuongAnC"] ?: map["phuong_an_c"] ?: map["answerC"] ?: map["answer_c"] ?: map["C"] ?: map["c"] ?: "").toString()
+                    val d = (map["optionD"] ?: map["option_d"] ?: map["dapAnD"] ?: map["dap_an_d"] ?: map["cauD"] ?: map["cau_d"] ?: map["phuongAnD"] ?: map["phuong_an_d"] ?: map["answerD"] ?: map["answer_d"] ?: map["D"] ?: map["d"] ?: "").toString()
+                    val rawList = listOf(a, b, c, d)
+                    if (rawList.any { it.isNotBlank() }) {
+                        optList = rawList.filter { it.isNotBlank() }.map { cleanOptionText(cleanHtml(it)) }
                     }
                 }
             }
 
             if (optList.isEmpty()) return null
 
-            val rawCorrect = map["correctIndex"] ?: map["correctAnswer"] ?: map["dapAnDung"] ?: map["correct"] ?: map["answer"] ?: map["key"] ?: map["dapAn"]
+            // Trích xuất rawCorrect từ TẤT CẢ các key có thể có trong Firebase / Web Quản trị
+            val rawCorrect = map["correctIndex"] 
+                ?: map["correct_index"]
+                ?: map["correctAnswer"] 
+                ?: map["correct_answer"]
+                ?: map["dapAnDung"] 
+                ?: map["dap_an_dung"]
+                ?: map["dapAnChinhXac"] 
+                ?: map["dap_an_chinh_xac"]
+                ?: map["cauDung"] 
+                ?: map["cau_dung"]
+                ?: map["cauTraLoiDung"] 
+                ?: map["cau_tra_loi_dung"]
+                ?: map["correctOption"] 
+                ?: map["correct_option"]
+                ?: map["rightAnswer"] 
+                ?: map["right_answer"]
+                ?: map["answerKey"] 
+                ?: map["answer_key"]
+                ?: map["key_answer"] 
+                ?: map["keyAnswer"]
+                ?: map["key"]
+                ?: map["ketQua"] 
+                ?: map["ket_qua"]
+                ?: map["result"]
+                ?: (if (map["correct"] !is Boolean) map["correct"] else null)
+                ?: (if (map["dapAn"] !is List<*> && map["dapAn"] !is Map<*, *>) map["dapAn"] else null)
+                ?: (if (map["dap_an"] !is List<*> && map["dap_an"] !is Map<*, *>) map["dap_an"] else null)
+                ?: (if (map["answer"] !is List<*> && map["answer"] !is Map<*, *>) map["answer"] else null)
+
             val cIndex = resolveCorrectIndex(rawCorrect, optList, detectedCorrectIdx)
 
             val id = (map["id"] ?: map["_id"] ?: map["questionId"] ?: docId).toString().ifBlank { 

@@ -68,6 +68,7 @@ fun KiemTraScreen(
     onExamTakingStateChange: ((Boolean) -> Unit)? = null
 ) {
     val allQuestions by viewModel.questions.collectAsState()
+    val examBanks by viewModel.examBanks.collectAsState()
     val examSessions by viewModel.examSessions.collectAsState()
     val userExamResults by viewModel.userExamResults.collectAsState()
     val lessons by viewModel.lessons.collectAsState()
@@ -102,12 +103,22 @@ fun KiemTraScreen(
     var showNoSessionQuestionsDialog by remember { mutableStateOf(false) }
     var isLoadingBankQuestions by remember { mutableStateOf(false) }
 
-    // Câu hỏi cho chế độ Luyện tập ngẫu nhiên: lấy từ danh sách câu hỏi của các đợt kiểm tra
-    val examQuestionsPool = remember(examSessions, allQuestions) {
+    // Câu hỏi cho chế độ Luyện tập ngẫu nhiên: lấy từ ngân hàng đề exam_banks và danh sách câu hỏi đợt thi
+    val examQuestionsPool = remember(examSessions, allQuestions, examBanks) {
         val pool = mutableListOf<QuestionItem>()
         val seen = mutableSetOf<String>()
 
-        // 1. Toàn bộ câu hỏi nhúng trực tiếp trong các đợt kiểm tra
+        // 1. Toàn bộ câu hỏi từ ngân hàng đề thi exam_banks
+        for ((bId, bQuestions) in examBanks) {
+            for (q in bQuestions) {
+                val key = if (q.id.isNotBlank()) q.id else q.question.trim().lowercase()
+                if (seen.add(key)) {
+                    pool.add(q.copy(bankId = q.bankId.ifBlank { bId }))
+                }
+            }
+        }
+
+        // 2. Toàn bộ câu hỏi nhúng trực tiếp trong các đợt kiểm tra
         for (session in examSessions) {
             for (q in session.questionsList) {
                 val key = if (q.id.isNotBlank()) q.id else q.question.trim().lowercase()
@@ -120,7 +131,7 @@ fun KiemTraScreen(
                     )
                 }
             }
-            // 2. Câu hỏi tham chiếu qua questionIds của đợt kiểm tra
+            // 3. Câu hỏi tham chiếu qua questionIds của đợt kiểm tra
             if (session.questionIds.isNotEmpty()) {
                 val idSet = session.questionIds.toSet()
                 for (q in allQuestions) {
@@ -139,9 +150,9 @@ fun KiemTraScreen(
             }
         }
 
-        // 3. Câu hỏi có đánh dấu examSessionId trong allQuestions
+        // 4. Câu hỏi có đánh dấu examSessionId hoặc bankId trong allQuestions
         for (q in allQuestions) {
-            if (q.examSessionId.isNotBlank()) {
+            if (q.examSessionId.isNotBlank() || q.bankId.isNotBlank()) {
                 val key = if (q.id.isNotBlank()) q.id else q.question.trim().lowercase()
                 if (seen.add(key)) {
                     pool.add(q)
@@ -151,12 +162,22 @@ fun KiemTraScreen(
         pool
     }
 
-    // Câu hỏi cho phần Ôn tập: lấy từ các câu hỏi trong các bài học
-    val reviewQuestionsPool = remember(lessons, allQuestions) {
+    // Câu hỏi cho phần Ngân hàng câu hỏi: bao gồm toàn bộ ngân hàng đề exam_banks và câu hỏi từ bài học
+    val reviewQuestionsPool = remember(lessons, allQuestions, examBanks) {
         val pool = mutableListOf<QuestionItem>()
         val seen = mutableSetOf<String>()
 
-        // 1. Câu hỏi nhúng bên trong bài học
+        // 1. Toàn bộ câu hỏi từ ngân hàng câu hỏi exam_banks
+        for ((bId, bQuestions) in examBanks) {
+            for (q in bQuestions) {
+                val key = if (q.id.isNotBlank()) q.id else q.question.trim().lowercase()
+                if (seen.add(key)) {
+                    pool.add(q.copy(bankId = q.bankId.ifBlank { bId }))
+                }
+            }
+        }
+
+        // 2. Câu hỏi nhúng bên trong bài học
         for (lesson in lessons) {
             for (q in lesson.questions) {
                 val key = if (q.id.isNotBlank()) q.id else q.question.trim().lowercase()
@@ -172,20 +193,17 @@ fun KiemTraScreen(
             }
         }
 
-        // 2. Câu hỏi từ allQuestions gắn với lessonId hoặc courseId
+        // 3. Câu hỏi từ allQuestions
         for (q in allQuestions) {
-            val isLessonQuestion = q.lessonId.isNotBlank() || q.courseId.isNotBlank() || lessons.any { it.id == q.lessonId || it.id == q.courseId }
-            if (isLessonQuestion) {
-                val key = if (q.id.isNotBlank()) q.id else q.question.trim().lowercase()
-                if (seen.add(key)) {
-                    val matchedLesson = lessons.find { it.id == q.lessonId }
-                    val lessonTitle = matchedLesson?.title
-                    pool.add(
-                        if (!lessonTitle.isNullOrBlank() && (q.categoryName.isBlank() || q.categoryName == "Kiến thức chung"))
-                            q.copy(categoryName = lessonTitle)
-                        else q
-                    )
-                }
+            val key = if (q.id.isNotBlank()) q.id else q.question.trim().lowercase()
+            if (seen.add(key)) {
+                val matchedLesson = lessons.find { it.id == q.lessonId }
+                val lessonTitle = matchedLesson?.title
+                pool.add(
+                    if (!lessonTitle.isNullOrBlank() && (q.categoryName.isBlank() || q.categoryName == "Kiến thức chung"))
+                        q.copy(categoryName = lessonTitle)
+                    else q
+                )
             }
         }
         pool
@@ -317,17 +335,18 @@ fun KiemTraScreen(
 
             examTimerSeconds = if (session.durationMinutes > 0) session.durationMinutes * 60 else 20 * 60
         } else {
-            // Luyện tập ngẫu nhiên: lấy từ danh sách câu hỏi từ các đợt kiểm tra
-            if (examQuestionsPool.isEmpty()) {
+            // Luyện tập ngẫu nhiên: lấy từ danh sách câu hỏi từ các đợt kiểm tra và ngân hàng đề
+            val pool = if (examQuestionsPool.isNotEmpty()) examQuestionsPool else reviewQuestionsPool
+            if (pool.isEmpty()) {
                 showNoExamQuestionsDialog = true
                 return
             }
 
             isOfficialWebExam = false
             activeExamId = "random_practice_${System.currentTimeMillis()}"
-            val totalToPick = minOf(20, examQuestionsPool.size)
+            val totalToPick = minOf(20, pool.size)
             activeExamName = "Luyện tập ngẫu nhiên ($totalToPick câu)"
-            examQuestions = examQuestionsPool.shuffled().take(totalToPick)
+            examQuestions = pool.shuffled().take(totalToPick)
             examTimerSeconds = 20 * 60
         }
 
