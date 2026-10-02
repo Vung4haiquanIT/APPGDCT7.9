@@ -114,19 +114,17 @@ fun ZoomableSlideImage(
                     }
                 )
             }
-            .pointerInput(imageUrl, pageIndex, scale) {
+            .pointerInput(imageUrl, pageIndex) {
                 awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false)
+                    awaitFirstDown(requireUnconsumed = false)
                     var zoom = 1f
                     var pan = Offset.Zero
                     var pastTouchSlop = false
                     val touchSlop = viewConfiguration.touchSlop
+                    var lastReportedScale = scale
 
                     do {
                         val event = awaitPointerEvent()
-                        val canceled = event.changes.any { it.isConsumed }
-                        if (canceled) break
-
                         val pressedPointers = event.changes.filter { it.pressed }
                         val pointerCount = pressedPointers.size
 
@@ -150,7 +148,6 @@ fun ZoomableSlideImage(
                             if (pastTouchSlop) {
                                 val newScale = (scale * zoomChange).coerceIn(1f, 5f)
                                 scale = newScale
-                                onScaleChanged(newScale)
 
                                 if (newScale > 1.02f && containerSize.width > 0 && containerSize.height > 0) {
                                     val maxPanX = ((containerSize.width * (newScale - 1f)) / 2f).coerceAtLeast(0f)
@@ -163,6 +160,14 @@ fun ZoomableSlideImage(
                                 }
 
                                 event.changes.forEach { it.consume() }
+
+                                // Chỉ thông báo parent khi đổi trạng thái cuộn (> 1.05f) hoặc bước thay đổi đủ lớn (>= 0.1f)
+                                // để graphicsLayer xử lý phần cứng 60fps/120fps mượt mà, không bị lag vì recomposition spam
+                                if ((newScale > 1.05f) != (lastReportedScale > 1.05f) ||
+                                    kotlin.math.abs(newScale - lastReportedScale) >= 0.1f) {
+                                    lastReportedScale = newScale
+                                    onScaleChanged(newScale)
+                                }
                             }
                         } else if (pointerCount == 1 && scale > 1.05f) {
                             // Khi đang thu phóng lớn (>1.05x), cho phép 1 ngón tay pan kéo rê slide xem các góc
@@ -188,6 +193,17 @@ fun ZoomableSlideImage(
                             // KHÔNG consume touch events để HorizontalPager tự do lướt sang 2 bên chuyển slide mượt mà!
                         }
                     } while (event.changes.any { it.pressed })
+
+                    // Khi người dùng thả tay: cập nhật tỷ lệ thu phóng cuối cùng
+                    if (kotlin.math.abs(scale - lastReportedScale) > 0.01f) {
+                        onScaleChanged(scale)
+                    }
+                    if (scale <= 1.02f) {
+                        scale = 1f
+                        offsetX = 0f
+                        offsetY = 0f
+                        onScaleChanged(1f)
+                    }
                 }
             },
         contentAlignment = Alignment.Center

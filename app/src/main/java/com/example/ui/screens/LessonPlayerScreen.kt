@@ -839,23 +839,34 @@ fun LessonPlayerScreen(
 
                             if (lessonContents.isNotEmpty()) {
                                 lessonContents.forEach { content ->
+                                    val parsedHtml = remember(content.bodyHtml) {
+                                        HtmlCompat.fromHtml(
+                                            content.bodyHtml.ifEmpty { "Chưa có nội dung chi tiết." },
+                                            HtmlCompat.FROM_HTML_MODE_LEGACY
+                                        )
+                                    }
                                     Card(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .pointerInput(Unit) {
                                                 awaitEachGesture {
                                                     awaitFirstDown(requireUnconsumed = false)
+                                                    var tempScale = contentFontScale
                                                     do {
                                                         val event = awaitPointerEvent()
                                                         val pressedList = event.changes.filter { it.pressed }
                                                         if (pressedList.size >= 2) {
                                                             val zoomChange = event.calculateZoom()
-                                                            if (kotlin.math.abs(zoomChange - 1f) > 0.01f) {
-                                                                contentFontScale = (contentFontScale * zoomChange).coerceIn(0.75f, 2.5f)
+                                                            if (kotlin.math.abs(zoomChange - 1f) > 0.005f) {
+                                                                tempScale = (tempScale * zoomChange).coerceIn(0.75f, 2.5f)
+                                                                if (kotlin.math.abs(tempScale - contentFontScale) >= 0.02f) {
+                                                                    contentFontScale = (kotlin.math.round(tempScale * 50f) / 50f).coerceIn(0.75f, 2.5f)
+                                                                }
                                                                 event.changes.forEach { it.consume() }
                                                             }
                                                         }
                                                     } while (event.changes.any { it.pressed })
+                                                    contentFontScale = (kotlin.math.round(tempScale * 20f) / 20f).coerceIn(0.75f, 2.5f)
                                                 }
                                             },
                                         shape = RoundedCornerShape(12.dp),
@@ -879,15 +890,18 @@ fun LessonPlayerScreen(
                                                         textSize = 15f * contentFontScale
                                                         setTextColor(AndroidColor.parseColor("#222222"))
                                                         setLineSpacing(8f * contentFontScale, 1.3f)
+                                                        text = parsedHtml
                                                     }
                                                 },
                                                 update = { tv ->
-                                                    tv.textSize = 15f * contentFontScale
-                                                    tv.setLineSpacing(8f * contentFontScale, 1.3f)
-                                                    tv.text = HtmlCompat.fromHtml(
-                                                        content.bodyHtml.ifEmpty { "Chưa có nội dung chi tiết." },
-                                                        HtmlCompat.FROM_HTML_MODE_LEGACY
-                                                    )
+                                                    val targetSize = 15f * contentFontScale
+                                                    if (kotlin.math.abs(tv.textSize / tv.resources.displayMetrics.scaledDensity - targetSize) > 0.1f) {
+                                                        tv.textSize = targetSize
+                                                        tv.setLineSpacing(8f * contentFontScale, 1.3f)
+                                                    }
+                                                    if (tv.text != parsedHtml) {
+                                                        tv.text = parsedHtml
+                                                    }
                                                 },
                                                 modifier = Modifier.fillMaxWidth()
                                             )
@@ -901,17 +915,22 @@ fun LessonPlayerScreen(
                                         .pointerInput(Unit) {
                                             awaitEachGesture {
                                                 awaitFirstDown(requireUnconsumed = false)
+                                                var tempScale = contentFontScale
                                                 do {
                                                     val event = awaitPointerEvent()
                                                     val pressedList = event.changes.filter { it.pressed }
                                                     if (pressedList.size >= 2) {
                                                         val zoomChange = event.calculateZoom()
-                                                        if (kotlin.math.abs(zoomChange - 1f) > 0.01f) {
-                                                            contentFontScale = (contentFontScale * zoomChange).coerceIn(0.75f, 2.5f)
+                                                        if (kotlin.math.abs(zoomChange - 1f) > 0.005f) {
+                                                            tempScale = (tempScale * zoomChange).coerceIn(0.75f, 2.5f)
+                                                            if (kotlin.math.abs(tempScale - contentFontScale) >= 0.02f) {
+                                                                contentFontScale = (kotlin.math.round(tempScale * 50f) / 50f).coerceIn(0.75f, 2.5f)
+                                                            }
                                                             event.changes.forEach { it.consume() }
                                                         }
                                                     }
                                                 } while (event.changes.any { it.pressed })
+                                                contentFontScale = (kotlin.math.round(tempScale * 20f) / 20f).coerceIn(0.75f, 2.5f)
                                             }
                                         },
                                     shape = RoundedCornerShape(12.dp),
