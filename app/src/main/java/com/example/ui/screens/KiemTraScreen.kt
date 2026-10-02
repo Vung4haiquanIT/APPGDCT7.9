@@ -162,24 +162,16 @@ fun KiemTraScreen(
         pool
     }
 
-    // Câu hỏi cho phần Ngân hàng câu hỏi: bao gồm toàn bộ ngân hàng đề exam_banks và câu hỏi từ bài học
-    val reviewQuestionsPool = remember(lessons, allQuestions, examBanks) {
+    // Câu hỏi cho phần Ôn tập câu hỏi từ bài học: CHỈ lấy câu hỏi từ các bài học chuyên đề (lessons), tuyệt đối KHÔNG lấy câu hỏi trong ngân hàng đề thi (exam_banks / đợt thi)
+    val reviewQuestionsPool = remember(lessons, allQuestions) {
         val pool = mutableListOf<QuestionItem>()
         val seen = mutableSetOf<String>()
 
-        // 1. Toàn bộ câu hỏi từ ngân hàng câu hỏi exam_banks
-        for ((bId, bQuestions) in examBanks) {
-            for (q in bQuestions) {
-                val key = if (q.id.isNotBlank()) q.id else q.question.trim().lowercase()
-                if (seen.add(key)) {
-                    pool.add(q.copy(bankId = q.bankId.ifBlank { bId }))
-                }
-            }
-        }
-
-        // 2. Câu hỏi nhúng bên trong bài học
+        // 1. Toàn bộ câu hỏi nhúng trực tiếp bên trong các bài học chuyên đề
         for (lesson in lessons) {
             for (q in lesson.questions) {
+                // Bỏ qua câu hỏi thuộc ngân hàng đề thi hoặc đợt thi
+                if (q.bankId.isNotBlank() || q.examSessionId.isNotBlank()) continue
                 val key = if (q.id.isNotBlank()) q.id else q.question.trim().lowercase()
                 if (seen.add(key)) {
                     pool.add(
@@ -193,17 +185,21 @@ fun KiemTraScreen(
             }
         }
 
-        // 3. Câu hỏi từ allQuestions
+        // 2. Các câu hỏi thuộc bài học chuyên đề từ allQuestions (chỉ lấy câu hỏi gắn với bài học, loại trừ ngân hàng đề)
+        val lessonMap = lessons.associateBy { it.id }
         for (q in allQuestions) {
-            val key = if (q.id.isNotBlank()) q.id else q.question.trim().lowercase()
-            if (seen.add(key)) {
-                val matchedLesson = lessons.find { it.id == q.lessonId }
-                val lessonTitle = matchedLesson?.title
-                pool.add(
-                    if (!lessonTitle.isNullOrBlank() && (q.categoryName.isBlank() || q.categoryName == "Kiến thức chung"))
-                        q.copy(categoryName = lessonTitle)
-                    else q
-                )
+            // Loại trừ hoàn toàn câu hỏi thuộc ngân hàng đề thi hoặc đợt thi
+            if (q.bankId.isNotBlank() || q.examSessionId.isNotBlank()) continue
+            if (q.lessonId.isNotBlank() && lessonMap.containsKey(q.lessonId)) {
+                val key = if (q.id.isNotBlank()) q.id else q.question.trim().lowercase()
+                if (seen.add(key)) {
+                    val lessonTitle = lessonMap[q.lessonId]?.title
+                    pool.add(
+                        if (!lessonTitle.isNullOrBlank() && (q.categoryName.isBlank() || q.categoryName == "Kiến thức chung"))
+                            q.copy(categoryName = lessonTitle)
+                        else q
+                    )
+                }
             }
         }
         pool

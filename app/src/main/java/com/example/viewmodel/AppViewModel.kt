@@ -1531,7 +1531,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (db == null) return
         try {
             examResultsListener?.remove()
-            examResultsListener = db.collection("exam_results")
+            examResultsListener = db.collection("ket_qua_thi")
                 .addSnapshotListener { snapshot, error ->
                     if (error != null) {
                         Log.w(TAG, "[EXAM_RESULTS ERROR] ${error.code}: ${error.message}")
@@ -1540,7 +1540,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     val userEmail = _userDoc.value?.email ?: _currentUser.value?.email ?: ""
                     val userName = _userDoc.value?.name ?: _currentUser.value?.displayName ?: ""
 
-                    val list1 = snapshot?.documents?.mapNotNull { doc ->
+                    val list = snapshot?.documents?.mapNotNull { doc ->
                         try {
                             val item = ExamResultDoc.fromDoc(doc)
                             val docUserId = doc.getString("userId") ?: doc.getString("user_id") ?: doc.getString("nguoiDungId") ?: ""
@@ -1556,30 +1556,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         } catch (e: Exception) { null }
                     } ?: emptyList()
 
-                    // Fallback to fetch additional results from ket_qua_thi collection on Firestore
-                    db.collection("ket_qua_thi").get().addOnSuccessListener { ketQuaSnap ->
-                        val list2 = ketQuaSnap?.documents?.mapNotNull { doc ->
-                            try {
-                                val item = ExamResultDoc.fromDoc(doc)
-                                val docUserId = doc.getString("userId") ?: doc.getString("user_id") ?: doc.getString("nguoiDungId") ?: ""
-                                val docEmail = doc.getString("userEmail") ?: doc.getString("email") ?: ""
-                                val docName = doc.getString("userName") ?: doc.getString("hoTen") ?: ""
-
-                                val isMatch = docUserId == uid ||
-                                        (userEmail.isNotBlank() && docEmail.equals(userEmail, ignoreCase = true)) ||
-                                        (userName.isNotBlank() && docName.equals(userName, ignoreCase = true)) ||
-                                        (docUserId.isNotBlank() && uid.contains(docUserId))
-
-                                if (isMatch) item else null
-                            } catch (e: Exception) { null }
-                        } ?: emptyList()
-
-                        val combined = (list1 + list2).distinctBy { "${it.examId}_${it.timestamp}" }.sortedByDescending { it.timestamp }
-                        _userExamResults.value = combined
-                        Log.i(TAG, "[EXAM_RESULTS] Realtime sync: ${combined.size} results for user $uid")
-                    }.addOnFailureListener {
-                        _userExamResults.value = list1.sortedByDescending { it.timestamp }
-                    }
+                    val sorted = list.distinctBy { "${it.examId}_${it.timestamp}" }.sortedByDescending { it.timestamp }
+                    _userExamResults.value = sorted
+                    Log.i(TAG, "[EXAM_RESULTS] Realtime sync: ${sorted.size} results for user $uid from ket_qua_thi")
                 }
         } catch (e: Exception) {
             Log.w(TAG, "[EXAM_RESULTS EXCEPTION] ${e.localizedMessage}")
@@ -2630,71 +2609,29 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
             val logData = hashMapOf<String, Any>(
                 "userId" to uid,
-                "user_id" to uid,
-                "nguoiDungId" to uid,
                 "userName" to userName,
-                "hoTen" to userName,
                 "userEmail" to userEmail,
-                "email" to userEmail,
                 "userUnit" to userUnit,
-                "unit" to userUnit,
-                "donVi" to userUnit,
                 "userRank" to userRank,
-                "rank" to userRank,
-                "capBac" to userRank,
                 "targetGroup" to (user?.targetAudience ?: ""),
-                "userTargetGroup" to (user?.targetAudience ?: ""),
-                "targetAudience" to (user?.targetAudience ?: ""),
-                "doiTuong" to (user?.targetAudience ?: ""),
                 "examId" to examId,
-                "dotThiId" to examId,
-                "examSessionId" to examId,
                 "examName" to examName,
-                "tenDotThi" to examName,
-                "tenBaiThi" to examName,
                 "score" to score,
-                "diem" to score,
-                "soCauDung" to score,
                 "totalQuestions" to totalQuestions,
-                "tongSoCau" to totalQuestions,
-                "soCauHoi" to totalQuestions,
                 "scorePercentage" to percent,
-                "phanTramDiem" to percent,
                 "passed" to passed,
-                "dat" to passed,
                 "timeSpentSeconds" to timeSpentSeconds,
-                "thoiGianLamBai" to timeSpentSeconds,
                 "timestamp" to timestamp,
-                "createdAt" to timestamp,
-                "thoiGianNop" to timestamp,
-                "isOfficial" to isOfficial,
-                "chinhThuc" to isOfficial,
-                "examType" to examType,
-                "loaiBaiThi" to if (isOfficial) "chinh_thuc" else "luyen_tap",
-                "type" to if (isOfficial) "official" else "practice",
-                "source" to "mobile_app",
-                "device" to "Android App Vùng 4"
+                "loaiBaiThi" to if (isOfficial) "chinh_thuc" else "luyen_tap"
             )
             
             if (db != null) {
                 try {
-                    db.collection("exam_results").add(logData).await()
+                    // Chỉ ghi kết quả vào duy nhất collection ket_qua_thi theo yêu cầu
                     db.collection("ket_qua_thi").add(logData).await()
-                    db.collection("study_logs").add(logData).await()
                     
                     if (uid.isNotBlank() && uid != "guest") {
-                        // 1. Gửi kết quả về dữ liệu riêng trực tiếp của tài khoản ngay lập tức
-                        val docId = "res_${timestamp}"
-                        db.collection("users").document(uid).collection("exam_results").document(docId).set(logData).await()
-                        db.collection("users").document(uid).collection("ket_qua_thi").document(docId).set(logData).await()
-                        
-                        // Cũng thử lưu vào accounts nếu tài khoản nằm ở collection accounts
-                        try {
-                            db.collection("accounts").document(uid).collection("exam_results").document(docId).set(logData).await()
-                            db.collection("accounts").document(uid).collection("ket_qua_thi").document(docId).set(logData).await()
-                        } catch (ignored: Exception) {}
-
-                        // 2. Cập nhật các thông số tổng hợp kiểm tra trực tiếp vào dữ liệu tài khoản
+                        // Cập nhật các thông số tổng hợp kiểm tra trực tiếp vào dữ liệu tài khoản
                         try {
                             val userRef = db.collection("users").document(uid)
                             db.runTransaction { transaction ->
@@ -2718,31 +2655,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         } catch (userDocEx: Exception) {
                             Log.w(TAG, "[EXAM USER DOC UPDATE ERROR] ${userDocEx.localizedMessage}")
                         }
-
-                        try {
-                            val accRef = db.collection("accounts").document(uid)
-                            db.runTransaction { transaction ->
-                                val snapshot = transaction.get(accRef)
-                                if (snapshot.exists()) {
-                                    val currentTotal = snapshot.getLong("totalExamsCount") ?: 0L
-                                    val currentPassed = snapshot.getLong("passedExamsCount") ?: 0L
-                                    
-                                    val updates = hashMapOf<String, Any>(
-                                        "lastExamScore" to score,
-                                        "lastExamTotal" to totalQuestions,
-                                        "lastExamPercent" to percent,
-                                        "lastExamPassed" to passed,
-                                        "lastExamTime" to timestamp,
-                                        "totalExamsCount" to (currentTotal + 1),
-                                        "passedExamsCount" to if (passed) (currentPassed + 1) else currentPassed
-                                    )
-                                    transaction.update(accRef, updates)
-                                }
-                            }.await()
-                        } catch (ignored: Exception) {}
                     }
                     
-                    Log.i(TAG, "[EXAM] Successfully synced exam result to Web Admin for $userName: $score/$totalQuestions ($percent%)")
+                    Log.i(TAG, "[EXAM] Successfully synced exam result to ket_qua_thi for $userName: $score/$totalQuestions ($percent%)")
                 } catch (e: Exception) {
                     Log.e(TAG, "[EXAM SAVE ERROR] ${e.localizedMessage}", e)
                 }
@@ -3007,9 +2922,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         _examBanks.value = newMap
-        if (allExtracted.isNotEmpty()) {
-            mergeQuestions(allExtracted)
-        }
         Log.i(TAG, "[EXAM_BANKS] Synced: ${newMap.size} banks, total questions: ${newMap.values.sumOf { it.size }}")
     }
 
