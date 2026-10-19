@@ -171,6 +171,8 @@ private const val KEY_DOWNLOADED_IDS = "downloaded_file_ids"
 private const val KEY_DOWNLOADED_URLS = "downloaded_file_urls"
 private const val PREFS_SAVED_DOCS_META = "vung4_saved_docs_meta_list"
 private const val KEY_SAVED_DOCS_JSON = "saved_docs_json"
+private const val PREFS_REMOVED_DOCS = "vung4_removed_docs_prefs"
+private const val KEY_REMOVED_KEYS = "removed_doc_keys"
 
 /**
  * Cấu trúc dữ liệu ghi nhận tài liệu đã lưu / tải về từ các bài học
@@ -299,33 +301,208 @@ fun writeSavedDocumentRecords(context: Context, list: List<SavedDocumentItem>) {
 }
 
 /**
- * Xóa một tài liệu khỏi danh sách đã lưu và xóa file cache nội bộ
+ * Lấy danh sách các định danh tài liệu mà người dùng đã chủ động bấm nút "Xóa"
+ */
+fun getRemovedDocKeys(context: Context): Set<String> {
+    return try {
+        val prefs = context.getSharedPreferences(PREFS_REMOVED_DOCS, Context.MODE_PRIVATE)
+        prefs.getStringSet(KEY_REMOVED_KEYS, emptySet()) ?: emptySet()
+    } catch (_: Exception) {
+        emptySet()
+    }
+}
+
+/**
+ * Đánh dấu một tài liệu vào danh sách đã bị xóa để không tự động nạp lại
+ */
+fun markDocAsRemoved(context: Context, item: SavedDocumentItem) {
+    try {
+        val prefs = context.getSharedPreferences(PREFS_REMOVED_DOCS, Context.MODE_PRIVATE)
+        val set = prefs.getStringSet(KEY_REMOVED_KEYS, emptySet())?.toMutableSet() ?: mutableSetOf()
+        if (item.id.isNotBlank()) set.add(item.id)
+        if (item.fileUrl.isNotBlank()) {
+            set.add(item.fileUrl)
+            set.add(Math.abs(item.fileUrl.hashCode()).toString())
+        }
+        if (item.fileName.isNotBlank()) {
+            set.add(item.fileName)
+            set.add(normalizeDocKey(item.fileName))
+        }
+        if (item.title.isNotBlank()) {
+            set.add(item.title)
+            set.add(normalizeDocKey(item.title))
+        }
+        val targetKey = normalizeDocKey(item.title.ifBlank { item.fileName }, item.fileUrl)
+        if (targetKey.isNotBlank()) set.add(targetKey)
+        val stdName = getStandardFileName(item.title.ifBlank { item.fileName }, "", item.fileUrl)
+        if (stdName.isNotBlank()) {
+            set.add(stdName)
+            set.add(normalizeDocKey(stdName))
+        }
+        prefs.edit().putStringSet(KEY_REMOVED_KEYS, set).apply()
+    } catch (e: Exception) {
+        Log.e(TAG, "Error marking doc as removed: ${e.message}")
+    }
+}
+
+/**
+ * Hủy đánh dấu đã xóa khi người dùng chủ động tải về hoặc lưu lại tài liệu
+ */
+fun unmarkDocAsRemoved(
+    context: Context,
+    fileId: String = "",
+    fileUrl: String = "",
+    fileName: String = "",
+    fileTitle: String = ""
+) {
+    try {
+        val prefs = context.getSharedPreferences(PREFS_REMOVED_DOCS, Context.MODE_PRIVATE)
+        val set = prefs.getStringSet(KEY_REMOVED_KEYS, emptySet())?.toMutableSet() ?: mutableSetOf()
+        if (fileId.isNotBlank()) set.remove(fileId)
+        if (fileUrl.isNotBlank()) {
+            set.remove(fileUrl)
+            set.remove(Math.abs(fileUrl.hashCode()).toString())
+        }
+        if (fileName.isNotBlank()) {
+            set.remove(fileName)
+            set.remove(normalizeDocKey(fileName))
+        }
+        if (fileTitle.isNotBlank()) {
+            set.remove(fileTitle)
+            set.remove(normalizeDocKey(fileTitle))
+        }
+        val targetKey = normalizeDocKey(fileTitle.ifBlank { fileName }, fileUrl)
+        if (targetKey.isNotBlank()) set.remove(targetKey)
+        val stdName = getStandardFileName(fileTitle.ifBlank { fileName }, "", fileUrl)
+        if (stdName.isNotBlank()) {
+            set.remove(stdName)
+            set.remove(normalizeDocKey(stdName))
+        }
+        prefs.edit().putStringSet(KEY_REMOVED_KEYS, set).apply()
+    } catch (e: Exception) {
+        Log.e(TAG, "Error unmarking doc as removed: ${e.message}")
+    }
+}
+
+/**
+ * Kiểm tra xem tài liệu này có nằm trong danh sách người dùng đã chủ động xóa hay không
+ */
+fun isDocRemoved(
+    removedKeys: Set<String>,
+    fileId: String = "",
+    fileUrl: String = "",
+    fileName: String = "",
+    fileTitle: String = ""
+): Boolean {
+    if (removedKeys.isEmpty()) return false
+    val targetKey = normalizeDocKey(fileTitle.ifBlank { fileName }, fileUrl)
+    val normTitle = if (fileTitle.isNotBlank()) normalizeDocKey(fileTitle) else ""
+    val normFileName = if (fileName.isNotBlank()) normalizeDocKey(fileName) else ""
+    val urlHash = if (fileUrl.isNotBlank()) Math.abs(fileUrl.hashCode()).toString() else ""
+    val stdName = getStandardFileName(fileTitle.ifBlank { fileName }, "", fileUrl)
+    val normStdName = if (stdName.isNotBlank()) normalizeDocKey(stdName) else ""
+
+    return (fileId.isNotBlank() && removedKeys.contains(fileId)) ||
+           (fileUrl.isNotBlank() && removedKeys.contains(fileUrl)) ||
+           (urlHash.isNotBlank() && removedKeys.contains(urlHash)) ||
+           (fileName.isNotBlank() && (removedKeys.contains(fileName) || removedKeys.contains(normFileName))) ||
+           (fileTitle.isNotBlank() && (removedKeys.contains(fileTitle) || removedKeys.contains(normTitle))) ||
+           (targetKey.isNotBlank() && removedKeys.contains(targetKey)) ||
+           (stdName.isNotBlank() && (removedKeys.contains(stdName) || removedKeys.contains(normStdName)))
+}
+
+/**
+ * Xóa một tài liệu khỏi danh sách đã lưu, xóa file cache nội bộ và tệp trong thư mục Downloads
  */
 fun removeSavedDocument(context: Context, item: SavedDocumentItem) {
     try {
+        // 1. Đánh dấu vào danh sách đã xóa để ngăn hệ thống tự động phục hồi lại
+        markDocAsRemoved(context, item)
+
         val targetKey = normalizeDocKey(item.title.ifBlank { item.fileName }, item.fileUrl)
+        val normTitle = if (item.title.isNotBlank()) normalizeDocKey(item.title) else ""
+        val normFileName = if (item.fileName.isNotBlank()) normalizeDocKey(item.fileName) else ""
+        val urlHash = if (item.fileUrl.isNotBlank()) Math.abs(item.fileUrl.hashCode()).toString() else ""
+        val removedKeys = getRemovedDocKeys(context)
+
+        // 2. Xóa khỏi danh sách SharedPreferences đã lưu
         val currentList = getSavedDocumentRecords(context).toMutableList()
         currentList.removeAll { 
             (item.id.isNotBlank() && it.id == item.id) || 
             (item.fileUrl.isNotBlank() && it.fileUrl == item.fileUrl) || 
-            (item.fileName.isNotBlank() && it.fileName == item.fileName) ||
-            (targetKey.isNotBlank() && normalizeDocKey(it.title.ifBlank { it.fileName }, it.fileUrl) == targetKey)
+            (item.fileName.isNotBlank() && it.fileName.equals(item.fileName, ignoreCase = true)) ||
+            (targetKey.isNotBlank() && normalizeDocKey(it.title.ifBlank { it.fileName }, it.fileUrl) == targetKey) ||
+            (normFileName.isNotBlank() && normalizeDocKey(it.fileName) == normFileName) ||
+            (normTitle.isNotBlank() && normalizeDocKey(it.title) == normTitle) ||
+            isDocRemoved(removedKeys, it.id, it.fileUrl, it.fileName, it.title)
         }
         writeSavedDocumentRecords(context, currentList)
 
+        // 3. Xóa các key khỏi SharedPreferences đánh dấu đã tải
         val prefs = context.getSharedPreferences(PREFS_DOWNLOADED_FILES, Context.MODE_PRIVATE)
         val ids = prefs.getStringSet(KEY_DOWNLOADED_IDS, emptySet())?.toMutableSet() ?: mutableSetOf()
         val urls = prefs.getStringSet(KEY_DOWNLOADED_URLS, emptySet())?.toMutableSet() ?: mutableSetOf()
-        ids.remove(item.id)
-        ids.remove(item.fileName)
-        ids.remove(targetKey)
-        urls.remove(item.fileUrl)
+        val toRemove = setOfNotNull(
+            item.id.ifBlank { null },
+            item.fileName.ifBlank { null },
+            normFileName.ifBlank { null },
+            item.title.ifBlank { null },
+            normTitle.ifBlank { null },
+            item.fileUrl.ifBlank { null },
+            urlHash.ifBlank { null },
+            targetKey.ifBlank { null }
+        )
+        ids.removeAll(toRemove)
+        urls.removeAll(toRemove)
         prefs.edit().putStringSet(KEY_DOWNLOADED_IDS, ids).putStringSet(KEY_DOWNLOADED_URLS, urls).apply()
 
+        // 4. Xóa tệp cache nội bộ của ứng dụng
         if (item.localFilePath.isNotBlank()) {
             val f = File(item.localFilePath)
             if (f.exists()) f.delete()
         }
+        try {
+            val dir = File(context.filesDir, "documents")
+            if (dir.exists()) {
+                val files = dir.listFiles()
+                files?.forEach { f ->
+                    val fName = f.name
+                    val matches = (urlHash.isNotBlank() && fName.contains(urlHash)) ||
+                            (item.fileName.isNotBlank() && fName.startsWith(item.fileName.substringBeforeLast("."))) ||
+                            (normTitle.isNotBlank() && normalizeDocKey(fName).contains(normTitle)) ||
+                            (normFileName.isNotBlank() && normalizeDocKey(fName).contains(normFileName))
+                    if (matches) {
+                        f.delete()
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+
+        // 5. Xóa tệp khỏi thư mục Downloads công khai của thiết bị
+        try {
+            val stdName = getStandardFileName(item.title.ifBlank { item.fileName }, "", item.fileUrl)
+            val cleanName = getStandardFileName(item.fileName, "", item.fileUrl)
+            val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            if (downloadsDir.exists()) {
+                listOf(stdName, cleanName, item.fileName).filter { it.isNotBlank() }.distinct().forEach { name ->
+                    val f = File(downloadsDir, name)
+                    if (f.exists()) f.delete()
+                }
+            }
+
+            // 6. Xóa bản ghi trong MediaStore.Downloads đối với Android 10+ (Q+)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val names = listOf(stdName, cleanName, item.fileName).filter { it.isNotBlank() }.distinct()
+                for (name in names) {
+                    val selection = "${MediaStore.MediaColumns.DISPLAY_NAME} = ?"
+                    context.contentResolver.delete(
+                        MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                        selection,
+                        arrayOf(name)
+                    )
+                }
+            }
+        } catch (_: Exception) {}
     } catch (e: Exception) {
         Log.e(TAG, "Error removing saved doc: ${e.message}")
     }
@@ -371,12 +548,16 @@ fun getAllSavedDocuments(
     lessons: List<com.example.model.Lesson> = emptyList(),
     storageFiles: List<com.example.model.StorageFileItem> = emptyList()
 ): List<SavedDocumentItem> {
+    val removedKeys = getRemovedDocKeys(context)
     val recorded = getSavedDocumentRecords(context).toMutableList()
+    // Lọc bỏ triệt để bất kỳ bản ghi nào đã bị người dùng bấm xóa
+    recorded.removeAll { isDocRemoved(removedKeys, it.id, it.fileUrl, it.fileName, it.title) }
 
     // Sử dụng LinkedHashMap với key chuẩn hóa để khử trùng lặp triệt để
     val resultMap = mutableMapOf<String, SavedDocumentItem>()
 
     fun mergeItem(item: SavedDocumentItem) {
+        if (isDocRemoved(removedKeys, item.id, item.fileUrl, item.fileName, item.title)) return
         val key = normalizeDocKey(item.title.ifBlank { item.fileName }, item.fileUrl)
         val existing = resultMap[key]
         if (existing == null) {
@@ -432,12 +613,13 @@ fun getAllSavedDocuments(
         }
     }
 
-    // 1. Thêm các bản ghi đã lưu trước đó
+    // 1. Thêm các bản ghi đã lưu trước đó (đã lọc các mục đã xóa)
     recorded.forEach { mergeItem(it) }
 
     // 2. Bổ sung từ storageFiles đính kèm các bài học đã tải/lưu
     for (file in storageFiles) {
         if (file.downloadUrl.isBlank() && file.fileName.isBlank()) continue
+        if (isDocRemoved(removedKeys, file.id, file.downloadUrl, file.fileName, file.title)) continue
         val isSaved = isDocumentSavedToDevice(context, file.id, file.downloadUrl, file.fileName, file.title)
         if (isSaved) {
             val lesson = lessons.find { it.id == file.lessonId || it.id == file.entityId }
@@ -466,6 +648,7 @@ fun getAllSavedDocuments(
             for (f in files) {
                 if (f.isFile && f.length() > 100) {
                     val fileKey = normalizeDocKey(f.name)
+                    if (removedKeys.contains(fileKey) || removedKeys.contains(f.name)) continue
                     // Kiểm tra xem file cache này có khớp với tài liệu nào đã có không
                     val matchingEntry = resultMap.entries.find { (k, item) ->
                         k == fileKey ||
@@ -475,11 +658,13 @@ fun getAllSavedDocuments(
                     }
                     if (matchingEntry != null) {
                         val item = matchingEntry.value
-                        if (item.localFilePath.isBlank() || !File(item.localFilePath).exists()) {
-                            resultMap[matchingEntry.key] = item.copy(
-                                localFilePath = f.absolutePath,
-                                fileSize = if (item.fileSize <= 0L) f.length() else item.fileSize
-                            )
+                        if (!isDocRemoved(removedKeys, item.id, item.fileUrl, item.fileName, item.title)) {
+                            if (item.localFilePath.isBlank() || !File(item.localFilePath).exists()) {
+                                resultMap[matchingEntry.key] = item.copy(
+                                    localFilePath = f.absolutePath,
+                                    fileSize = if (item.fileSize <= 0L) f.length() else item.fileSize
+                                )
+                            }
                         }
                     }
                 }
@@ -512,6 +697,9 @@ fun markFileAsDownloaded(
     fileSize: Long = 0L
 ) {
     try {
+        // Hủy đánh dấu xóa nếu người dùng chủ động tải lại tài liệu này
+        unmarkDocAsRemoved(context, fileId, fileUrl, fileName, fileTitle)
+
         val prefs = context.getSharedPreferences(PREFS_DOWNLOADED_FILES, Context.MODE_PRIVATE)
         val ids = prefs.getStringSet(KEY_DOWNLOADED_IDS, emptySet())?.toMutableSet() ?: mutableSetOf()
         val urls = prefs.getStringSet(KEY_DOWNLOADED_URLS, emptySet())?.toMutableSet() ?: mutableSetOf()
@@ -558,6 +746,10 @@ fun getDownloadedFileKeys(context: Context): Set<String> {
  * Kiểm tra xem tệp tài liệu đã được lưu trong bộ nhớ đệm (Internal Storage) của ứng dụng chưa
  */
 fun isDocumentCachedInApp(context: Context, urlString: String, fileName: String, fileFormat: String = ""): Boolean {
+    val removedKeys = getRemovedDocKeys(context)
+    if (isDocRemoved(removedKeys, fileUrl = urlString, fileName = fileName)) {
+        return false
+    }
     return try {
         val dir = File(context.filesDir, "documents")
         if (!dir.exists()) return false
@@ -587,13 +779,20 @@ fun isDocumentSavedToDevice(
     fileName: String = "",
     fileTitle: String = ""
 ): Boolean {
+    // 0. Nếu người dùng đã chủ động bấm nút xóa tài liệu này, KHÔNG coi là đã lưu
+    val removedKeys = getRemovedDocKeys(context)
+    if (isDocRemoved(removedKeys, fileId, fileUrl, fileName, fileTitle)) {
+        return false
+    }
+
     // 1. Kiểm tra bản ghi trong danh sách tài liệu đã lưu có tệp thực tế còn tồn tại trên máy
     val savedRecords = getSavedDocumentRecords(context)
     val hasValidRecord = savedRecords.any { rec ->
         val matchKey = (fileId.isNotBlank() && rec.id == fileId) ||
                 (fileUrl.isNotBlank() && rec.fileUrl == fileUrl) ||
                 (fileName.isNotBlank() && rec.fileName.equals(fileName, ignoreCase = true)) ||
-                (fileTitle.isNotBlank() && rec.title.equals(fileTitle, ignoreCase = true))
+                (fileTitle.isNotBlank() && rec.title.equals(fileTitle, ignoreCase = true)) ||
+                (normalizeDocKey(fileTitle.ifBlank { fileName }, fileUrl) == normalizeDocKey(rec.title.ifBlank { rec.fileName }, rec.fileUrl))
         if (matchKey && rec.localFilePath.isNotBlank()) {
             val f = File(rec.localFilePath)
             f.exists() && f.length() > 100

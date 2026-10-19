@@ -71,7 +71,8 @@ fun TrangChuScreen(
     val context = LocalContext.current
     var showSavedDocsDialog by remember { mutableStateOf(false) }
     var showTruyenThanhDialog by remember { mutableStateOf(false) }
-    val savedDocsList = remember(lessons, storageFiles, showSavedDocsDialog) {
+    var savedDocsVersion by remember { mutableIntStateOf(0) }
+    val savedDocsList = remember(lessons, storageFiles, showSavedDocsDialog, savedDocsVersion) {
         com.example.ui.components.getAllSavedDocuments(context, lessons, storageFiles)
     }
     val savedDocsCount = savedDocsList.size
@@ -941,11 +942,15 @@ fun TrangChuScreen(
         SavedDocumentsDialog(
             lessons = lessons,
             storageFiles = storageFiles,
+            onDocsChanged = { savedDocsVersion++ },
             onNavigateToHocTap = {
                 showSavedDocsDialog = false
                 onNavigateToHocTap()
             },
-            onDismiss = { showSavedDocsDialog = false }
+            onDismiss = {
+                showSavedDocsDialog = false
+                savedDocsVersion++
+            }
         )
     }
 

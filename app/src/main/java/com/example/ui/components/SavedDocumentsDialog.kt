@@ -39,6 +39,7 @@ import java.util.*
 fun SavedDocumentsDialog(
     lessons: List<Lesson>,
     storageFiles: List<StorageFileItem>,
+    onDocsChanged: () -> Unit = {},
     onNavigateToHocTap: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -294,9 +295,21 @@ fun SavedDocumentsDialog(
             confirmButton = {
                 Button(
                     onClick = {
-                        removeSavedDocument(context, doc)
+                        val target = doc
                         docToDelete = null
+                        // 1. Lọc bỏ tài liệu khỏi state UI ngay lập tức
+                        val targetKey = normalizeDocKey(target.title.ifBlank { target.fileName }, target.fileUrl)
+                        savedDocs = savedDocs.filterNot { item ->
+                            (target.id.isNotBlank() && item.id == target.id) ||
+                            (target.fileUrl.isNotBlank() && item.fileUrl == target.fileUrl) ||
+                            (target.fileName.isNotBlank() && item.fileName.equals(target.fileName, ignoreCase = true)) ||
+                            (targetKey.isNotBlank() && normalizeDocKey(item.title.ifBlank { item.fileName }, item.fileUrl) == targetKey)
+                        }
+                        // 2. Thực hiện xóa toàn bộ file và blacklist
+                        removeSavedDocument(context, target)
+                        // 3. Làm mới danh sách và thông báo thay đổi
                         refreshDocs()
+                        onDocsChanged()
                         Toast.makeText(context, "Đã xóa tài liệu khỏi danh sách", Toast.LENGTH_SHORT).show()
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = RedPrimary)
