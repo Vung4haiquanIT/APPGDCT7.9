@@ -16,8 +16,8 @@ android {
     applicationId = "com.aistudio.gdctv4.vungtu"
     minSdk = 24
     targetSdk = 36
-    versionCode = 4
-    versionName = "1.0.4"
+    versionCode = 6
+    versionName = "1.0.6"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -41,7 +41,7 @@ android {
   buildTypes {
     release {
       isCrunchPngs = false
-      isMinifyEnabled = false
+      isMinifyEnabled = true
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       signingConfig = signingConfigs.getByName("release")
     }

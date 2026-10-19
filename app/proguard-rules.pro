@@ -1,21 +1,43 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
-#
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
+# Project specific ProGuard / R8 rules
+# Giữ lại thông tin dòng và thuộc tính annotation cho crash report và reflection
+-keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod,SourceFile,LineNumberTable
+-renamesourcefileattribute SourceFile
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# Giữ nguyên cấu trúc các Data Model dùng cho Firebase Firestore, JSON và reflection
+-keep class com.example.model.** { *; }
+-keepclassmembers class com.example.model.** {
+    <fields>;
+    <init>(...);
+    *** get*();
+    *** set*(...);
+    *** is*();
+}
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+# Giữ nguyên ViewModel và Application
+-keep class com.example.viewmodel.** { *; }
+-keep class com.example.MainApplication { *; }
+-keep class com.example.MainActivity { *; }
 
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# Firebase SDK & Google Play Services
+-keep class com.google.firebase.** { *; }
+-dontwarn com.google.firebase.**
+-keep class com.google.android.gms.** { *; }
+-dontwarn com.google.android.gms.**
+
+# Kotlin Coroutines
+-keepnames class kotlinx.coroutines.internal.MainDispatcherFactory {}
+-keepnames class kotlinx.coroutines.CoroutineExceptionHandler {}
+-keepclassmembernames class kotlinx.** {
+    volatile <fields>;
+}
+
+# AndroidX Media3 / ExoPlayer
+-keep class androidx.media3.** { *; }
+-dontwarn androidx.media3.**
+
+# Coil Image Loader
+-keep class coil.** { *; }
+-dontwarn coil.**
+
+# Jetpack Compose
+-dontwarn androidx.compose.**
