@@ -1866,10 +1866,10 @@ fun LessonPlayerScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.65f))
+                    .background(Color.Black.copy(alpha = 0.25f))
                     .padding(
-                        top = maxOf(statusBarTopInset, 12.dp) + 8.dp,
-                        bottom = maxOf(navBarBottomInset, 16.dp) + 24.dp, // Luôn đẩy hộp thoại và nút nộp bài lên trên thanh điều hướng 24dp
+                        top = maxOf(statusBarTopInset, 12.dp) ,
+                        bottom = maxOf(navBarBottomInset, 12.dp) , // Luôn đẩy hộp thoại và nút nộp bài lên trên thanh điều hướng 12dp
                         start = 14.dp,
                         end = 14.dp
                     ),
@@ -1980,7 +1980,7 @@ fun LessonPlayerScreen(
                                                 ) {
                                                     Text(
                                                         text = "✓ Đã chọn đáp án",
-                                                        fontSize = 11.sp,
+                                                        fontSize = 8.sp,
                                                         fontWeight = FontWeight.Bold,
                                                         color = Color(0xFF2E7D32),
                                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
