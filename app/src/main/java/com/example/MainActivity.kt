@@ -13,7 +13,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.collectAsState
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.ui.screens.ForceUpdateScreen
 import com.example.ui.screens.MainScreen
 import com.example.ui.screens.SplashScreen
 import com.example.ui.theme.MyApplicationTheme
@@ -27,6 +29,7 @@ class MainActivity : ComponentActivity() {
             MyApplicationTheme {
                 val viewModel: AppViewModel = viewModel()
                 var isSplashScreenVisible by remember { mutableStateOf(true) }
+                val appUpdateInfo by viewModel.appUpdateInfo.collectAsState()
 
                 AnimatedContent(
                     targetState = isSplashScreenVisible,
@@ -41,6 +44,8 @@ class MainActivity : ComponentActivity() {
                                 isSplashScreenVisible = false
                             }
                         )
+                    } else if (appUpdateInfo?.isForceUpdate == true) {
+                        ForceUpdateScreen(updateInfo = appUpdateInfo!!)
                     } else {
                         MainScreen(viewModel = viewModel)
                     }

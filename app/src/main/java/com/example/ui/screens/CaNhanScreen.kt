@@ -818,7 +818,37 @@ fun CaNhanScreen(
                         )
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                         Text(text = "Ứng dụng được phát triển trong khuôn khổ Sáng kiến “Ứng dụng phần mềm phục vụ công tác giáo dục chính trị tại Vùng 4 Hải quân”, theo Quyết định số 3871/QĐ-BTL ngày 10/8/2026 của Bộ Tư lệnh Vùng 4 Hải quân.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 18.sp)
-                        Text(text = "Phiên bản: ${BuildConfig.VERSION_NAME}", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Phiên bản: ${BuildConfig.VERSION_NAME} (Build ${BuildConfig.VERSION_CODE})",
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+
+                            var isCheckingUpdate by remember { mutableStateOf(false) }
+                            TextButton(
+                                onClick = {
+                                    isCheckingUpdate = true
+                                    viewModel.checkAppVersionAndUpdatePolicy { isLatest, message ->
+                                        isCheckingUpdate = false
+                                        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                enabled = !isCheckingUpdate
+                            ) {
+                                if (isCheckingUpdate) {
+                                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                } else {
+                                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Kiểm tra bản mới", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = RedPrimary)
+                                }
+                            }
+                        }
                     }
                 }
             }

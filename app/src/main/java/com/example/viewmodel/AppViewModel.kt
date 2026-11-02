@@ -9,6 +9,7 @@ import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.model.*
+import com.example.util.AppVersionConfig
 import com.example.util.NotificationHelper
 import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
@@ -133,6 +134,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         _isViewingLesson.value = isViewing
     }
 
+    // Quản lý phiên bản và cập nhật ứng dụng
+    private val _appUpdateInfo = MutableStateFlow<AppUpdateInfo?>(null)
+    val appUpdateInfo: StateFlow<AppUpdateInfo?> = _appUpdateInfo.asStateFlow()
+    private var appVersionListener: ListenerRegistration? = null
+
     // Listeners
     private var coursesListener: ListenerRegistration? = null
     private var lessonsListener: ListenerRegistration? = null
@@ -184,6 +190,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         restoreLocalUserSession()
         loadRecentLessons()
         checkConnectionAndStartRealtime()
+        startAppVersionMonitoring()
 
         // Tự động cập nhật và phân loại thông báo theo tài khoản đăng nhập khi trạng thái phiên đăng nhập thay đổi
         viewModelScope.launch {
@@ -3030,8 +3037,213 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Theo dõi phiên bản ứng dụng trên Firestore và áp dụng chính sách cập nhật bắt buộc
+     */
+    fun startAppVersionMonitoring() {
+        // 1. Kiểm tra chế độ giả lập dành cho lập trình viên thử nghiệm
+        if (AppVersionConfig.DEBUG_SIMULATE_FORCE_UPDATE) {
+            _appUpdateInfo.value = AppUpdateInfo(
+                isUpdateAvailable = true,
+                isForceUpdate = true,
+                latestVersionCode = AppVersionConfig.CURRENT_VERSION_CODE + 1,
+                latestVersionName = "${AppVersionConfig.CURRENT_VERSION_NAME}.1",
+                minRequiredVersionCode = AppVersionConfig.CURRENT_VERSION_CODE + 1,
+                currentVersionCode = AppVersionConfig.CURRENT_VERSION_CODE,
+                currentVersionName = AppVersionConfig.CURRENT_VERSION_NAME,
+                updateUrl = AppVersionConfig.UPDATE_DOWNLOAD_URL,
+                updateTitle = AppVersionConfig.UPDATE_TITLE,
+                updateMessage = AppVersionConfig.UPDATE_MESSAGE,
+                releaseNotes = "Tính năng thử nghiệm chế độ bắt buộc cập nhật trong code."
+            )
+            return
+        }
+
+        if (db == null) return
+
+        try {
+            appVersionListener?.remove()
+            val versionDocRef = db.collection("app_config").document("app_version")
+            appVersionListener = versionDocRef.addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    Log.w(TAG, "[APP VERSION ERROR] ${error.message}")
+                    return@addSnapshotListener
+                }
+
+                val localCode = AppVersionConfig.CURRENT_VERSION_CODE
+                val localName = AppVersionConfig.CURRENT_VERSION_NAME
+
+                if (snapshot != null && snapshot.exists()) {
+                    val remoteLatestCode = snapshot.getLong("latest_version_code")
+                        ?: snapshot.getLong("version_code")
+                        ?: snapshot.getLong("versionCode")
+                        ?: 0L
+                    val remoteLatestName = snapshot.getString("latest_version_name")
+                        ?: snapshot.getString("version_name")
+                        ?: snapshot.getString("versionName")
+                        ?: localName
+                    val isForceFromRemote = snapshot.getBoolean("is_force_update")
+                        ?: snapshot.getBoolean("isForceUpdate")
+                        ?: snapshot.getBoolean("force_update")
+                        ?: snapshot.getBoolean("forceUpdate")
+                        ?: false
+                    val minRequiredCode = snapshot.getLong("min_required_version_code")
+                        ?: snapshot.getLong("minRequiredVersionCode")
+                        ?: 0L
+                    val updateUrl = snapshot.getString("update_url")
+                        ?: snapshot.getString("updateUrl")
+                        ?: AppVersionConfig.UPDATE_DOWNLOAD_URL
+                    val updateTitle = snapshot.getString("update_title")
+                        ?: snapshot.getString("updateTitle")
+                        ?: AppVersionConfig.UPDATE_TITLE
+                    val updateMessage = snapshot.getString("update_message")
+                        ?: snapshot.getString("updateMessage")
+                        ?: AppVersionConfig.UPDATE_MESSAGE
+                    val releaseNotes = snapshot.getString("release_notes")
+                        ?: snapshot.getString("releaseNotes")
+                        ?: ""
+
+                    if (remoteLatestCode > localCode) {
+                        // Có phiên bản mới hơn trên hệ thống!
+                        val isForced = isForceFromRemote || (minRequiredCode > localCode)
+                        _appUpdateInfo.value = AppUpdateInfo(
+                            isUpdateAvailable = true,
+                            isForceUpdate = isForced,
+                            latestVersionCode = remoteLatestCode,
+                            latestVersionName = remoteLatestName,
+                            minRequiredVersionCode = minRequiredCode,
+                            currentVersionCode = localCode,
+                            currentVersionName = localName,
+                            updateUrl = updateUrl,
+                            updateTitle = updateTitle,
+                            updateMessage = updateMessage,
+                            releaseNotes = releaseNotes
+                        )
+                        Log.i(TAG, "[APP UPDATE] New version available: v$remoteLatestName (Code $remoteLatestCode), ForceUpdate: $isForced")
+                    } else {
+                        // Đang ở phiên bản mới nhất hoặc mới hơn
+                        _appUpdateInfo.value = null
+                        // Tự động đồng bộ lên Firestore nếu bản hiện tại mới hơn hoặc cấu hình force_update thay đổi
+                        if (AppVersionConfig.AUTO_SYNC_TO_FIRESTORE && localCode >= remoteLatestCode) {
+                            val needSync = localCode > remoteLatestCode || isForceFromRemote != AppVersionConfig.FORCE_UPDATE_REQUIRED
+                            if (needSync) {
+                                syncAppVersionToFirestore()
+                            }
+                        }
+                    }
+                } else if (snapshot != null && !snapshot.exists()) {
+                    // Document chưa tồn tại trên Firestore -> tự động khởi tạo lần đầu từ cấu hình code
+                    if (AppVersionConfig.AUTO_SYNC_TO_FIRESTORE) {
+                        syncAppVersionToFirestore()
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "[APP VERSION INIT ERROR] ${e.localizedMessage}", e)
+        }
+    }
+
+    /**
+     * Đồng bộ cấu hình phiên bản hiện tại lên Firestore
+     */
+    fun syncAppVersionToFirestore() {
+        val database = db ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val data = hashMapOf(
+                    "latest_version_code" to AppVersionConfig.CURRENT_VERSION_CODE,
+                    "latest_version_name" to AppVersionConfig.CURRENT_VERSION_NAME,
+                    "is_force_update" to AppVersionConfig.FORCE_UPDATE_REQUIRED,
+                    "min_required_version_code" to if (AppVersionConfig.FORCE_UPDATE_REQUIRED) AppVersionConfig.CURRENT_VERSION_CODE else 1L,
+                    "update_url" to AppVersionConfig.UPDATE_DOWNLOAD_URL,
+                    "update_title" to AppVersionConfig.UPDATE_TITLE,
+                    "update_message" to AppVersionConfig.UPDATE_MESSAGE,
+                    "updated_at" to System.currentTimeMillis()
+                )
+                database.collection("app_config").document("app_version")
+                    .set(data, SetOptions.merge())
+                    .await()
+                Log.i(TAG, "[APP VERSION] Successfully synced app version to Firestore: v${AppVersionConfig.CURRENT_VERSION_NAME} (code ${AppVersionConfig.CURRENT_VERSION_CODE}), ForceUpdate: ${AppVersionConfig.FORCE_UPDATE_REQUIRED}")
+            } catch (e: Exception) {
+                Log.w(TAG, "[APP VERSION SYNC ERROR] ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * Bỏ qua thông báo cập nhật tùy chọn (chỉ áp dụng khi không bắt buộc)
+     */
+    fun dismissOptionalUpdate() {
+        if (_appUpdateInfo.value?.isForceUpdate == false) {
+            _appUpdateInfo.value = null
+        }
+    }
+
+    /**
+     * Kiểm tra phiên bản thủ công khi người dùng bấm nút trong cài đặt / Cá nhân
+     */
+    fun checkAppVersionAndUpdatePolicy(
+        onResult: ((isLatest: Boolean, message: String) -> Unit)? = null
+    ) {
+        val database = db
+        if (database == null) {
+            onResult?.invoke(true, "Không thể kết nối máy chủ để kiểm tra phiên bản.")
+            return
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val snapshot = database.collection("app_config").document("app_version").get().await()
+                val localCode = AppVersionConfig.CURRENT_VERSION_CODE
+                val localName = AppVersionConfig.CURRENT_VERSION_NAME
+
+                if (snapshot.exists()) {
+                    val remoteLatestCode = snapshot.getLong("latest_version_code") ?: 0L
+                    val remoteLatestName = snapshot.getString("latest_version_name") ?: localName
+                    val isForceFromRemote = snapshot.getBoolean("is_force_update") ?: false
+                    val minRequiredCode = snapshot.getLong("min_required_version_code") ?: 0L
+                    val updateUrl = snapshot.getString("update_url") ?: AppVersionConfig.UPDATE_DOWNLOAD_URL
+                    val updateTitle = snapshot.getString("update_title") ?: AppVersionConfig.UPDATE_TITLE
+                    val updateMessage = snapshot.getString("update_message") ?: AppVersionConfig.UPDATE_MESSAGE
+                    val releaseNotes = snapshot.getString("release_notes") ?: ""
+
+                    withContext(Dispatchers.Main) {
+                        if (remoteLatestCode > localCode) {
+                            val isForced = isForceFromRemote || (minRequiredCode > localCode)
+                            _appUpdateInfo.value = AppUpdateInfo(
+                                isUpdateAvailable = true,
+                                isForceUpdate = isForced,
+                                latestVersionCode = remoteLatestCode,
+                                latestVersionName = remoteLatestName,
+                                minRequiredVersionCode = minRequiredCode,
+                                currentVersionCode = localCode,
+                                currentVersionName = localName,
+                                updateUrl = updateUrl,
+                                updateTitle = updateTitle,
+                                updateMessage = updateMessage,
+                                releaseNotes = releaseNotes
+                            )
+                            onResult?.invoke(false, "Đã có phiên bản mới v$remoteLatestName!")
+                        } else {
+                            onResult?.invoke(true, "Ứng dụng đang ở phiên bản mới nhất (v$localName).")
+                        }
+                    }
+                } else {
+                    withContext(Dispatchers.Main) {
+                        onResult?.invoke(true, "Ứng dụng đang ở phiên bản mới nhất (v$localName).")
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    onResult?.invoke(true, "Ứng dụng đang ở phiên bản mới nhất (v${AppVersionConfig.CURRENT_VERSION_NAME}).")
+                }
+            }
+        }
+    }
+
     override fun onCleared() {
         super.onCleared()
+        appVersionListener?.remove()
         stopUserAccountRealtimeMonitoring()
         coursesListener?.remove()
         lessonsListener?.remove()

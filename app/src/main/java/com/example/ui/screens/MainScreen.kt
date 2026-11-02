@@ -13,6 +13,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.example.ui.components.LoginDialog
+import com.example.ui.components.OptionalUpdateDialog
 import com.example.ui.components.TrongDongBackground
 import com.example.ui.theme.RedPrimary
 import com.example.viewmodel.AppViewModel
@@ -36,6 +37,7 @@ fun MainScreen(viewModel: AppViewModel) {
     val isViewingLesson by viewModel.isViewingLesson.collectAsState()
     val accountLockedEvent by viewModel.accountLockedEvent.collectAsState()
     val authActionLoading by viewModel.authActionLoading.collectAsState()
+    val appUpdateInfo by viewModel.appUpdateInfo.collectAsState()
     var showLockedLoginDialog by remember { mutableStateOf(false) }
     var lockedDialogMessage by remember { mutableStateOf<String?>(null) }
     var lastBackPressTime by remember { mutableLongStateOf(0L) }
@@ -201,6 +203,16 @@ fun MainScreen(viewModel: AppViewModel) {
                             onErrorCallback(err)
                         }
                     )
+                }
+            )
+        }
+
+        // Hiển thị hộp thoại gợi ý cập nhật tùy chọn (khi không bắt buộc)
+        if (appUpdateInfo != null && appUpdateInfo?.isUpdateAvailable == true && appUpdateInfo?.isForceUpdate == false) {
+            OptionalUpdateDialog(
+                updateInfo = appUpdateInfo!!,
+                onDismiss = {
+                    viewModel.dismissOptionalUpdate()
                 }
             )
         }
