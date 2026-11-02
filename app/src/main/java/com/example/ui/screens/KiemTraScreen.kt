@@ -102,6 +102,12 @@ fun KiemTraScreen(
     var showNoExamQuestionsDialog by remember { mutableStateOf(false) }
     var showNoSessionQuestionsDialog by remember { mutableStateOf(false) }
     var isLoadingBankQuestions by remember { mutableStateOf(false) }
+    var showExamEndedDialog by remember { mutableStateOf(false) }
+    var endedSessionTitle by remember { mutableStateOf("") }
+    var endedSessionEndTime by remember { mutableStateOf(0L) }
+    var showExamNotStartedDialog by remember { mutableStateOf(false) }
+    var notStartedSessionTitle by remember { mutableStateOf("") }
+    var notStartedSessionStartTime by remember { mutableStateOf(0L) }
 
     // Câu hỏi cho chế độ Luyện tập ngẫu nhiên: lấy từ ngân hàng đề exam_banks và danh sách câu hỏi đợt thi
     val examQuestionsPool = remember(examSessions, allQuestions, examBanks) {
@@ -255,6 +261,20 @@ fun KiemTraScreen(
         }
 
         if (session != null) {
+            val now = System.currentTimeMillis()
+            if (session.hasEnded(now)) {
+                endedSessionTitle = session.title
+                endedSessionEndTime = session.endTime
+                showExamEndedDialog = true
+                return
+            }
+            if (session.notStartedYet(now)) {
+                notStartedSessionTitle = session.title
+                notStartedSessionStartTime = session.startTime
+                showExamNotStartedDialog = true
+                return
+            }
+
             val attempts = userExamResults.filter { it.examId == session.id || it.examName.equals(session.title, ignoreCase = true) }
             if (session.maxAttempts > 0 && attempts.size >= session.maxAttempts) {
                 return
@@ -271,6 +291,13 @@ fun KiemTraScreen(
                 isLoadingBankQuestions = true
                 viewModel.getQuestionsForBank(session.bankId) { bankQuestions ->
                     isLoadingBankQuestions = false
+                    val checkNow = System.currentTimeMillis()
+                    if (session.hasEnded(checkNow)) {
+                        endedSessionTitle = session.title
+                        endedSessionEndTime = session.endTime
+                        showExamEndedDialog = true
+                        return@getQuestionsForBank
+                    }
                     val questionsToUse = if (bankQuestions.isNotEmpty()) {
                         bankQuestions
                     } else if (session.questionsList.isNotEmpty()) {
@@ -296,7 +323,20 @@ fun KiemTraScreen(
 
                     // Giữ nguyên thứ tự các phương án lựa chọn trong câu hỏi theo đúng ngân hàng đề
                     examQuestions = rawList
-                    examTimerSeconds = if (session.durationMinutes > 0) session.durationMinutes * 60 else 20 * 60
+                    var calculatedTimer = if (session.durationMinutes > 0) session.durationMinutes * 60 else 20 * 60
+                    if (session.endTime > 0L) {
+                        val remainingToEnd = (session.endTime - System.currentTimeMillis()) / 1000L
+                        if (remainingToEnd <= 0) {
+                            endedSessionTitle = session.title
+                            endedSessionEndTime = session.endTime
+                            showExamEndedDialog = true
+                            return@getQuestionsForBank
+                        }
+                        if (remainingToEnd < calculatedTimer) {
+                            calculatedTimer = remainingToEnd.toInt()
+                        }
+                    }
+                    examTimerSeconds = calculatedTimer
 
                     userAnswers = mutableMapOf()
                     currentQuestionIndex = 0
@@ -329,7 +369,20 @@ fun KiemTraScreen(
             }
             examQuestions = rawList
 
-            examTimerSeconds = if (session.durationMinutes > 0) session.durationMinutes * 60 else 20 * 60
+            var calculatedTimer = if (session.durationMinutes > 0) session.durationMinutes * 60 else 20 * 60
+            if (session.endTime > 0L) {
+                val remainingToEnd = (session.endTime - System.currentTimeMillis()) / 1000L
+                if (remainingToEnd <= 0) {
+                    endedSessionTitle = session.title
+                    endedSessionEndTime = session.endTime
+                    showExamEndedDialog = true
+                    return
+                }
+                if (remainingToEnd < calculatedTimer) {
+                    calculatedTimer = remainingToEnd.toInt()
+                }
+            }
+            examTimerSeconds = calculatedTimer
         } else {
             // Luyện tập ngẫu nhiên: lấy từ danh sách câu hỏi từ các đợt kiểm tra và ngân hàng đề
             val pool = if (examQuestionsPool.isNotEmpty()) examQuestionsPool else reviewQuestionsPool
@@ -827,6 +880,100 @@ fun KiemTraScreen(
         )
     }
 
+    // DIALOG THÔNG BÁO ĐÃ KẾT THÚC THỜI GIAN KIỂM TRA
+    if (showExamEndedDialog) {
+        AlertDialog(
+            onDismissRequest = { showExamEndedDialog = false },
+            icon = {
+                Icon(
+                    Icons.Default.HourglassEmpty,
+                    contentDescription = null,
+                    tint = RedPrimary,
+                    modifier = Modifier.size(36.dp)
+                )
+            },
+            title = {
+                Text(
+                    text = "ĐÃ KẾT THÚC THỜI GIAN KIỂM TRA",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp,
+                    color = RedPrimary,
+                    textAlign = TextAlign.Center
+                )
+            },
+            text = {
+                val timeStr = if (endedSessionEndTime > 0L) com.example.util.TimeUtils.formatTimeAndDate(endedSessionEndTime) else null
+                Text(
+                    text = if (timeStr != null) {
+                        "Đợt kiểm tra \"$endedSessionTitle\" đã kết thúc thời gian làm bài vào lúc: $timeStr.\n\nĐồng chí không thể vào làm bài kiểm tra này nữa. Vui lòng theo dõi các đợt kiểm tra tiếp theo."
+                    } else {
+                        "Đợt kiểm tra \"$endedSessionTitle\" đã kết thúc thời gian làm bài hoặc đã được Ban Quản trị đóng.\n\nĐồng chí không thể vào làm bài kiểm tra này nữa."
+                    },
+                    fontSize = 13.5.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    lineHeight = 19.sp,
+                    textAlign = TextAlign.Center
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = { showExamEndedDialog = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = RedPrimary),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text("Đã hiểu", fontWeight = FontWeight.Bold, color = Color.White)
+                }
+            }
+        )
+    }
+
+    // DIALOG THÔNG BÁO CHƯA ĐẾN THỜI GIAN KIỂM TRA
+    if (showExamNotStartedDialog) {
+        AlertDialog(
+            onDismissRequest = { showExamNotStartedDialog = false },
+            icon = {
+                Icon(
+                    Icons.Default.DateRange,
+                    contentDescription = null,
+                    tint = NavySecondary,
+                    modifier = Modifier.size(36.dp)
+                )
+            },
+            title = {
+                Text(
+                    text = "CHƯA ĐẾN THỜI GIAN LÀM BÀI",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp,
+                    color = NavySecondary,
+                    textAlign = TextAlign.Center
+                )
+            },
+            text = {
+                val timeStr = if (notStartedSessionStartTime > 0L) com.example.util.TimeUtils.formatTimeAndDate(notStartedSessionStartTime) else null
+                Text(
+                    text = if (timeStr != null) {
+                        "Đợt kiểm tra \"$notStartedSessionTitle\" sẽ bắt đầu mở vào lúc: $timeStr.\n\nVui lòng quay lại làm bài khi đến thời gian quy định."
+                    } else {
+                        "Đợt kiểm tra \"$notStartedSessionTitle\" chưa đến thời gian mở thi. Vui lòng quay lại sau."
+                    },
+                    fontSize = 13.5.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    lineHeight = 19.sp,
+                    textAlign = TextAlign.Center
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = { showExamNotStartedDialog = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = NavySecondary),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text("Đã hiểu", fontWeight = FontWeight.Bold, color = Color.White)
+                }
+            }
+        )
+    }
+
     // DIALOG THÔNG BÁO CHƯA CÓ CÂU HỎI TỪ CÁC ĐỢT KIỂM TRA
     if (showNoExamQuestionsDialog) {
         AlertDialog(
@@ -957,8 +1104,10 @@ private fun ExamOverviewView(
         } else {
             examSessions
         }
+        val now = System.currentTimeMillis()
         filtered.sortedWith(
-            compareByDescending<ExamSessionDoc> { it.createdAt }
+            compareBy<ExamSessionDoc> { it.hasEnded(now) }
+                .thenByDescending { it.createdAt }
                 .thenByDescending { it.startTime }
                 .thenByDescending { it.id }
         )
@@ -1357,7 +1506,11 @@ private fun ExamSessionCard(
     onStartSessionExam: (ExamSessionDoc) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val isOpen = session.status.equals("open", ignoreCase = true) || session.status.equals("active", ignoreCase = true)
+    val now = remember { System.currentTimeMillis() }
+    val isEnded = session.hasEnded(now)
+    val notStarted = session.notStartedYet(now)
+    val isAvailable = session.isAvailable(now)
+
     val attempts = if (isAuthenticated) {
         userExamResults.filter { 
             (it.examId.isNotBlank() && it.examId == session.id) || 
@@ -1413,8 +1566,9 @@ private fun ExamSessionCard(
         elevation = CardDefaults.cardElevation(4.dp),
         border = CardDefaults.outlinedCardBorder().copy(
             brush = androidx.compose.ui.graphics.SolidColor(
-                if (hasCompleted) Color(0xFF2E7D32).copy(alpha = 0.4f)
-                else if (isOpen) RedPrimary.copy(alpha = 0.4f)
+                if (hasCompleted) Color(0xFF2E7D32).copy(alpha = 0.5f)
+                else if (isEnded) Color.Gray.copy(alpha = 0.35f)
+                else if (isAvailable) RedPrimary.copy(alpha = 0.4f)
                 else Color.Gray.copy(alpha = 0.2f)
             )
         )
@@ -1442,18 +1596,82 @@ private fun ExamSessionCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = NavySecondary.copy(alpha = 0.08f),
-                    border = BorderStroke(0.5.dp, NavySecondary.copy(alpha = 0.25f))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Text(
-                        text = "🎯 Đối tượng: $audienceText",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = NavySecondary,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                    )
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = NavySecondary.copy(alpha = 0.08f),
+                        border = BorderStroke(0.5.dp, NavySecondary.copy(alpha = 0.25f))
+                    ) {
+                        Text(
+                            text = "🎯 Đối tượng: $audienceText",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = NavySecondary,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+
+                    // Nhãn trạng thái thời gian làm bài
+                    if (hasCompleted) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color(0xFFE8F5E9),
+                            border = BorderStroke(0.5.dp, Color(0xFFA5D6A7))
+                        ) {
+                            Text(
+                                text = "✓ ĐÃ THI",
+                                fontSize = 10.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF2E7D32),
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                            )
+                        }
+                    } else if (isEnded) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.45f),
+                            border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.4f))
+                        ) {
+                            Text(
+                                text = "⌛ ĐÃ KẾT THÚC",
+                                fontSize = 10.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                            )
+                        }
+                    } else if (notStarted) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = NavySecondary.copy(alpha = 0.08f),
+                            border = BorderStroke(0.5.dp, NavySecondary.copy(alpha = 0.3f))
+                        ) {
+                            Text(
+                                text = "🕒 CHƯA MỞ",
+                                fontSize = 10.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = NavySecondary,
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                            )
+                        }
+                    } else {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color(0xFFE8F5E9),
+                            border = BorderStroke(0.5.dp, Color(0xFFA5D6A7))
+                        ) {
+                            Text(
+                                text = "🔥 ĐANG MỞ",
+                                fontSize = 10.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF2E7D32),
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
                 }
 
                 if (isAuthenticated && session.maxAttempts > 0) {
@@ -1650,10 +1868,86 @@ private fun ExamSessionCard(
                         color = Color.White
                     )
                 }
+            } else if (isEnded) {
+                // ĐÃ KẾT THÚC THỜI GIAN KIỂM TRA
+                if (attempts.isNotEmpty()) {
+                    // Nếu đã thi 1 số lượt trước khi hết hạn -> Bấm xem lại kết quả
+                    OutlinedButton(
+                        onClick = { showAttemptHistoryDialog = true },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            contentColor = MaterialTheme.colorScheme.onSurface
+                        ),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
+                    ) {
+                        Icon(
+                            Icons.Default.HourglassEmpty,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp),
+                            tint = RedPrimary
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "ĐÃ HẾT HẠN THI (BẤM XEM KẾT QUẢ)",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp
+                        )
+                    }
+                } else {
+                    // Chưa thi lượt nào và đã hết hạn -> Vô hiệu hóa nút, khóa hoàn toàn không cho vào thi
+                    Button(
+                        onClick = { },
+                        enabled = false,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                            disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
+                        ),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.HourglassEmpty,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "ĐÃ KẾT THÚC THỜI GIAN KIỂM TRA",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp
+                        )
+                    }
+                }
+            } else if (notStarted) {
+                // CHƯA ĐẾN THỜI GIAN LÀM BÀI
+                Button(
+                    onClick = { },
+                    enabled = false,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
+                    ),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Icon(
+                        Icons.Default.DateRange,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "CHƯA ĐẾN THỜI GIAN LÀM BÀI",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp
+                    )
+                }
             } else {
                 Button(
-                    onClick = { if (isOpen) onStartSessionExam(session) },
-                    enabled = isOpen,
+                    onClick = { if (isAvailable) onStartSessionExam(session) },
+                    enabled = isAvailable,
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = if (!isAuthenticated) RedPrimary.copy(alpha = 0.85f)
@@ -1672,7 +1966,7 @@ private fun ExamSessionCard(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = if (!isOpen) "ĐỢT THI CHƯA MỞ"
+                        text = if (!isAvailable) "ĐỢT THI CHƯA MỞ"
                                else if (!isAuthenticated) "ĐĂNG NHẬP ĐỂ VÀO THI"
                                else if (attempts.isNotEmpty()) {
                                    if (remainingAttempts > 0) "THI TIẾP (CÒN $remainingAttempts LƯỢT)"

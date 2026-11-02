@@ -295,23 +295,6 @@ fun CaNhanScreen(
                                 color = MaterialTheme.colorScheme.onSurface
                             )
 
-                            // Cấp bậc
-                            if (!userDoc?.rank.isNullOrEmpty()) {
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = GoldPrimary.copy(alpha = 0.2f)
-                                ) {
-                                    Text(
-                                        text = userDoc?.rank ?: "",
-                                        fontSize = 12.sp,
-                                        color = Color(0xFFB45309),
-                                        fontWeight = FontWeight.SemiBold,
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                                    )
-                                }
-                            }
-
                             Spacer(modifier = Modifier.height(6.dp))
 
                             Text(

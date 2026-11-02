@@ -946,8 +946,8 @@ data class ExamSessionDoc(
     val totalQuestions: Int = 20,
     val questionIds: List<String> = emptyList(),
     val questionsList: List<QuestionItem> = emptyList(),
-    val startTime: Long = System.currentTimeMillis(),
-    val endTime: Long = System.currentTimeMillis() + 86400000L * 30,
+    val startTime: Long = 0L,
+    val endTime: Long = 0L,
     val createdAt: Long = System.currentTimeMillis(),
     val maxAttempts: Int = 1,
     val targetGroup: List<String> = emptyList(),
@@ -957,6 +957,36 @@ data class ExamSessionDoc(
     val targetUnits: List<String> = emptyList(),
     val bankId: String = ""
 ) {
+    /**
+     * Kiểm tra đợt kiểm tra đã kết thúc thời gian thi hoặc bị đóng hay chưa
+     */
+    fun hasEnded(now: Long = System.currentTimeMillis()): Boolean {
+        val s = status.trim().lowercase()
+        if (s == "closed" || s == "ended" || s == "finished" || s == "dong" || s == "khoa" || s == "da_ket_thuc" || s == "hethan" || s == "hết hạn" || s == "đã kết thúc") {
+            return true
+        }
+        if (endTime > 0L && now > endTime) {
+            return true
+        }
+        return false
+    }
+
+    /**
+     * Kiểm tra đợt kiểm tra chưa đến thời gian mở
+     */
+    fun notStartedYet(now: Long = System.currentTimeMillis()): Boolean {
+        return startTime > 0L && now < startTime
+    }
+
+    /**
+     * Kiểm tra đợt kiểm tra có đang mở và trong thời gian hợp lệ để làm bài hay không
+     */
+    fun isAvailable(now: Long = System.currentTimeMillis()): Boolean {
+        val s = status.trim().lowercase()
+        val isStatusOpen = (s == "open" || s == "active" || s == "dang_dien_ra" || s == "mo")
+        return isStatusOpen && !hasEnded(now) && !notStartedYet(now)
+    }
+
     /**
      * Kiểm tra đợt thi có phù hợp với loại đối tượng của tài khoản người dùng đang đăng nhập hay không
      */
@@ -1392,6 +1422,39 @@ data class ExamSessionDoc(
                 effectiveAudienceRaw
             }
 
+            val rawStartTimeObj = doc.get("startTime")
+                ?: doc.get("start_time")
+                ?: doc.get("thoiGianBatDau")
+                ?: doc.get("thoi_gian_bat_dau")
+                ?: doc.get("batDau")
+                ?: doc.get("thoiGianMo")
+                ?: doc.get("ngayBatDau")
+
+            val rawEndTimeObj = doc.get("endTime")
+                ?: doc.get("end_time")
+                ?: doc.get("thoiGianKetThuc")
+                ?: doc.get("thoi_gian_ket_thuc")
+                ?: doc.get("ketThuc")
+                ?: doc.get("hanChot")
+                ?: doc.get("deadline")
+                ?: doc.get("thoiGianDong")
+                ?: doc.get("expireAt")
+                ?: doc.get("expiredAt")
+                ?: doc.get("thoiGianHetHan")
+                ?: doc.get("ngayKetThuc")
+
+            val parsedStartTime = if (rawStartTimeObj != null) parseTime(rawStartTimeObj) else 0L
+            val parsedEndTime = if (rawEndTimeObj != null) {
+                val t = parseTime(rawEndTimeObj)
+                if (t > 0L && rawEndTimeObj is String && !rawEndTimeObj.contains(":") && !rawEndTimeObj.contains("T")) {
+                    t + (24 * 3600 * 1000L - 1000L) // Hạn chót cuối ngày nếu chỉ có ngày
+                } else {
+                    t
+                }
+            } else {
+                0L
+            }
+
             return ExamSessionDoc(
                 id = doc.id,
                 title = examTitle,
@@ -1402,8 +1465,8 @@ data class ExamSessionDoc(
                 totalQuestions = if (totalQ > 0) totalQ else (if (embeddedQList.isNotEmpty()) embeddedQList.size else 20),
                 questionIds = finalQIds,
                 questionsList = embeddedQList,
-                startTime = parseTime(doc.get("startTime") ?: doc.get("thoiGianBatDau") ?: doc.get("batDau") ?: doc.get("createdAt")),
-                endTime = parseTime(doc.get("endTime") ?: doc.get("thoiGianKetThuc") ?: doc.get("ketThuc") ?: (System.currentTimeMillis() + 86400000L * 30)),
+                startTime = parsedStartTime,
+                endTime = parsedEndTime,
                 createdAt = parseTime(
                     doc.get("createdAt")
                         ?: doc.get("created_at")
