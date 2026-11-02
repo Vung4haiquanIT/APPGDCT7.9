@@ -55,7 +55,7 @@ object AppVersionConfig {
     /**
      * Thông điệp giải thích lý do cần cập nhật bắt buộc
      */
-    const val UPDATE_MESSAGE: String = "Đã có phiên bản mới của ứng dụng với nhiều cải tiến quan trọng, cập nhật giáo án chính trị mới và nâng cao bảo mật hệ thống. Đồng chí bắt buộc phải nâng cấp lên phiên bản mới nhất để tiếp tục sử dụng ứng dụng."
+    const val UPDATE_MESSAGE: String = "Đã có phiên bản mới của ứng dụng với nhiều cải tiến quan trọng, cập nhật chuyên đề chính trị mới và nâng cao bảo mật hệ thống. Đồng chí bắt buộc phải nâng cấp lên phiên bản mới nhất để tiếp tục sử dụng ứng dụng."
 
     /**
      * Tự động đồng bộ cấu hình phiên bản mới lên Firebase Firestore để thông báo đến toàn bộ các máy cũ

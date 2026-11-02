@@ -824,7 +824,7 @@ fun CaNhanScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "Phiên bản: ${BuildConfig.VERSION_NAME} (Build ${BuildConfig.VERSION_CODE})",
+                                text = "Phiên bản: ${BuildConfig.VERSION_NAME}",
                                 fontSize = 13.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
