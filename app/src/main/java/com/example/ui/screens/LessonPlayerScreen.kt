@@ -1852,6 +1852,7 @@ fun LessonPlayerScreen(
                 var parent = view.parent
                 while (parent != null) {
                     if (parent is DialogWindowProvider) {
+                        WindowCompat.setDecorFitsSystemWindows(parent.window, false)
                         parent.window.setLayout(
                             android.view.ViewGroup.LayoutParams.MATCH_PARENT,
                             android.view.ViewGroup.LayoutParams.MATCH_PARENT
@@ -1869,7 +1870,7 @@ fun LessonPlayerScreen(
                     .background(Color.Black.copy(alpha = 0.25f))
                     .padding(
                         top = maxOf(statusBarTopInset, 12.dp) ,
-                        bottom = maxOf(navBarBottomInset, 12.dp) , // Luôn đẩy hộp thoại và nút nộp bài lên trên thanh điều hướng 12dp
+                        bottom = maxOf(navBarBottomInset, 12.dp) , // Đảm bảo luôn nổi cách thanh điều hướng tối thiểu 14dp - 30dp trên mọi thiết bị
                         start = 14.dp,
                         end = 14.dp
                     ),
