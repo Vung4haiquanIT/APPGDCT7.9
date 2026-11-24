@@ -117,7 +117,8 @@ fun KiemTraScreen(
         // 1. Toàn bộ câu hỏi từ ngân hàng đề thi exam_banks
         for ((bId, bQuestions) in examBanks) {
             for (q in bQuestions) {
-                val key = if (q.id.isNotBlank()) q.id else q.question.trim().lowercase()
+                if (!q.isValid) continue
+                val key = if (q.id.isNotBlank()) q.id else q.cleanQuestion.trim().lowercase()
                 if (seen.add(key)) {
                     pool.add(q.copy(bankId = q.bankId.ifBlank { bId }))
                 }
@@ -127,7 +128,8 @@ fun KiemTraScreen(
         // 2. Toàn bộ câu hỏi nhúng trực tiếp trong các đợt kiểm tra
         for (session in examSessions) {
             for (q in session.questionsList) {
-                val key = if (q.id.isNotBlank()) q.id else q.question.trim().lowercase()
+                if (!q.isValid) continue
+                val key = if (q.id.isNotBlank()) q.id else q.cleanQuestion.trim().lowercase()
                 if (seen.add(key)) {
                     pool.add(
                         q.copy(
@@ -141,8 +143,8 @@ fun KiemTraScreen(
             if (session.questionIds.isNotEmpty()) {
                 val idSet = session.questionIds.toSet()
                 for (q in allQuestions) {
-                    if (q.id in idSet) {
-                        val key = if (q.id.isNotBlank()) q.id else q.question.trim().lowercase()
+                    if (q.id in idSet && q.isValid) {
+                        val key = if (q.id.isNotBlank()) q.id else q.cleanQuestion.trim().lowercase()
                         if (seen.add(key)) {
                             pool.add(
                                 q.copy(
@@ -158,8 +160,9 @@ fun KiemTraScreen(
 
         // 4. Câu hỏi có đánh dấu examSessionId hoặc bankId trong allQuestions
         for (q in allQuestions) {
+            if (!q.isValid) continue
             if (q.examSessionId.isNotBlank() || q.bankId.isNotBlank()) {
-                val key = if (q.id.isNotBlank()) q.id else q.question.trim().lowercase()
+                val key = if (q.id.isNotBlank()) q.id else q.cleanQuestion.trim().lowercase()
                 if (seen.add(key)) {
                     pool.add(q)
                 }
@@ -176,9 +179,10 @@ fun KiemTraScreen(
         // 1. Toàn bộ câu hỏi nhúng trực tiếp bên trong các bài học chuyên đề
         for (lesson in lessons) {
             for (q in lesson.questions) {
+                if (!q.isValid) continue
                 // Bỏ qua câu hỏi thuộc ngân hàng đề thi hoặc đợt thi
                 if (q.bankId.isNotBlank() || q.examSessionId.isNotBlank()) continue
-                val key = if (q.id.isNotBlank()) q.id else q.question.trim().lowercase()
+                val key = if (q.id.isNotBlank()) q.id else q.cleanQuestion.trim().lowercase()
                 if (seen.add(key)) {
                     pool.add(
                         q.copy(
@@ -194,10 +198,11 @@ fun KiemTraScreen(
         // 2. Các câu hỏi thuộc bài học chuyên đề từ allQuestions (chỉ lấy câu hỏi gắn với bài học, loại trừ ngân hàng đề)
         val lessonMap = lessons.associateBy { it.id }
         for (q in allQuestions) {
+            if (!q.isValid) continue
             // Loại trừ hoàn toàn câu hỏi thuộc ngân hàng đề thi hoặc đợt thi
             if (q.bankId.isNotBlank() || q.examSessionId.isNotBlank()) continue
             if (q.lessonId.isNotBlank() && lessonMap.containsKey(q.lessonId)) {
-                val key = if (q.id.isNotBlank()) q.id else q.question.trim().lowercase()
+                val key = if (q.id.isNotBlank()) q.id else q.cleanQuestion.trim().lowercase()
                 if (seen.add(key)) {
                     val lessonTitle = lessonMap[q.lessonId]?.title
                     pool.add(
@@ -298,15 +303,17 @@ fun KiemTraScreen(
                         showExamEndedDialog = true
                         return@getQuestionsForBank
                     }
-                    val questionsToUse = if (bankQuestions.isNotEmpty()) {
-                        bankQuestions
-                    } else if (session.questionsList.isNotEmpty()) {
-                        session.questionsList
+                    val validBankQuestions = bankQuestions.filter { it.isValid }
+                    val validSessionEmbedded = session.questionsList.filter { it.isValid }
+                    val questionsToUse = if (validBankQuestions.isNotEmpty()) {
+                        validBankQuestions
+                    } else if (validSessionEmbedded.isNotEmpty()) {
+                        validSessionEmbedded
                     } else if (session.questionIds.isNotEmpty()) {
                         val qSet = session.questionIds.toSet()
-                        allQuestions.filter { it.id in qSet }
+                        allQuestions.filter { it.id in qSet && it.isValid }
                     } else {
-                        allQuestions.filter { it.examSessionId == session.id || it.bankId == session.bankId }
+                        allQuestions.filter { (it.examSessionId == session.id || it.bankId == session.bankId) && it.isValid }
                     }
 
                     if (questionsToUse.isEmpty()) {
@@ -348,13 +355,14 @@ fun KiemTraScreen(
             }
 
             // 2. Trường hợp đợt thi cấu hình câu hỏi nhúng trực tiếp hoặc qua questionIds
-            val sessionQuestions = if (session.questionsList.isNotEmpty()) {
-                session.questionsList
+            val validSessionEmbedded = session.questionsList.filter { it.isValid }
+            val sessionQuestions = if (validSessionEmbedded.isNotEmpty()) {
+                validSessionEmbedded
             } else if (session.questionIds.isNotEmpty()) {
                 val qSet = session.questionIds.toSet()
-                allQuestions.filter { it.id in qSet }
+                allQuestions.filter { it.id in qSet && it.isValid }
             } else {
-                allQuestions.filter { it.examSessionId == session.id }
+                allQuestions.filter { it.examSessionId == session.id && it.isValid }
             }
 
             if (sessionQuestions.isEmpty()) {
@@ -385,7 +393,7 @@ fun KiemTraScreen(
             examTimerSeconds = calculatedTimer
         } else {
             // Luyện tập ngẫu nhiên: lấy từ danh sách câu hỏi từ các đợt kiểm tra và ngân hàng đề
-            val pool = if (examQuestionsPool.isNotEmpty()) examQuestionsPool else reviewQuestionsPool
+            val pool = (if (examQuestionsPool.isNotEmpty()) examQuestionsPool else reviewQuestionsPool).filter { it.isValid }
             if (pool.isEmpty()) {
                 showNoExamQuestionsDialog = true
                 return
@@ -2216,21 +2224,33 @@ private fun ExamTakingView(
         }
     }
 
+    val latestCurrentIndex by rememberUpdatedState(currentIndex)
+
     // Pager cho phép chuyển câu hỏi mượt mà bằng thao tác vuốt sang trái hoặc phải
-    val pagerState = rememberPagerState(initialPage = currentIndex.coerceIn(0, maxOf(0, examQuestions.size - 1)), pageCount = { examQuestions.size })
+    val pagerState = rememberPagerState(
+        initialPage = currentIndex.coerceIn(0, maxOf(0, examQuestions.size - 1)),
+        pageCount = { examQuestions.size }
+    )
 
     // Đồng bộ khi currentIndex thay đổi từ bên ngoài (nút số câu, nút Câu trước / Câu sau)
-    LaunchedEffect(currentIndex) {
-        if (pagerState.currentPage != currentIndex && currentIndex in examQuestions.indices) {
-            pagerState.animateScrollToPage(currentIndex)
+    LaunchedEffect(currentIndex, examQuestions.size) {
+        if (currentIndex in examQuestions.indices && pagerState.currentPage != currentIndex) {
+            if (kotlin.math.abs(pagerState.currentPage - currentIndex) > 2) {
+                pagerState.scrollToPage(currentIndex)
+            } else {
+                pagerState.animateScrollToPage(currentIndex)
+            }
         }
     }
 
-    // Đồng bộ khi người dùng vuốt tay sang trái hoặc phải
-    LaunchedEffect(pagerState.currentPage) {
-        if (pagerState.currentPage != currentIndex) {
-            onJumpToQuestion(pagerState.currentPage)
-        }
+    // Đồng bộ khi người dùng vuốt tay sang trái hoặc phải (chỉ cập nhật khi trang đã dừng hẳn để tránh xung đột khi nhảy nhanh)
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.settledPage }
+            .collect { settledPage ->
+                if (settledPage in examQuestions.indices && settledPage != latestCurrentIndex) {
+                    onJumpToQuestion(settledPage)
+                }
+            }
     }
 
     Column(
@@ -2341,6 +2361,11 @@ private fun ExamTakingView(
         // Question & Options Container: Hỗ trợ vuốt sang trái/phải để chuyển câu hỏi
         HorizontalPager(
             state = pagerState,
+            beyondViewportPageCount = 1,
+            key = { pageIndex ->
+                val q = examQuestions.getOrNull(pageIndex)
+                if (q != null && q.id.isNotBlank()) "${q.id}_$pageIndex" else "question_page_$pageIndex"
+            },
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()

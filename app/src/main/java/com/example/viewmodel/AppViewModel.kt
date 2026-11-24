@@ -1046,10 +1046,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun mergeQuestions(incoming: List<QuestionItem>) {
-        if (incoming.isEmpty()) return
-        val current = _questions.value.associateBy { if (it.id.isNotBlank()) it.id else it.question }.toMutableMap()
-        incoming.forEach { q ->
-            val key = if (q.id.isNotBlank()) q.id else q.question
+        val validIncoming = incoming.filter { it.isValid }
+        if (validIncoming.isEmpty()) return
+        val current = _questions.value
+            .filter { it.isValid }
+            .associateBy { if (it.id.isNotBlank()) it.id else it.cleanQuestion.trim().lowercase() }
+            .toMutableMap()
+        validIncoming.forEach { q ->
+            val key = if (q.id.isNotBlank()) q.id else q.cleanQuestion.trim().lowercase()
             current[key] = q
         }
         _questions.value = current.values.toList()
@@ -2832,43 +2836,49 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun extractQuestionsFromBankDoc(doc: DocumentSnapshot): List<QuestionItem> {
         val bankId = doc.id
         val list = mutableListOf<QuestionItem>()
+        val seenKeys = mutableSetOf<String>()
+
+        fun addIfValid(q: QuestionItem?) {
+            if (q == null || !q.isValid) return
+            val key = q.id.ifBlank { q.cleanQuestion.trim().lowercase() }
+            if (seenKeys.add(key)) {
+                list.add(q)
+            }
+        }
 
         // 1. Kiểm tra cấu trúc lưu câu hỏi trực tiếp dưới dạng các field "0", "1", "2", "3"... trong doc (như Firebase thực tế)
         val docData = doc.data ?: emptyMap<String, Any>()
-        for ((key, value) in docData) {
+        val sortedTopEntries = docData.entries.sortedWith(
+            compareBy<Map.Entry<String, Any>> { it.key.trim().toIntOrNull() ?: Int.MAX_VALUE }
+                .thenBy { it.key }
+        )
+        for ((key, value) in sortedTopEntries) {
             if (value is Map<*, *>) {
-                val hasQuestionOrOptions = value.containsKey("question") || 
-                    value.containsKey("options") || 
-                    value.containsKey("cauHoi") || 
-                    value.containsKey("dapAn") ||
-                    value.containsKey("correctOptionIndex") ||
-                    value.containsKey("correctAnswerText")
-                if (hasQuestionOrOptions) {
-                    val qId = (value["id"] ?: "${bankId}_$key").toString()
-                    QuestionItem.parseFromMap(
-                        map = value,
-                        docId = qId,
-                        defaultBankId = bankId
-                    )?.let { list.add(it) }
-                }
+                val rawId = (value["id"] ?: value["_id"] ?: value["questionId"])?.toString()?.trim()
+                val qId = if (!rawId.isNullOrBlank() && !rawId.equals("null", ignoreCase = true)) rawId else "${bankId}_$key"
+                QuestionItem.parseFromMap(
+                    map = value,
+                    docId = qId,
+                    defaultBankId = bankId
+                )?.let { addIfValid(it) }
             }
         }
 
         // 2. Kiểm tra nếu câu hỏi nằm trong mảng hoặc map questions, dsCauHoi, cauHoiList...
-        val rawQuestions = doc.get("questions") 
-            ?: doc.get("dsCauHoi") 
-            ?: doc.get("cauHoiList") 
-            ?: doc.get("questionsList") 
-            ?: doc.get("cau_hoi_list")
-            ?: doc.get("danhSachCauHoi")
-            ?: doc.get("danh_sach_cau_hoi")
-            ?: doc.get("bankQuestions")
-            ?: doc.get("bank_questions")
-            ?: doc.get("quiz")
-            ?: doc.get("items") 
-            ?: doc.get("listCauHoi") 
-            ?: doc.get("cauHoi")
-            ?: doc.get("cau_hoi")
+        val questionContainerKeys = listOf(
+            "questions", "dsCauHoi", "cauHoiList", "questionsList",
+            "cau_hoi_list", "danhSachCauHoi", "danh_sach_cau_hoi",
+            "bankQuestions", "bank_questions", "quiz", "items",
+            "listCauHoi", "cauHoi", "cau_hoi"
+        )
+        val rawQuestions = questionContainerKeys.firstNotNullOfOrNull { k ->
+            val v = doc.get(k)
+            when (v) {
+                is List<*> -> if (v.isNotEmpty()) v else null
+                is Map<*, *> -> if (v.isNotEmpty()) v else null
+                else -> null
+            }
+        }
 
         if (rawQuestions is List<*>) {
             rawQuestions.forEachIndexed { idx, item ->
@@ -2877,30 +2887,34 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         map = item,
                         docId = "${bankId}_$idx",
                         defaultBankId = bankId
-                    )?.let { q ->
-                        if (list.none { it.id == q.id }) list.add(q)
-                    }
+                    )?.let { addIfValid(it) }
                 }
             }
         } else if (rawQuestions is Map<*, *>) {
-            rawQuestions.values.forEachIndexed { idx, item ->
+            val sortedEntries = rawQuestions.entries.sortedWith(
+                compareBy<Map.Entry<*, *>> { it.key?.toString()?.trim()?.toIntOrNull() ?: Int.MAX_VALUE }
+                    .thenBy { it.key?.toString() ?: "" }
+            )
+            sortedEntries.forEachIndexed { idx, entry ->
+                val item = entry.value
                 if (item is Map<*, *>) {
+                    val kStr = entry.key?.toString()?.ifBlank { idx.toString() } ?: idx.toString()
                     QuestionItem.parseFromMap(
                         map = item,
-                        docId = "${bankId}_$idx",
+                        docId = "${bankId}_$kStr",
                         defaultBankId = bankId
-                    )?.let { q ->
-                        if (list.none { it.id == q.id }) list.add(q)
-                    }
+                    )?.let { addIfValid(it) }
                 }
             }
         }
 
-        // 3. Nếu bản thân doc này là một câu hỏi độc lập trong exam_banks
-        val qText = doc.getString("question") ?: doc.getString("cauHoi") ?: doc.getString("cau_hoi") ?: doc.getString("content") ?: doc.getString("noiDung") ?: doc.getString("noi_dung") ?: doc.getString("title") ?: ""
-        if (qText.isNotBlank() && list.none { it.id == doc.id }) {
-            val q = QuestionItem.fromDoc(doc).copy(bankId = (doc.getString("bankId") ?: doc.getString("bank_id") ?: bankId))
-            list.add(q)
+        // 3. Chỉ parse bản thân doc như một câu hỏi độc lập nếu doc KHÔNG phải container chứa danh sách câu hỏi
+        // và bản thân doc có đầy đủ nội dung câu hỏi + ít nhất 2 đáp án hợp lệ
+        if (list.isEmpty()) {
+            QuestionItem.fromDoc(doc)?.let { parsed ->
+                val resolvedBankId = (doc.getString("bankId") ?: doc.getString("bank_id") ?: bankId).ifBlank { bankId }
+                addIfValid(parsed.copy(bankId = resolvedBankId))
+            }
         }
 
         // Sắp xếp câu hỏi theo số thứ tự (stt) hoặc thứ tự nhập
@@ -2911,25 +2925,32 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun processExamBanksSnapshot(docs: List<DocumentSnapshot>) {
-        val newMap = _examBanks.value.toMutableMap()
-        val allExtracted = mutableListOf<QuestionItem>()
+        val freshMap = mutableMapOf<String, MutableList<QuestionItem>>()
+        val freshSeenByBank = mutableMapOf<String, MutableSet<String>>()
         for (doc in docs) {
-            val questions = extractQuestionsFromBankDoc(doc)
+            val questions = extractQuestionsFromBankDoc(doc).filter { it.isValid }
             val bId = (doc.getString("bankId") ?: doc.getString("bank_id") ?: doc.id).trim()
-            if (questions.isNotEmpty()) {
-                allExtracted.addAll(questions)
-                val existing = newMap[bId]?.toMutableList() ?: mutableListOf()
-                val seenIds = existing.map { it.id }.toMutableSet()
+            if (questions.isNotEmpty() && bId.isNotBlank()) {
+                val bucket = freshMap.getOrPut(bId) { mutableListOf() }
+                val seenIds = freshSeenByBank.getOrPut(bId) { mutableSetOf() }
                 for (q in questions) {
-                    if (seenIds.add(q.id)) {
-                        existing.add(q)
+                    val key = q.id.ifBlank { q.cleanQuestion.trim().lowercase() }
+                    if (seenIds.add(key)) {
+                        bucket.add(q)
                     }
                 }
-                newMap[bId] = existing
             }
         }
-        _examBanks.value = newMap
-        Log.i(TAG, "[EXAM_BANKS] Synced: ${newMap.size} banks, total questions: ${newMap.values.sumOf { it.size }}")
+        // Giữ lại các ngân hàng đã tải từ subcollection nếu doc cha không chứa câu hỏi trực tiếp, đồng thời cập nhật mới các ngân hàng trong snapshot
+        val mergedMap = _examBanks.value
+            .mapValues { (_, list) -> list.filter { it.isValid } }
+            .filterValues { it.isNotEmpty() }
+            .toMutableMap()
+        freshMap.forEach { (bId, qList) ->
+            mergedMap[bId] = qList
+        }
+        _examBanks.value = mergedMap
+        Log.i(TAG, "[EXAM_BANKS] Synced: ${mergedMap.size} banks, total questions: ${mergedMap.values.sumOf { it.size }}")
     }
 
     /**
@@ -2942,7 +2963,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             onComplete(emptyList())
             return
         }
-        val cached = _examBanks.value[bId]
+        val cached = _examBanks.value[bId]?.filter { it.isValid }
         if (!cached.isNullOrEmpty()) {
             onComplete(cached)
             return
@@ -2955,7 +2976,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
                 fun addIfNew(items: List<QuestionItem>) {
                     for (item in items) {
-                        val key = if (item.id.isNotBlank()) item.id else item.question.trim().lowercase()
+                        if (!item.isValid) continue
+                        val key = if (item.id.isNotBlank()) item.id else item.cleanQuestion.trim().lowercase()
                         if (seenIds.add(key)) {
                             found.add(item)
                         }
@@ -2990,8 +3012,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         try {
                             val subSnap = db?.collection("exam_banks")?.document(bId)?.collection(subColl)?.get()?.await()
                             if (subSnap != null && !subSnap.isEmpty) {
-                                val list = subSnap.documents.mapNotNull { 
-                                    try { QuestionItem.fromDoc(it).copy(bankId = bId) } catch (_: Exception) { null }
+                                val list = subSnap.documents.mapNotNull {
+                                    try { QuestionItem.fromDoc(it)?.copy(bankId = bId) } catch (_: Exception) { null }
                                 }
                                 addIfNew(list)
                             }
@@ -3007,8 +3029,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         try {
                             val querySnap = db?.collection("exam_banks")?.whereEqualTo(fieldName, bId)?.get()?.await()
                             if (querySnap != null && !querySnap.isEmpty) {
-                                val list = querySnap.documents.mapNotNull { 
-                                    try { QuestionItem.fromDoc(it).copy(bankId = bId) } catch (_: Exception) { null }
+                                val list = querySnap.documents.flatMap { doc ->
+                                    try {
+                                        extractQuestionsFromBankDoc(doc).map { q -> q.copy(bankId = bId) }
+                                    } catch (_: Exception) {
+                                        emptyList()
+                                    }
                                 }
                                 addIfNew(list)
                             }
@@ -3020,7 +3046,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
                 // 5. Thử tìm trong allQuestions đã sync xem có câu hỏi nào khớp bankId không
                 if (found.isEmpty()) {
-                    val fromAll = _questions.value.filter { it.bankId == bId || it.examSessionId == bId }
+                    val fromAll = _questions.value.filter { (it.bankId == bId || it.examSessionId == bId) && it.isValid }
                     addIfNew(fromAll)
                 }
 

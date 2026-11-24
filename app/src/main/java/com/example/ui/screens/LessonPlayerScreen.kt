@@ -197,7 +197,9 @@ fun LessonPlayerScreen(
                 (lesson.title.isNotBlank() && q.lessonId.equals(lesson.title, ignoreCase = true))
             )
         }
-        (fromLesson + fromAllQuestions).distinctBy { it.id.ifBlank { it.question } }
+        (fromLesson + fromAllQuestions)
+            .filter { it.isValid }
+            .distinctBy { it.id.ifBlank { it.cleanQuestion.trim().lowercase() } }
     }
 
     // Seed để chọn ngẫu nhiên 1 câu hỏi từ bộ đề thi và xáo trộn các đáp án ngẫu nhiên
